@@ -1,0 +1,43 @@
+{
+  "id": "drill",
+  "version": 1,
+  "name": "Drill",
+  "genre": {
+    "tempoHint": [138, 150],
+    "doubleTimeHint": false,
+    "subDominance": 0.85,
+    "onsetDensity": 0.70,
+    "continuousRegimePreference": false
+  },
+  "style": "field",
+  "mapping": {
+    "impact": { "from": ["KICK"], "gain": 1.0, "decay": 0.08 },
+    "subImpact": { "from": ["SUB_HIT"], "gain": 0.9, "decay": 0.08 },
+    "accent": { "from": ["SNARE", "CLAP"], "gain": 0.85, "decay": 0.08 },
+    "tick": { "from": ["HAT", "PERC"], "gain": 0.4, "decay": 0.04 },
+    "sectionShift": { "from": ["SECTION"], "gain": 0.4, "decay": 0.6 }
+  },
+  "classification": {
+    "kick": { "bassRatio": 0.64, "maxDecay30": 0.18 }
+  },
+  "palette": {
+    "bg": ["#04080C", "#0A1420"],
+    "primary": "#3E6E8E",
+    "secondary": "#16232E",
+    "accent": "#EAF4FF",
+    "glow": "#6FA8C7",
+    "contrast": 0.80,
+    "drift": { "lowEnergy": "#1B2E3D", "highEnergy": "#EAF4FF" }
+  },
+  "macros": {
+    "energy": 0.70,
+    "reactivity": 0.90,
+    "density": 0.60,
+    "movement": 0.60,
+    "depth": 0.60,
+    "glow": 0.40,
+    "chaos": 0.50,
+    "smoothness": 0.25
+  },
+  "safety": { "reducedFlashing": false }
+}

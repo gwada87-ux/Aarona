@@ -72,6 +72,14 @@ Les points 2 et 5 sont ce qui fait qu'un preset Drill *sonne* Drill visuellement
 Format **JSON pur, versionné, validé par schéma**. Un preset n'exécute jamais de code : c'est ce qui
 permettra d'en partager sans risque de sécurité.
 
+**Implémenté à l'Étape 13/P11** (`src/presets/schema.ts`, `validatePreset()`) : forme JSON fidèle à
+cet exemple, avec deux écarts. (1) `classification.kick.maxDecay` de cet exemple est en réalité
+`maxDecay30` dans `analysis/classify.ts` (`ClassificationThresholds`) — corrigé dans les 5 presets
+livrés, l'exemple ci-dessus garde la coquille d'origine. (2) `genre` porte 3 champs supplémentaires
+non montrés ici (`subDominance`, `onsetDensity`, `continuousRegimePreference`) — nécessaires à
+`suggest.ts` (voir plus bas, §"Adaptation automatique") pour les étapes 2 à 4 de la suggestion
+automatique, absents de cet unique exemple JSON du document.
+
 ---
 
 ## Les 5 presets du MVP
@@ -117,6 +125,19 @@ Le kick devient secondaire. Mouvements lents, larges, `smoothness` à 0,85. Pale
 doré. C'est la démonstration la plus visible de la valeur du câblage par données : même moteur,
 même style, caractère radicalement différent.
 
+**Implémenté à l'Étape 13/P11** (`src/presets/genres/*.json`) : les 5 presets ci-dessus, au format
+de la §"Structure". Seul Trap Dark reprend des valeurs numériques données par ce document (l'unique
+exemple JSON complet) ; les 4 autres traduisent la prose ci-dessus en valeurs concrètes — hex de
+palette, `mapping`, seuils de classification, `genre.tempoHint` — qui SONT DES CHOIX, pas des
+données du corpus (aucun corpus n'existe encore, voir docs/JOURNAL.md Étape 13/P11). Notamment :
+`R&B.genre.tempoHint` (`[60,95]`) est entièrement auto-choisi — R&B n'apparaît pas dans la table de
+plages de tempo de docs/05 §1 (Trap/Drill/House/Lofi/Boom Bap/Afrobeat/Jersey seulement).
+`House.genre.doubleTimeHint = true` : docs/05 §1 cite explicitement l'ambiguïté 128↔64 pour la
+House dans son exemple ×2/÷2, alors que la présente section ne le mentionne pas — retenu par
+cohérence avec docs/05. `layers` (particules, grille, postfx) n'est renseigné QUE pour Trap Dark
+(seul cas aux valeurs documentées) : voir §"Les 8 macro-contrôles" ci-dessous pour la raison de ne
+pas avoir inventé les 4 autres.
+
 ---
 
 ## Presets V2
@@ -160,6 +181,24 @@ Chaque macro est une courbe déclarée par le style :
 Un même curseur produit donc un effet différent selon le style — ce qui est exactement le
 comportement attendu par un utilisateur créatif.
 
+**Implémenté à l'Étape 13/P11** (`src/presets/macros.ts`, `applyMacroCurves()`) : interpolation
+`at0 → at1` avec courbe optionnelle (`linear` par défaut, `easeInQuad` déjà attestée ailleurs dans
+le code, `easeOut` nommée par l'exemple ci-dessus mais sans formule donnée — ease quadratique
+standard retenue, symétrique de `easeInQuad`).
+
+**Limite assumée — seules `energy` et `reactivity` ont un effet câblé aujourd'hui**, sur les gains
+et décroissances/lissages de `behaviour/mapping` (réellement consommés par `BehaviourEngine`). Les 6
+autres macros (densité, mouvement, profondeur, glow, chaos, douceur) ciblent, par leur propre
+description dans le tableau ci-dessus, des paramètres de **couches visuelles** (`layers.*`, bloom,
+dispersion de bruit) — et AUCUNE couche du MVP (`ParticleField`, `PerspectiveGrid`, `FrameFeedback`,
+`ScreenShake`, `SpectrumBars`, livrées en P7/P9) n'accepte de paramètres de construction : chacune
+fixe ses constantes en interne. Câbler ces 6 macros sur des chemins qu'aucun code ne lit aurait
+prétendu un effet qui n'existe pas. Leur valeur brute (0..1) reste disponible dans
+`ResolvedPreset.macros` pour quand les couches deviendront configurables — hors périmètre de cette
+étape (voir docs/JOURNAL.md, Étape 13/P11). Aussi non implémenté : « chaque style déclare ses
+propres courbes » — une seule table `WIRED_MACRO_CURVES`, partagée par les 3 styles, faute de
+valeurs distinctes données par style ailleurs que dans l'exemple `reactivity` ci-dessus.
+
 ---
 
 ## Deux niveaux d'interface (et non trois)
@@ -191,6 +230,15 @@ projet reste minuscule, et une amélioration d'un preset livrée en mise à jour
 automatiquement aux projets existants. Stocker une copie complète figerait chaque projet dans la
 version du preset au jour de sa création.
 
+**Implémenté à l'Étape 13/P11** (`src/presets/resolve.ts`, `resolvePreset()`) : les 4 étapes du
+pipeline, dans l'ordre. « Surcharges de style » est un NO-OP aujourd'hui — un seul jeu de valeurs
+par défaut existe (`defaultMapping`, `DEFAULT_CLASSIFICATION_THRESHOLDS`), pas un jeu distinct par
+style, donc rien à surcharger à cette étape précise (voir aussi la limite sur `macroCurves`
+ci-dessus, même cause). Les « surcharges utilisateur » ne couvrent pour l'instant que `mapping`
+(`userMappingOverrides`, même forme de diff que `Preset.mapping`) : aucune UI n'existe encore pour
+éditer une palette ou des macros (P12, « éditeur JSON du preset »), donc rien ne produirait un tel
+diff aujourd'hui — étendre `resolvePreset` à d'autres diffs attendra un vrai consommateur.
+
 ---
 
 ## Adaptation automatique au morceau
@@ -211,3 +259,14 @@ Au chargement, avant même que l'utilisateur ne choisisse, le produit propose un
 Ce n'est pas de la classification de genre — le produit ne prétendra pas reconnaître de l'Afrobeat.
 C'est un **bon point de départ**, et cela suffit à supprimer la principale friction de premier usage :
 ne pas savoir par où commencer.
+
+**Implémenté à l'Étape 13/P11** (`src/presets/suggest.ts`, `suggestPreset()`) : les 4 étapes.
+L'étape 4 (confiance de grille basse) est un FILTRE dur sur le catalogue candidat (« propose
+d'office » = impose la famille, pas juste une préférence) plutôt qu'une simple pondération ; les
+étapes 1 à 3 (tempo, profil spectral, densité) sont ensuite combinées à **poids égaux** — ce
+document ne chiffre pas de pondération pour elles, contrairement à l'arbitrage ×2/÷2 du tempo
+(docs/05 §1, poids 0,5/0,3/0,2 explicites) : poids égaux retenus faute d'autre donnée, pas une
+valeur du corpus. Le critère d'acceptation « la suggestion tombe juste sur 7 morceaux sur 10 »
+(docs/14, P11) reste **bloqué** — même blocage que la F-mesure de classification/structure depuis
+l'Étape 2 : Aaron n'a pas encore fourni de corpus annoté. Vérifié uniquement sur des documents PMDI
+synthétiques (`tests/unit/presetSuggest.test.ts`).

@@ -4,12 +4,14 @@ import { validatePmdi } from './music/validatePmdi';
 import type { MusicEvent, PmdiDocument } from './music/pmdi';
 import { BehaviourEngine } from './behaviour/BehaviourEngine';
 import { defaultMapping } from './behaviour/mapping/defaults';
+import type { MappingSchema } from './behaviour/mapping/MappingSchema';
 import { createPulseStyle } from './visual/styles/pulse/createPulseStyle';
 import { createFieldStyle } from './visual/styles/field/createFieldStyle';
 import { createSpectrumProStyle } from './visual/styles/spectrum-pro/createSpectrumProStyle';
 import type { Scene } from './visual/scene/Scene';
-import { defaultPalette } from './visual/palette/Palette';
+import { defaultPalette, type Palette } from './visual/palette/Palette';
 import { FlashLimiter } from './visual/safety/FlashLimiter';
+import { PRESET_CATALOG, resolvePreset } from './presets/index';
 import { Canvas2DRenderer } from './render/canvas2d/Canvas2DRenderer';
 import { createViewport } from './render/Viewport';
 import { FixedStep, FIXED_DT } from './core/time/FixedStep';
@@ -22,8 +24,14 @@ import { runRealtimeCapture } from './export/encoders/MediaRecorderFallback';
 import { BITRATE_BPS } from './export/formats';
 
 /**
- * Harnais de développement P9 — vérification manuelle des trois styles
- * (`Pulse` P7, `Field`/`Spectrum Pro` P9 — docs/07_VISUAL_ENGINE.md).
+ * Harnais de développement P9/P11 — vérification manuelle des trois styles
+ * (`Pulse` P7, `Field`/`Spectrum Pro` P9 — docs/07_VISUAL_ENGINE.md) et,
+ * depuis l'Étape 13/P11, du sélecteur de preset (docs/08_PRESETS.md) :
+ * choisir un preset résout mapping/palette/style/`safety.reducedFlashing` en
+ * direct (`resolvePreset`) et reconstruit `BehaviourEngine`/`Scene` en
+ * conséquence — seules les parties RÉELLEMENT consommées d'un preset
+ * aujourd'hui (voir docs/JOURNAL.md, Étape 13/P11, "Limites connues" : les
+ * champs `layers.*` et 6 des 8 macros n'ont encore aucun consommateur).
  * Piloté par une timeline SYNTHÉTIQUE (clic 120 BPM écrit à la main) plutôt
  * que par un fichier audio réel : l'analyse (P4) et le rendu visuel sont
  * déjà tous deux vérifiés séparément, l'intégration bout en bout
@@ -101,7 +109,10 @@ if (!validation.ok) throw new Error(`Timeline synthétique invalide : ${JSON.str
 
 const timeline = buildMusicTimeline(doc);
 const stepper = new StepContextBuilder(timeline, 1);
-const behaviourEngine = new BehaviourEngine(timeline, defaultMapping);
+
+let currentMapping: MappingSchema = defaultMapping;
+let currentPalette: Palette = defaultPalette;
+let behaviourEngine = new BehaviourEngine(timeline, currentMapping);
 
 const STYLE_FACTORIES: Record<string, () => Scene> = {
   pulse: createPulseStyle,
@@ -113,14 +124,54 @@ let scene: Scene = createPulseStyle();
 const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
 const renderer = new Canvas2DRenderer(canvas);
 const flashLimiter = new FlashLimiter(canvas);
-scene.init({ renderer, palette: defaultPalette });
+scene.init({ renderer, palette: currentPalette });
 
 const styleSelect = document.querySelector<HTMLSelectElement>('#style-select')!;
 styleSelect.addEventListener('change', () => {
   const factory = STYLE_FACTORIES[styleSelect.value];
   if (!factory) return;
   scene = factory();
-  scene.init({ renderer, palette: defaultPalette });
+  scene.init({ renderer, palette: currentPalette });
+  scene.reset(t);
+});
+
+/**
+ * Sélecteur de preset (docs/08_PRESETS.md, Étape 13/P11) : résout le preset
+ * choisi (`resolvePreset`) et reconstruit mapping/palette/style/`FlashLimiter`
+ * en conséquence. "Aucun" revient aux valeurs par défaut (P7/P9) telles quelles.
+ */
+const presetSelect = document.querySelector<HTMLSelectElement>('#preset-select')!;
+const presetInfo = document.querySelector<HTMLElement>('#preset-info')!;
+for (const preset of PRESET_CATALOG) {
+  const option = document.createElement('option');
+  option.value = preset.id;
+  option.textContent = `${preset.name} (${preset.style})`;
+  presetSelect.appendChild(option);
+}
+
+presetSelect.addEventListener('change', () => {
+  const preset = PRESET_CATALOG.find((p) => p.id === presetSelect.value);
+  if (!preset) {
+    currentMapping = defaultMapping;
+    currentPalette = defaultPalette;
+    flashLimiter.setReducedFlashing(false);
+    reducedFlashingCheckbox.checked = false;
+    presetInfo.textContent = '';
+  } else {
+    const resolved = resolvePreset(preset);
+    currentMapping = resolved.mapping;
+    currentPalette = resolved.palette;
+    flashLimiter.setReducedFlashing(resolved.safety.reducedFlashing);
+    reducedFlashingCheckbox.checked = resolved.safety.reducedFlashing;
+    styleSelect.value = resolved.styleId;
+    const factory = STYLE_FACTORIES[resolved.styleId];
+    if (factory) scene = factory();
+    presetInfo.textContent =
+      `${preset.name} — style ${resolved.styleId}, tempo ${preset.genre.tempoHint[0]}-${preset.genre.tempoHint[1]} BPM, ` +
+      `macros énergie=${preset.macros.energy.toFixed(2)} réactivité=${preset.macros.reactivity.toFixed(2)}`;
+  }
+  behaviourEngine = new BehaviourEngine(timeline, currentMapping);
+  scene.init({ renderer, palette: currentPalette });
   scene.reset(t);
 });
 
@@ -197,7 +248,7 @@ function loop(nowMs: number): void {
   }
 
   renderer.beginFrame(viewport);
-  renderer.clear(defaultPalette.bg[1]);
+  renderer.clear(currentPalette.bg[1]);
   scene.draw(renderer, viewport);
   renderer.endFrame();
 
@@ -285,9 +336,9 @@ async function runExportFromUi(): Promise<void> {
         {
           timeline: exportTimeline,
           projectSeed: 1,
-          mapping: defaultMapping,
+          mapping: currentMapping,
           createScene: STYLE_FACTORIES[styleSelect.value] ?? createPulseStyle,
-          palette: defaultPalette,
+          palette: currentPalette,
           fps,
           durationSec,
           audioBuffer,

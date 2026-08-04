@@ -1,0 +1,37 @@
+{
+  "id": "house",
+  "version": 1,
+  "name": "House",
+  "genre": {
+    "tempoHint": [118, 130],
+    "doubleTimeHint": true,
+    "subDominance": 0.5,
+    "onsetDensity": 0.50,
+    "continuousRegimePreference": false
+  },
+  "style": "pulse",
+  "mapping": {
+    "brightness": { "from": "feature:centroid", "rise": 0.15, "fall": 0.30 },
+    "tension": { "from": "anticipate:DROP", "window": 6.0, "curve": "easeInQuad" }
+  },
+  "palette": {
+    "bg": ["#0A0602", "#120B04"],
+    "primary": "#FF8C3C",
+    "secondary": "#402410",
+    "accent": "#3CE7FF",
+    "glow": "#FFB366",
+    "contrast": 0.80,
+    "drift": { "lowEnergy": "#402410", "highEnergy": "#3CE7FF" }
+  },
+  "macros": {
+    "energy": 0.70,
+    "reactivity": 0.50,
+    "density": 0.50,
+    "movement": 0.65,
+    "depth": 0.50,
+    "glow": 0.75,
+    "chaos": 0.15,
+    "smoothness": 0.60
+  },
+  "safety": { "reducedFlashing": false }
+}

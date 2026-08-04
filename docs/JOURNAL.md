@@ -573,3 +573,74 @@ Bloque la suite : le corpus annoté (Aaron) reste le seul bloqueur pour valider 
 la classification et la structure — inchangé depuis l'Étape 2. Prochaine étape (00a) : Étape 13
 (P11, presets et calibration par genre), qui pourra enfin exercer le paramètre de seuils déjà en
 place dans `classify.ts`.
+
+## Étape 13 — P11 : presets par genre et macro-contrôles
+
+Fait et vérifié : `presets/schema.ts` — types du format JSON de docs/08 (`Preset`, `PresetMapping`
+restreint aux 9 signaux réellement lus par `BehaviourEngine`, `ClassificationOverrides`,
+`PresetPaletteConfig`, 8 `MACRO_NAMES`, `PresetLayers` en passage brut) + `validatePreset()`
+(structurel, jamais de throw, même idiome que `validatePmdi.ts`). `presets/palette.ts` —
+`buildPalette()`, généralise la construction de `defaultPalette` (P7) à une config quelconque.
+`presets/macros.ts` — `applyMacroCurves()`, interpolation `at0→at1` avec courbe (`linear`/
+`easeInQuad`/`easeOut`). `presets/resolve.ts` — `resolvePreset()`, pipeline complet de docs/08
+(base → macros → diff utilisateur → gel), fonction pure. `presets/suggest.ts` — `suggestPreset()`,
+les 4 étapes de docs/08 §"Adaptation automatique" (filtre dur à l'étape 4, score à poids égaux aux
+étapes 1-3). 5 presets JSON (`presets/genres/*.json` : trap-dark, drill, house, lofi, rnb) + barrel
+`presets/index.ts` (`PRESET_CATALOG`, validé au chargement). `tests/unit/architecture.test.ts`
+étendu : couche `presets` autorisée à importer `core`/`music`/`behaviour`/`analysis`(type)/`visual`.
+Sélecteur de preset câblé dans le harnais dev (`main.ts`/`index.html`) : reconstruit mapping/
+palette/style/`FlashLimiter.reducedFlashing` en direct via `resolvePreset()`. 39 nouveaux tests
+(`presetMacros` 7, `presetResolve` 9, `presetSuggest` 9, `presetCatalog` 14, contre 47 fichiers/
+240 tests avant — total **51 fichiers/279 tests**). `npx tsc --noEmit` : 0 erreur. `npx vitest run` :
+**279/279** verts. `npm run test:arch` : 1/1. `npm run build` : succès, 129 modules, 257,21 ko
+(gzip 67,98 ko).
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) **Seules `energy` et `reactivity` ont un effet câblé parmi les 8 macros.** Les 6 autres
+(densité, mouvement, profondeur, glow, chaos, douceur) ciblent, par leur propre description dans
+docs/08, des paramètres de couches visuelles (`layers.*`, bloom, dispersion de bruit) qu'aucune
+couche du MVP (P7/P9 : `ParticleField`, `PerspectiveGrid`, `FrameFeedback`, `ScreenShake`,
+`SpectrumBars`) n'accepte en entrée — toutes fixent leurs constantes en interne. Les câbler sur des
+chemins qu'aucun code ne lit aurait affiché une confiance que le système n'a pas ; leur valeur brute
+reste néanmoins dans `ResolvedPreset.macros` pour un futur consommateur. Conséquence directe :
+le critère d'acceptation de docs/14 « chaque macro a un effet perceptible sur toute sa course »
+n'est honnêtement rempli que pour 2 des 8 macros à ce stade. (2) `layers` (particules, grille,
+postfx) n'est renseigné QUE pour Trap Dark dans les 5 JSON — seul cas aux valeurs documentées ; les
+4 autres presets omettent ce champ optionnel plutôt que d'inventer des nombres qu'aucun consommateur
+ne lira de toute façon. (3) « Surcharges de style » (étape 2 du pipeline de résolution, docs/08)
+est un no-op : un seul jeu de valeurs par défaut existe aujourd'hui (`defaultMapping`,
+`DEFAULT_CLASSIFICATION_THRESHOLDS`), pas un jeu par style — même cause que (1)/`macroCurves`
+partagées entre les 3 styles. (4) `suggestPreset()` pondère tempo/profil/densité à parts égales :
+docs/08 ne chiffre pas ces poids (contrairement à l'arbitrage ×2/÷2 du tempo, docs/05 §1, poids
+explicites 0,5/0,3/0,2) — poids égaux retenus faute d'autre donnée. (5) `genre.subDominance`/
+`onsetDensity` sont des échelles CONTINUES (0..1) plutôt que des catégories binaires : docs/08 ne
+classe explicitement que Trap/Drill (grave) contre Lofi/R&B (médium) pour le profil spectral,
+laissant House dans un entre-deux non spécifié — une valeur intermédiaire (0,5) l'exprime
+honnêtement plutôt que de trancher un cas que la documentation ne tranche pas. (6) Correction de
+coquille : `classification.kick.maxDecay` de l'exemple JSON de docs/08 est en réalité `maxDecay30`
+dans `analysis/classify.ts` — utilisé tel quel (le vrai nom) dans les 5 presets livrés.
+
+Fait mais non vérifié : **vérification navigateur bloquée par l'environnement**, pas par le code —
+le sélecteur de preset est câblé et compile, mais ni le panneau Claude_Browser (navigation `http://`
+systématiquement refusée cette session, pane non composité — symptôme déjà rencontré et documenté
+en mémoire, indépendant de ce projet) ni l'extension Chrome connectée (« This site is blocked by
+your site permissions », réglage local d'Aaron) n'ont permis de charger le harnais. Tests à faire
+par Aaron à l'œil dès que l'un des deux canaux est disponible : ouvrir le harnais dev, choisir
+« Trap Dark » puis « R&B » dans le nouveau sélecteur de preset et confirmer (a) le style change
+(Field → Pulse), (b) la palette change visiblement (violet/magenta → bordeaux/or), (c) au clic sur
+un temps fort, l'impact visuel change de nature (R&B doit réagir aux caisses claires/claps, pas au
+kick) — la preuve la plus directe que le recâblage `mapping` fonctionne réellement. Le critère
+d'acceptation « la suggestion tombe juste sur 7/10 » (docs/14) reste bloqué par le corpus annoté,
+inchangé depuis l'Étape 2.
+Limites connues : voir décisions (1)-(3) ci-dessus (6 macros et `layers.*` sans consommateur réel,
+"surcharges de style" no-op). `resolvePreset()`'s `userMappingOverrides` ne couvre que `mapping` —
+pas de diff utilisateur sur palette/macros/classification, faute d'UI qui en produirait un (P12).
+`R&B.genre.tempoHint` est entièrement auto-choisi (absent de la table de docs/05 §1).
+Dette introduite : aucune connue.
+Bloque la suite : le corpus annoté (Aaron) reste le seul bloqueur, inchangé depuis l'Étape 2 — pour
+la F-mesure de classification/structure ET pour le critère de suggestion de preset. La vérification
+navigateur de cette étape est à refaire dès qu'un canal de navigateur fonctionne. Prochaine étape
+(00a) : Étape 14 (P12, interface utilisateur et timeline) — première étape où presets et macros
+seront réellement exposés à un humain, et où le manque de configurabilité des couches visuelles
+(décision 1) devra être tranché : soit les rendre configurables, soit assumer que 6 macros restent
+sans effet pour la durée du MVP.

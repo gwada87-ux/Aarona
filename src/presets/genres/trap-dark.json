@@ -1,0 +1,51 @@
+{
+  "id": "trap-dark",
+  "version": 1,
+  "name": "Trap Dark",
+  "genre": {
+    "tempoHint": [60, 90],
+    "doubleTimeHint": true,
+    "subDominance": 0.9,
+    "onsetDensity": 0.55,
+    "continuousRegimePreference": false
+  },
+  "style": "field",
+  "mapping": {
+    "impact": { "from": ["KICK"], "gain": 1.0, "decay": 0.10 },
+    "subImpact": { "from": ["SUB_HIT"], "gain": 1.0, "decay": 0.55 },
+    "accent": { "from": ["SNARE", "CLAP"], "gain": 0.75, "decay": 0.16 },
+    "tick": { "from": ["HAT"], "gain": 0.55, "decay": 0.05 },
+    "drive": { "from": "feature:energy", "rise": 0.10, "fall": 0.70 },
+    "weight": { "from": "feature:band.sub", "rise": 0.04, "fall": 0.35 },
+    "brightness": { "from": "feature:centroid", "rise": 0.25, "fall": 0.50 }
+  },
+  "classification": {
+    "kick": { "bassRatio": 0.58, "maxCentroid": 220, "maxDecay30": 0.20 },
+    "hat": { "minCentroid": 6000 }
+  },
+  "palette": {
+    "bg": ["#05060B", "#0D0A18"],
+    "primary": "#7B4CFF",
+    "secondary": "#2A1B5E",
+    "accent": "#FF2E63",
+    "glow": "#8A5CFF",
+    "contrast": 0.85,
+    "drift": { "lowEnergy": "#3A2A6B", "highEnergy": "#FF2E63" }
+  },
+  "macros": {
+    "energy": 0.75,
+    "reactivity": 0.85,
+    "density": 0.60,
+    "movement": 0.55,
+    "depth": 0.80,
+    "glow": 0.70,
+    "chaos": 0.35,
+    "smoothness": 0.40
+  },
+  "layers": {
+    "particles": { "count": 2500, "lifetime": [1.2, 3.0], "gravity": -0.02 },
+    "field": { "rows": 24, "perspective": 0.65 },
+    "postfx": { "feedback": 0.90, "shake": 0.012, "chromatic": 0.004 }
+  },
+  "safety": { "reducedFlashing": false }
+}

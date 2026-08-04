@@ -5,10 +5,20 @@ import ts from 'typescript';
 
 /**
  * Vérifie les règles de dépendance entre couches de docs/02_ARCHITECTURE.md
- * et CLAUDE.md. Ne parcourt que les 9 couches explicitement tablées ; une
- * couche absente de ce tableau (presets/, project/, perf/, debug/,
- * integration/...) n'est pas encore contrainte — elles n'existent pas à
- * cette étape et leurs règles n'y sont pas spécifiées.
+ * et CLAUDE.md. Ne parcourt que les couches explicitement tablées ; une
+ * couche absente de ce tableau (project/, perf/, debug/, integration/...)
+ * n'est pas encore contrainte — elles n'existent pas à cette étape et leurs
+ * règles n'y sont pas spécifiées.
+ *
+ * `presets` ajoutée à l'Étape 13/P11 : docs/02 ne lui consacrait pas de ligne
+ * (elle n'existait pas encore), seulement des mentions dans les lignes
+ * `analysis`/`export`/`ui` existantes (« analysis ne peut jamais importer
+ * presets », « export/ui peuvent importer presets »). Autorisations
+ * choisies ici et documentées dans docs/JOURNAL.md : `core` (utilitaires),
+ * `music` (types PMDI, pour `suggest.ts`), `behaviour` (type `MappingSchema`,
+ * pour `resolve.ts`), `analysis` (type `ClassificationThresholds`, import de
+ * TYPE uniquement — cohérent avec le sens unique déjà interdit dans l'autre
+ * direction), `visual` (type `Palette`, pour `resolve.ts`/`palette.ts`).
  */
 const SRC_ROOT = join(process.cwd(), 'src');
 
@@ -20,6 +30,7 @@ const ALLOWED_LAYERS: Readonly<Record<string, readonly string[]>> = {
   behaviour: ['core', 'music'],
   visual: ['core', 'behaviour', 'music', 'render'],
   render: ['core'],
+  presets: ['core', 'music', 'behaviour', 'analysis', 'visual'],
   export: [
     'core', 'audio', 'analysis', 'music', 'behaviour', 'visual', 'render',
     'presets', 'project', 'perf', 'debug', 'integration',

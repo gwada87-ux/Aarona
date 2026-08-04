@@ -129,6 +129,27 @@ final ne peut pas vivre dans la couche qui le *consomme*. `music/sources/Analysi
 adaptateur `finalizePmdi()` → `MusicTimeline`) **n'existe toujours pas** — `finalizePmdi()` n'est
 pour l'instant appelé que par les tests unitaires, pas par un harnais ou une UI.
 
+### État réel — Étape 13/P11
+
+`presets/` existe désormais et diffère de l'arborescence aspirationnelle ci-dessus :
+
+```
+├── presets/
+│   ├── schema.ts        types du preset + validatePreset() (fusion de "Preset.ts" et "schema.ts")
+│   ├── palette.ts        buildPalette() : config JSON -> Palette runtime (visual/palette)
+│   ├── macros.ts         courbes de macro-contrôles + applyMacroCurves()
+│   ├── resolve.ts         resolvePreset() : pipeline complet, sortie gelée
+│   ├── suggest.ts         suggestPreset() : suggestion automatique (docs/08)
+│   ├── index.ts           barrel + PRESET_CATALOG (charge et valide les 5 JSON)
+│   └── genres/             trap-dark · drill · house · lofi · rnb  (.json)
+```
+
+Pas de fichier `Preset.ts` séparé : types et validation vivent ensemble dans `schema.ts` (même
+pragmatisme que `finalize.ts`/`trackSampling.ts` à l'Étape 12/P10, qui s'écartaient déjà de
+l'arborescence pour les mêmes raisons). `tests/unit/architecture.test.ts` contraint désormais la
+couche `presets` (`core`, `music`, `behaviour`, `analysis`, `visual` — voir le commentaire en tête
+de ce fichier de test pour la justification de chaque autorisation).
+
 ### Vérification automatique des règles de dépendance
 
 `tests/unit/architecture.test.ts` parcourt les imports de `src/` et échoue si une règle du tableau de
