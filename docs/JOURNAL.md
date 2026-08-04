@@ -157,3 +157,57 @@ non indexés (`git status`).
 Bloque la suite : rien côté code. Le corpus de 3 morceaux annotés reste en attente d'Aaron
 (bloquant pour toute F-mesure réelle depuis l'Étape 2). Prochaine étape (00a) : Étape 7,
 `MusicTimeline` et `StepContext` (P5).
+
+## Étape 7 — P5 : MusicTimeline + StepContext
+
+Fait et vérifié : `src/music/MusicTimeline.ts` (`buildMusicTimeline(doc)` — index `events[]`
+trié + `Map<EventType, MusicEvent[]>` par type, toutes les requêtes de docs/06 en recherche
+binaire `O(log n)` : `eventsBetween`/`eventsOfTypeBetween`, `nextEventOfType`/`prevEventOfType`/
+`timeToNext`, `featureAt`/`featureSlope` par interpolation linéaire avec clamp hors piste,
+`tempoAt` en fonction en escalier sur `tempo.map`, `beatPhaseAt`/`beatIndexAt`/`barPhaseAt`/
+`barIndexAt` par intégration du tempo et de la mesure piecewise-constante, `sectionAt`/
+`sections()`). `src/music/EventDispatcher.ts` (`collect(t)` conforme à docs/06, sans `reset()`
+séparé — voir écart documenté dans le doc lui-même). `src/music/StepContext.ts` (interface
+`StepContext` + `StepContextBuilder` : une seule instance de `Rng` reseedée à chaque pas via
+`hash(projectSeed, stepIndex)`, jamais recréée). `src/music/index.ts` (ré-export public).
+`tests/unit/musicTimeline.test.ts`, `eventDispatcher.test.ts`, `stepContext.test.ts` : 29 tests,
+couvrant explicitement les bornes exigées par 00a (document écrit à la main → timeline correcte ;
+`eventsBetween`/`nextEventOfType` aux bornes, y compris un événement pile à `t=0` capturé dès le
+premier sous-pas ; un type d'événement hors du vocabulaire connu de docs/06 traversé sans erreur).
+Déterminisme du PRNG vérifié explicitement : même `(projectSeed, t)` → mêmes tirages, qu'il y ait
+eu 0 ou 2 appels à `build()` avant, conformément à Loi 1. `npx tsc --noEmit` : 0 erreur.
+`npx vitest run` : **118/118** verts (22 fichiers, 89 précédents + 29 nouveaux). `npm run
+test:arch` : 1/1 — aucun import interdit, notamment aucun `music → analysis` malgré la
+tentation de réutiliser `BandId`/`regimeFor`.
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) `eventsBetween` est demi-ouvert `(t0, t1]` — seule convention qui évite à `EventDispatcher`
+de compter un événement deux fois sur une frontière de sous-pas ; `tPrev` initialisé à `-1` (et
+non `0` comme le pseudocode de docs/06) pour qu'un événement à `t=0` exact déclenche bien au
+premier sous-pas — docs/06 mis à jour en conséquence. (2) `BandId` (6 valeurs fixes) dupliqué
+dans `music/StepContext.ts` depuis `analysis/bands.ts` : `music/` n'a pas le droit d'importer
+`analysis/` (docs/02, tableau de dépendances) ; lu via `featureAt(t, 'band.<id>')`. (3)
+`barIndexAt` ajouté à `MusicTimeline` (absent de docs/06 avant ce lot) : `StepContext.bar.index`
+en a besoin et ne peut pas être reconstruit correctement en dehors de la timeline en présence de
+changements de mesure — docs/06 mis à jour.
+Fait mais non vérifié : `StepContextBuilder` non branché dans un orchestrateur réel
+(`main.ts`/boucle de simulation) — module autonome, appelé uniquement par ses tests. Le
+rattrapage de seek complet (`scene.reset(t)` + N sous-pas à résolution réduite, docs/02 §Seek)
+n'est pas implémenté : cette étape livre les briques (`MusicTimeline`, `EventDispatcher`,
+`StepContextBuilder`) dont `EventDispatcher.collect()` s'auto-corrige déjà sur seek, mais
+l'orchestration du rattrapage complet appartient à qui pilotera la boucle de simulation
+(P6/P7, pas encore écrit).
+Limites connues : `regime` (`event`/`continuous`) est figé une seule fois à la construction du
+`StepContextBuilder`, jamais recalculé pas à pas. Raison : `PmdiDocument.confidence.grid` est un
+scalaire agrégé sur tout le morceau (`analysis/gridConfidence.ts`, Étape 6), pas un signal qui
+varie dans le temps — implémenter le lissage « sur 2 secondes » évoqué en commentaire de ce
+module aurait été du code d'hystérésis mort, dont l'entrée ne change jamais pendant une lecture.
+Si une confiance de grille par section ou glissante apparaît plus tard (candidat naturel :
+Étape 10/P10, structure et macro-événements), `regime` devra être recalculé par pas plutôt que
+figé — signalé ici pour ne pas le redécouvrir. `beat.confidence` dans `StepContext` réutilise de
+la même façon `timeline.confidence.grid` (scalaire global), faute de confiance de battement par
+instant exposée par le contrat PMDI actuel. `featureSlope` utilise une différence centrée simple
+(pas de lissage), suffisant pour l'usage d'anticipation de docs/06 mais pas vérifié sur un signal
+bruité réel. `Section.confidence` n'est lu par rien dans cette étape (seul `t`/`dur`/`letter` sont
+utilisés par `sectionAt`) — laissé disponible pour le futur `BehaviourEngine`.
+Dette introduite : aucune connue.
+Bloque la suite : rien. Prochaine étape (00a) : Étape 8, `BehaviourEngine` (P6).

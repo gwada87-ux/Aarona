@@ -118,11 +118,16 @@ interface MusicTimeline {
   readonly duration: number;
   readonly confidence: GlobalConfidence;
 
-  // requêtes ponctuelles
+  // requêtes ponctuelles — bornes demi-ouvertes (t0, t1] : t0 exclu, t1 inclus.
+  // C'est ce qui permet à EventDispatcher.collect() de balayer le temps sans
+  // jamais compter un événement deux fois ni en manquer un pile sur une
+  // frontière de sous-pas (implémentation : Étape 7/P5).
   eventsBetween(t0: number, t1: number): readonly MusicEvent[];
   eventsOfTypeBetween(type: EventType, t0: number, t1: number): readonly MusicEvent[];
 
-  // anticipation — ce qu'un bus push ne peut pas faire
+  // anticipation — ce qu'un bus push ne peut pas faire. Même convention de
+  // borne : un événement exactement à t compte comme déjà passé ("prev"),
+  // jamais comme "next".
   nextEventOfType(type: EventType, t: number): MusicEvent | null;
   prevEventOfType(type: EventType, t: number): MusicEvent | null;
   timeToNext(type: EventType, t: number): number;    // +Infinity si aucun
@@ -136,6 +141,10 @@ interface MusicTimeline {
   beatPhaseAt(t: number): number;    // 0..1 dans le temps courant
   barPhaseAt(t: number): number;     // 0..1 dans la mesure courante
   beatIndexAt(t: number): number;
+  barIndexAt(t: number): number;     // absent de la version précédente de ce document ;
+                                      // StepContext.bar.index (docs/02) en a besoin et ne peut
+                                      // pas le reconstruire correctement seul en présence de
+                                      // changements de mesure (meter.map) — ajouté Étape 7/P5.
 
   // structure
   sectionAt(t: number): Section | null;
@@ -184,6 +193,16 @@ class EventDispatcher {
   }
 }
 ```
+
+**Écart d'implémentation (Étape 7/P5) :** `tPrev` initialisé à `0` ci-dessus est un raccourci
+pédagogique. Avec la convention demi-ouverte `(t0, t1]` de `eventsBetween`, un `tPrev` initial à
+`0` exclurait un événement exactement à `t=0` du tout premier `collect()`. L'implémentation réelle
+initialise `tPrev` à une sentinelle strictement négative (`-1`) : le premier appel déclenche
+naturellement la clause `MAX_WINDOW` ci-dessus, qui élargit la fenêtre vers l'arrière et capture
+correctement un événement à `t=0`. Aucune méthode `reset()` séparée n'est nécessaire : `collect()`
+s'auto-corrige déjà sur tout seek (voir la clause `t < this.tPrev` pour un seek arrière, et
+`MAX_WINDOW` pour un seek avant) — la simulation de rattrapage de `docs/02_ARCHITECTURE.md` §Seek
+n'a donc qu'à rappeler `collect(tSousPas)` en boucle, sans étape d'initialisation dédiée.
 
 `MAX_WINDOW = 0,25 s`. Sans ce garde-fou, un basculement d'onglet de 3 secondes produirait une salve
 d'une trentaine d'événements sur une seule frame — et jusqu'à 120 sur un morceau très dense — visuellement, une explosion parasite. Avec lui, on perd
