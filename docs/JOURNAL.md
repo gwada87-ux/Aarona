@@ -211,3 +211,56 @@ bruité réel. `Section.confidence` n'est lu par rien dans cette étape (seul `t
 utilisés par `sectionAt`) — laissé disponible pour le futur `BehaviourEngine`.
 Dette introduite : aucune connue.
 Bloque la suite : rien. Prochaine étape (00a) : Étape 8, `BehaviourEngine` (P6).
+
+## Étape 8 — P6 : BehaviourEngine
+
+Fait et vérifié : `src/behaviour/signals/` — `Impulse.ts` (code de docs/07 + `reset()`),
+`Continuous.ts` (code de docs/07 + `reset(target)`), `Envelope.ts` (ADSR simplifiée
+attaque/maintien/relâchement linéaires — docs/07 ne donne pas de code de référence pour cette
+classe), `Trend.ts` (délègue à `MusicTimeline.featureSlope`, sans état), `Anticipation.ts`
+(courbes `linear`/`easeInQuad`, seules attestées dans les docs). `src/behaviour/mapping/` —
+`MappingSchema.ts` (types fidèles au JSON de docs/07, aucun discriminant `kind` ajouté : la
+famille se déduit de la forme de `from`), `resolve.ts`, `defaults.ts` (table de câblage par
+défaut = exemple JSON docs/07 + `sectionShift`). `src/behaviour/BehaviourEngine.ts`
+(`VisualSignals` à 11 champs, `update(step)`, `reset(t)`). `src/behaviour/index.ts`.
+7 fichiers de tests, 27 tests : décroissance analytique exacte d'`Impulse` (deux demi-vies =
+un quart, exact) et son indépendance au découpage en `dt` (30/60/144 fps, même total) ;
+lissage asymétrique et `reset` de `Continuous` ; les trois phases d'`Envelope` simulées
+sous-pas par sous-pas (voir limite ci-dessous) ; `Trend` et `Anticipation` (`linear` reproduit
+exactement la référence de docs/06, `easeInQuad` vérifié analytiquement) ; `resolve()` classe
+correctement chaque entrée sans discriminant et un preset peut recâbler `impact` sans toucher
+au code ; `BehaviourEngine` bout en bout (KICK→`impact` avec gain puis décroissance réaliste,
+`accent` ignore KICK, `drive`/`weight`/`brightness` convergent vers leurs `FeatureTracks`,
+`tension` monte vers un DROP, `pulse`/`barPulse` corrects à phase 0, `reset(t)` ramène les
+Impulses à 0 et saute les Continuous à leur équilibre, câblage recâblable sans recompilation).
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **145/145** verts (29 fichiers : 118
+précédents + 27 nouveaux). `npm run test:arch` : 1/1. `npm run build` : succès.
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) Périmètre de `VisualSignals` limité à 11 champs sur les ~20 esquissés par docs/03 : 8 de
+l'exemple de table docs/07, + `sectionShift` (decay déjà donné), + `pulse`/`barPulse` (fonction
+directe de `beat.phase`/`bar.phase`, déjà livrés en P5). `density`, `release`, `chaos` exclus —
+aucune formule ni durée nulle part dans les docs, et `chaos` est explicitement « piloté par le
+preset » (P11, inexistant). Les inventer maintenant risquait de figer un mauvais réglage avant
+qu'un style visuel (P7) existe pour le juger à l'œil. (2) `Envelope`/`Trend` livrées et testées
+comme primitives autonomes (roadmap P6 les nomme explicitement, docs/16 les structure) bien
+qu'aucune entrée de la table par défaut ne les utilise encore — contrairement à la décision
+« regime figé » de l'Étape 7, ce ne sont pas des branches mortes dans un consommateur : ce sont
+des unités indépendantes, testées sur leurs propres mérites, en attente d'un consommateur futur
+(candidat pour `release` : `Envelope` sur `BREAK`, une fois sa durée d'attaque/relâchement
+choisie — décision volontairement pas prise ici). (3) `BehaviourEngine.reset(t)` distingue
+`Impulse`/`Envelope` (équilibre = 0, `reset()` sans paramètre) de `Continuous` (équilibre =
+`featureAt(t, id)`, `reset(target)`) — voir docs/07, écarts documentés sur les deux classes.
+Fait mais non vérifié : `BehaviourEngine` non branché dans un orchestrateur réel — module
+autonome, appelé uniquement par ses tests, comme `StepContextBuilder` en P7. Aucune vérification
+à l'oreille ni à l'œil possible : ce lot ne produit ni son ni pixel, uniquement des nombres.
+Limites connues : `Envelope.update(dt)` ne traverse jamais plus d'une transition de phase par
+appel — un `dt` qui dépasse la phase courante clampe à sa frontière et le surplus n'est consommé
+qu'au prochain appel (documenté dans Envelope.ts). Sans conséquence avec `FIXED_DT = 1/120 s`,
+mais à garder en tête si `Envelope` est un jour piloté par un `dt` variable. `MappingSchema` n'a
+pas de validateur runtime (pendant de `validatePmdi`) : une table de câblage vient aujourd'hui
+uniquement d'un littéral TypeScript (`defaults.ts`), pas d'un JSON chargé au runtime — un
+validateur est nécessaire avant que des presets utilisateur (P11) puissent charger un JSON
+non fiable. `density`/`release`/`chaos` absents de `VisualSignals` (voir décision 1).
+Dette introduite : aucune connue.
+Bloque la suite : rien. Prochaine étape (00a) : Étape 9, `Scene`/`Layer`/style `Pulse` (P7) —
+premier lot qui produira une image à l'écran.

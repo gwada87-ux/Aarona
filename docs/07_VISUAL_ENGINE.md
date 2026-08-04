@@ -49,6 +49,11 @@ Deux détails qui comptent plus qu'il n'y paraît :
 - **Décroissance exponentielle par `dt`**, jamais par frame. C'est ce qui rend l'impulsion identique
   à 30, 60 ou 144 fps — et donc à l'export.
 
+**Écart d'implémentation (Étape 8/P6) :** une méthode `reset(): void` (qui ramène `v` à 0) a été
+ajoutée, absente du code ci-dessus. Requise par `BehaviourEngine.reset(t)` (docs/02 §Seek) : le
+repos naturel d'une impulsion hors déclenchement est déjà 0, donc `reset()` EST son équilibre — pas
+une approximation.
+
 Temps de décroissance par défaut :
 
 ```
@@ -75,6 +80,12 @@ class Continuous {
 L'asymétrie (montée rapide, descente lente) imite le comportement d'un VU-mètre et, surtout, la
 perception humaine de l'énergie. Un signal symétrique paraît mou à la montée et nerveux à la descente.
 
+**Écart d'implémentation (Étape 8/P6) :** une méthode `reset(target: number): void` (`v = target`)
+a été ajoutée. Contrairement à `Impulse`, l'équilibre naturel d'un `Continuous` n'est PAS 0
+(docs/02 §Seek : « repartent à leur valeur d'équilibre... pas à zéro ») — `reset()` doit donc sauter
+directement à la valeur cible au nouveau `t`, sans quoi une fenêtre de rattrapage courte (scrub,
+0,15 s) n'aurait pas le temps de la rejoindre via `riseTau`/`fallTau` avant le premier rendu.
+
 ### Table de câblage (mapping)
 
 Le lien musique → signal est **une donnée, pas du code**. C'est ce qui rend les presets puissants.
@@ -93,6 +104,13 @@ Le lien musique → signal est **une donnée, pas du code**. C'est ce qui rend l
 ```
 
 Le preset R&B remplacera simplement `"impact": { "from": ["SNARE"] }`. Zéro ligne de code.
+
+**Complété à l'Étape 8/P6** (`src/behaviour/mapping/defaults.ts`) : `sectionShift` (famille Impulse,
+`from: ["SECTION"]`, `decay: 1.2` — valeur déjà donnée dans le tableau de décroissance ci-dessus,
+absente de l'exemple JSON). `pulse`/`barPulse` ne passent PAS par cette table : ce sont des
+fonctions directes de `StepContext.beat.phase`/`bar.phase`, calculées inconditionnellement par
+`BehaviourEngine`. `density`, `release`, `chaos` (docs/03 `VisualSignals`) restent différés, faute
+de formule ou de durée spécifiée — voir docs/JOURNAL.md, Étape 8.
 
 ---
 

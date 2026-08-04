@@ -1,0 +1,12 @@
+export { BehaviourEngine } from './BehaviourEngine';
+export type { VisualSignals } from './BehaviourEngine';
+export { Impulse } from './signals/Impulse';
+export { Envelope } from './signals/Envelope';
+export { Continuous } from './signals/Continuous';
+export { Trend } from './signals/Trend';
+export { Anticipation } from './signals/Anticipation';
+export type { AnticipationCurve } from './signals/Anticipation';
+export * from './mapping/MappingSchema';
+export { resolve } from './mapping/resolve';
+export type { ResolvedMapping, ResolvedImpulse, ResolvedContinuous, ResolvedAnticipation } from './mapping/resolve';
+export { defaultMapping } from './mapping/defaults';
