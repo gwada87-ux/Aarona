@@ -47,3 +47,27 @@ boucle particules, à revoir P7/P9). 2 vulnérabilités npm transitives (vite/vi
 traitées. `typescript` fixé en 5.7 (la 7.0.2 tout juste sortie casse sa propre résolution de
 module en `moduleResolution: "Bundler"`). Pas de CI (pas de remote git).
 Bloque la suite : rien. Prochaine étape (00a) : Étape 4, moteur audio et Transport (P3).
+
+## Étape 4 — P3 : moteur audio et Transport
+
+Fait et vérifié : `core/time/Transport.ts` (interface), `core/time/driftCorrection.ts` (lissage
+±2ms/appel, resync dur >120ms — 9 tests unitaires verts). `audio/decode.ts` (copie de
+l'ArrayBuffer avant `decodeAudioData`, piège #3 ; validation durée/taille). `audio/AudioEngine.ts`
+(load/play/pause/seek/volume/loop, `AudioBufferSourceNode` one-shot par play/seek, piège #10 ;
+horloge avec compensation `outputLatency` + lissage). `audio/RealtimeProbe.ts` (AnalyserNode
+décoratif, pas encore branché). Harnais `index.html`/`main.ts` remplacé (P2→P3). Deux bugs réels
+trouvés et corrigés pendant la vérification manuelle avec Aaron : (1) `AudioContext` jamais résumé
+après le geste utilisateur → son muet, `t` figé ; (2) `predictedT` non compensé d'`outputLatency`
+au démarrage → dérive figée d'environ 50 ms à chaque `play()`/`seek()`. Confirmé par Aaron, casque
+branché : dérive 0-10 ms sur 3 min de lecture continue (critère ≤20ms tenu), 50 seeks sans
+problème audible.
+Fait mais non vérifié : `AudioEngine` non couvert par un test automatisé (nécessiterait un
+`AudioContext` mocké) — seule `driftCorrection`, la partie pure, l'est.
+Limites connues : `ctx.outputLatency` ne capture pas la vraie latence Bluetooth (mesuré : 48 ms
+rapportés au casque BT d'Aaron, contre 100-200 ms réels attendus) — limitation documentée du
+navigateur (docs/03_DATA_FLOW.md), pas un bug du moteur. `setCalibrationOffset()` existe et est
+câblé mais aucun outil de calibration (métronome visuel) n'existe pour le régler précisément —
+hors périmètre P3. `waveform.ts` non créé (rattaché à P4, pas à P3). Pas de persistance du
+calibrationOffset (P13).
+Dette introduite : aucune connue.
+Bloque la suite : rien. Prochaine étape (00a) : Étape 5, types et validateur PMDI (P3bis).
