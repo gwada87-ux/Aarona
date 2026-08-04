@@ -24,11 +24,19 @@ export interface OnsetDescriptor {
   readonly flatness: number; // 0..1
   readonly decay30: number; // secondes, plafonné à 0,5
   readonly decaySaturated: boolean;
+  /** Signature du CLAP (docs/05 §4) — voir music/pmdi.ts, même champ, dupliqué ici (types locaux à ce module). */
+  readonly microOnsetCount: number;
 }
 
 const FLATNESS_EPS = 1e-12;
 const DECAY_RATIO = 1 / 31.6; // −30dB
 const DECAY_CAP_SEC = 0.5;
+
+// docs/05_MUSIC_INTELLIGENCE.md §4, signature du CLAP : 2 à 4 micro-onsets espacés de 8 à 25ms.
+const MICRO_ONSET_WINDOW_SEC = 0.06;
+const MICRO_ONSET_MIN_SPACING_SEC = 0.008;
+const MICRO_ONSET_MAX_SPACING_SEC = 0.025;
+const MICRO_ONSET_MIN_PROMINENCE_RATIO = 0.15; // fraction du pic principal — ignore le bruit de fond
 
 /** Δm(f) = moyenne sur les 3 trames suivant l'onset de max(0, mₜ(f) − mₜ₋₁(f)). */
 function computeDeltaSpectrum(frames: readonly Float64Array[], onsetFrameIndex: number): Float64Array {
@@ -99,6 +107,40 @@ function computeDecay30(framePeakTrack: Float64Array, onsetFrameIndex: number, f
   return { decay30: DECAY_CAP_SEC, decaySaturated: true };
 }
 
+/**
+ * Compte les micro-onsets sur l'ENVELOPPE BRUTE (`framePeakTrack`), pas l'ODF
+ * — signature du CLAP (docs/05 §4). Résolution limitée par le taux de trame
+ * (~172 Hz avec les paramètres STFT par défaut, période ~5,8ms) : un
+ * espacement de 8-25ms correspond à 2-4 trames, à la limite de ce qui est
+ * mesurable à cette résolution — approximation assumée, comme le reste de ce
+ * pipeline DSP sur des descripteurs bas niveau plutôt que le signal brut.
+ */
+function countMicroOnsets(framePeakTrack: Float64Array, onsetFrameIndex: number, frameRate: number): number {
+  const envPeak = framePeakTrack[onsetFrameIndex] ?? 0;
+  if (envPeak <= 0) return 0;
+
+  const minProminence = envPeak * MICRO_ONSET_MIN_PROMINENCE_RATIO;
+  const windowFrames = Math.round(MICRO_ONSET_WINDOW_SEC * frameRate);
+  const hi = Math.min(framePeakTrack.length - 2, onsetFrameIndex + windowFrames);
+
+  const peakFrames: number[] = [];
+  for (let i = onsetFrameIndex + 1; i < hi; i++) {
+    const v = framePeakTrack[i]!;
+    if (v < minProminence) continue;
+    if (v > framePeakTrack[i - 1]! && v >= framePeakTrack[i + 1]!) peakFrames.push(i);
+  }
+
+  const qualifying = new Set<number>();
+  for (let k = 1; k < peakFrames.length; k++) {
+    const spacingSec = (peakFrames[k]! - peakFrames[k - 1]!) / frameRate;
+    if (spacingSec >= MICRO_ONSET_MIN_SPACING_SEC && spacingSec <= MICRO_ONSET_MAX_SPACING_SEC) {
+      qualifying.add(k - 1);
+      qualifying.add(k);
+    }
+  }
+  return qualifying.size;
+}
+
 export interface ComputeOnsetDescriptorOptions {
   readonly t: number;
   readonly band: BandId;
@@ -126,6 +168,7 @@ export function computeOnsetDescriptor(opts: ComputeOnsetDescriptorOptions): Ons
   const centroid = spectralCentroid(delta, binHz);
   const flatness = spectralFlatness(delta);
   const { decay30, decaySaturated } = computeDecay30(framePeakTrack, onsetFrameIndex, frameRate);
+  const microOnsetCount = countMicroOnsets(framePeakTrack, onsetFrameIndex, frameRate);
 
-  return { t, band, strength, e, centroid, flatness, decay30, decaySaturated };
+  return { t, band, strength, e, centroid, flatness, decay30, decaySaturated, microOnsetCount };
 }

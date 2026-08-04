@@ -4,13 +4,15 @@
  * features/bandes → onsets par bande → tempo → beats → downbeats →
  * descripteurs d'onsets → contour de basse → confiance de grille.
  *
- * Volontairement HORS PÉRIMÈTRE de cette étape (docs/00a_ORDRE_DES_ETAPES.md,
- * Étape 12/P10) : classification des onsets (KICK/SNARE/HAT — dépend des
- * seuils du preset, encore inconnu), structure par auto-similarité,
- * macro-événements (DROP/BUILDUP/BREAK). Le document PMDI produit ici est
+ * Toujours HORS PÉRIMÈTRE de CE module, par construction (docs/05 §4 : « pas
+ * dans le Worker ») : classification des onsets (KICK/SNARE/CLAP/HAT/PERC —
+ * dépend des seuils du preset), structure par auto-similarité,
+ * macro-événements (DROP/BUILDUP/BREAK/…). Le document PMDI produit ici est
  * donc PARTIEL : `events` ne contient que les SUB_HIT (docs/05 §5, qui ne
  * dépendent d'aucune classification) ; `sections` est absent ;
- * `confidence.classification` et `confidence.structure` valent 0.
+ * `confidence.classification` et `confidence.structure` valent 0. Complété
+ * sur le THREAD PRINCIPAL par `analysis/finalize.ts` (Étape 12/P10), qui
+ * appelle `classify.ts`/`structure.ts`/`macro.ts` sur ce document partiel.
  *
  * Prend un signal mono déjà démixé ((L+R)/2) — le démixage est un souci de
  * `audio/`, que `analysis/` n'a pas le droit d'importer (docs/02 tableau des
@@ -225,6 +227,14 @@ export function runAnalysisPipeline(opts: RunAnalysisPipelineOptions): AnalysisR
     ...BAND_IDS.map((band) => toFeatureTrack(`band.${band}`, normalizeTrack(bandEnergy[band]))),
   ];
 
+  // RMS en dBFS BRUT (non normalisé par percentile) — nécessaire à SILENCE (docs/05 §7 : seuil
+  // absolu −45dBFS). Volontairement PAS dans `features[]` : ce tableau est normalisé par
+  // convention (docs/04, "aucune normalisation par valeur absolue" — vrai pour les signaux
+  // continus qui pilotent le visuel, faux pour la détection de silence, qui a besoin d'un niveau
+  // absolu). Conservé dans `ext` pour ne pas induire en erreur un consommateur de `features[]`.
+  const RMS_FLOOR_DB = -90;
+  const rawRmsDb = Float64Array.from(frameFeatures, (f) => (f.rms > 0 ? 20 * Math.log10(f.rms) : RMS_FLOOR_DB));
+
   const pmdi: PmdiDocument = {
     pmdi: PMDI_VERSION,
     source: { kind: 'analysis', generator: GENERATOR, createdAt: new Date().toISOString() },
@@ -236,7 +246,7 @@ export function runAnalysisPipeline(opts: RunAnalysisPipelineOptions): AnalysisR
     features,
     notes,
     confidence: { tempo: tempo.confidence, grid: gridConfidence, classification: 0, structure: 0 },
-    ext: { onsetDescriptors },
+    ext: { onsetDescriptors, rawRmsDb: { hz: featureHz, t0: featureT0, data: Array.from(rawRmsDb) } },
   };
 
   return { pmdi, waveformPeaks };

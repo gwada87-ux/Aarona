@@ -112,6 +112,23 @@ pulsar-visualizer/
     └── licenses/                  contrôle des licences en CI
 ```
 
+### État réel — Étape 12/P10
+
+`classify.ts`, `structure.ts` et `macro.ts` sont bien dans `analysis/` comme prévu ci-dessus, plus
+deux fichiers non listés dans l'arborescence aspirationnelle d'origine :
+
+```
+├── analysis/
+│   ├── finalize.ts         orchestrateur : classify() PUIS structure()/macro(), fonction pure
+│   └── trackSampling.ts    SampledTrack · sampleAt · averageOverInterval (partagé structure/macro)
+```
+
+`finalize.ts` reste dans `analysis/` et non dans `music/sources/` : `tests/unit/architecture.test.ts`
+interdit à `analysis/` d'importer `music/MusicTimeline`, donc l'orchestrateur qui *produit* le PMDI
+final ne peut pas vivre dans la couche qui le *consomme*. `music/sources/AnalysisSource.ts` (Mode A,
+adaptateur `finalizePmdi()` → `MusicTimeline`) **n'existe toujours pas** — `finalizePmdi()` n'est
+pour l'instant appelé que par les tests unitaires, pas par un harnais ou une UI.
+
 ### Vérification automatique des règles de dépendance
 
 `tests/unit/architecture.test.ts` parcourt les imports de `src/` et échoue si une règle du tableau de

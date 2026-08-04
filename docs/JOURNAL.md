@@ -513,3 +513,63 @@ compositing additif de plusieurs sprites superposés — attendu, pas un bug.
 Dette introduite : aucune connue.
 Bloque la suite : rien. Les trois styles du MVP sont livrés (Pulse, Field, Spectrum Pro).
 Prochaine étape (00a) : Étape 12, classification complète et structure du morceau (P10).
+
+## Étape 12 — P10 : classification complète, structure, macro-événements
+
+Fait et vérifié : `analysis/classify.ts` (`classifyOnset`/`classifyOnsets`, ~180 lignes) —
+fonction pure, ordre de règles KICK → CLAP → SNARE → HAT → PERC → rejet, marge de confiance par
+condition sur des échelles déclarées (ratio 0,10 · centroïde 200 Hz · decay30 60 ms · flatness
+0,10), `decaySaturated` neutralise `decay30` sans bloquer ni pénaliser, seuils surchargeables au
+format preset genre (docs/05). `analysis/structure.ts` (`detectSections`, ~240 lignes) — vecteurs
+9D par battement, matrice de similarité cosinus, noyau en damier, pics de nouveauté, alignement
+downbeat, regroupement par lettre ; repli honnête (une section, confiance 0,3) si <17 battements.
+`analysis/macro.ts` (`detectMacroEvents`, ~180 lignes) — DROP/BUILDUP/BREAK/ENERGY_UP/ENERGY_DOWN/
+SILENCE depuis `E_bar` par mesure. `analysis/finalize.ts` (`finalizePmdi`, ~110 lignes) —
+orchestrateur pur, thread principal, ordre imposé classify() PUIS structure()/macro() (BREAK a
+besoin des KICK déjà typés). `analysis/trackSampling.ts` — `SampledTrack`/`sampleAt`/
+`averageOverInterval`, extrait en commun pour structure.ts et macro.ts. `OnsetDescriptor` (both
+`music/pmdi.ts` et la copie locale d'`onsetDescriptors.ts`) étendu avec `microOnsetCount`
+(`countMicroOnsets`, pics locaux sur l'enveloppe brute espacés 8–25 ms, signature du CLAP).
+`AnalysisPipeline.ts` expose désormais `ext.rawRmsDb` (dBFS brut, non normalisé) pour le seuil
+absolu de SILENCE. 51 nouveaux tests (`onsetDescriptors` +2, `classify.test.ts` 15, `structure.
+test.ts` 2, `macro.test.ts` 10, `finalize.test.ts` 5 — plus les fichiers déjà existants inchangés).
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **240/240** verts (47 fichiers). `npm run
+test:arch` : 1/1 — `analysis/` n'importe toujours ni `music/MusicTimeline` ni `visual`/`ui`/`audio`.
+`npm run build` : succès, 117 modules, 246,62 ko (gzip 64,77 ko).
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) `Section.label` n'est PAS utilisé pour les catégories low/mid/high de docs/05 §6 : ce champ est
+documenté « Mode B uniquement » (noms sémantiques réels) dans `music/pmdi.ts` — `structure.ts`
+exporte à la place `SECTION_ENERGY_LOW_MAX`/`SECTION_ENERGY_HIGH_MIN`, laissant tout consommateur
+catégoriser lui-même `Section.energy`. (2) Fenêtre (60 ms) et proéminence minimale (15 % du pic)
+des micro-onsets du CLAP sont auto-choisies (docs/05 ne donne que l'espacement 8–25 ms) — à
+recalibrer avec le corpus. (3) `finalize.ts` reste dans `analysis/`, pas `music/sources/` comme le
+laissait supposer l'arborescence aspirationnelle de docs/16 : `architecture.test.ts` interdit à
+`analysis/` d'importer `music/MusicTimeline`, donc l'orchestrateur qui *produit* le PMDI final ne
+peut pas vivre dans la couche qui le *consomme* — `music/sources/AnalysisSource.ts` (l'adaptateur
+qui appellerait `finalizePmdi()` pour nourrir `MusicTimeline`) n'existe pas encore. (4) Aucune
+calibration par genre implémentée : `classifyOnset()` accepte un second paramètre au format JSON de
+docs/05 §"Calibration par genre", mais aucun système de preset n'existe (P11) — la porte est
+ouverte, rien ne l'utilise. (5) Détection de SILENCE corrigée en cours de test : un premier
+balayage à pas fixe de 0,4 s pouvait détecter un silence jusqu'à ~0,4 s en retard sur son vrai
+début (le pas straddle la frontière) ; remplacé par un balayage échantillon par échantillon avant
+tout commit, pour ne pas livrer une régression de synchronisation (priorité #1 du projet).
+L'utilitaire `isBelowThresholdThroughout` devenu sans appelant a été retiré de `trackSampling.ts`.
+
+Fait mais non vérifié : aucune vérification navigateur pour cette étape — comme en Étape 6/P4 (Étape
+d'analyse pure), le harnais dev (`main.ts`) construit sa propre timeline PMDI synthétique à la main
+et n'exerce ni `runAnalysisPipeline` ni `finalizePmdi`. Les critères F-mesure sur corpus annoté
+(docs/05, docs/11) restent bloqués depuis l'Étape 2, faute des 3+ fichiers audio annotés promis par
+Aaron — vérification faite uniquement sur données synthétiques/construites à la main (vitest).
+Le paramètre de seuils personnalisés de `finalizePmdi()`/`classifyOnset()` n'est exercé par aucun
+scénario de preset réel (aucun preset n'existe).
+Limites connues : la confiance de `classification`/`structure` dans `finalizePmdi()` est une simple
+moyenne des confiances par événement/section — agrégation choisie faute de formule spécifiée par
+docs/05 pour ce niveau global. `detectSections`/`detectMacroEvents` sont des fonctions offline
+(un seul appel par morceau), pas soumises à la règle zéro-allocation de docs/10 (contrairement à
+`visual/`) — allocations de tableaux ordinaires acceptées.
+Dette introduite : aucune connue.
+Bloque la suite : le corpus annoté (Aaron) reste le seul bloqueur pour valider F-mesure ≥0,75 sur
+la classification et la structure — inchangé depuis l'Étape 2. Prochaine étape (00a) : Étape 13
+(P11, presets et calibration par genre), qui pourra enfin exercer le paramètre de seuils déjà en
+place dans `classify.ts`.

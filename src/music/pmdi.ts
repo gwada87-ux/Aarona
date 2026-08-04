@@ -52,6 +52,14 @@ export interface OnsetDescriptor {
   flatness: number; // 0..1
   decay30: number; // secondes, plafonné à 0,5
   decaySaturated: boolean;
+  /**
+   * Nombre de micro-onsets détectés sur l'ENVELOPPE BRUTE (pas l'ODF) dans les
+   * ~60ms suivant l'onset, espacés de 8 à 25ms — signature du CLAP
+   * (docs/05_MUSIC_INTELLIGENCE.md §4). Ajouté à l'Étape 12/P10 : absent des
+   * documents produits avant cette étape, donc optionnel (principe #3,
+   * tolérance à l'inconnu) — `classify.ts` traite son absence comme 0.
+   */
+  microOnsetCount?: number;
 }
 
 export interface Section {

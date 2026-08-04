@@ -255,6 +255,20 @@ En Drill, les 808 glissantes déclenchent des faux kicks : le preset Drill remon
 ajoute une contrainte de `decay30 < 180 ms`. C'est ce genre d'ajustement, invisible à l'utilisateur,
 qui fait la différence entre un moteur générique et un moteur qui « comprend » le genre.
 
+**Implémenté à l'Étape 12/P10** (`src/analysis/classify.ts`) : `classifyOnset()`/`classifyOnsets()`,
+fonction pure comme spécifié, appelée depuis le thread principal par `analysis/finalize.ts` (jamais
+le Worker). Ordre de test des règles : KICK, puis CLAP (avant SNARE — plus spécifique), puis SNARE,
+puis HAT, puis PERC — repli sur `null` (rejeté) sinon. `DEFAULT_CLASSIFICATION_THRESHOLDS` couvre
+toutes les valeurs par défaut ci-dessus. `classifyOnset()` accepte un second paramètre optionnel au
+format JSON de « Calibration par genre » ci-dessus, mais **aucun système de preset n'existe encore**
+(P11) — personne n'appelle ce paramètre pour l'instant, la porte est seulement ouverte.
+
+**Écart d'implémentation :** la fenêtre de détection des micro-onsets du CLAP (60 ms après l'onset)
+et le seuil de proéminence d'un pic (15 % du pic local) ne sont pas donnés par ce document — seul
+l'espacement 8–25 ms l'est. Choisis dans `onsetDescriptors.ts` (`MICRO_ONSET_WINDOW_SEC`,
+`MICRO_ONSET_MIN_PROMINENCE_RATIO`) faute de valeur normative ; à ajuster avec la calibration par
+corpus quand elle sera possible.
+
 ---
 
 ## 5. Basse et 808
@@ -309,6 +323,16 @@ s'appelle. Les groupes de sections d'énergie identique et de profil spectral pr
 **lettre** (`A`, `B`, `A`, `C`…), ce qui permet à un style de réutiliser le même traitement visuel
 pour deux refrains — un effet perceptuellement très fort, obtenu sans transcription.
 
+**Implémenté à l'Étape 12/P10** (`src/analysis/structure.ts`, `detectSections()`) : les 6 étapes
+ci-dessus telles quelles. Repli honnête si moins de 17 beats (2×16+1) : une section unique couvrant
+tout le morceau, confiance 0,3, plutôt que de fabriquer des frontières sur du bruit.
+
+**Écart d'implémentation :** les seuils « low/mid/high » ci-dessus **ne sont pas écrits** dans
+`Section.label` — ce champ est documenté « Mode B uniquement » (`src/music/pmdi.ts`, noms
+sémantiques réels comme « intro »/« verse »), pas un synonyme de ce triage par énergie. `structure.ts`
+exporte à la place `SECTION_ENERGY_LOW_MAX` (0,4) et `SECTION_ENERGY_HIGH_MIN` (0,7) ; tout
+consommateur de `Section.energy` (toujours 0..1, toujours présent) peut catégoriser lui-même.
+
 ---
 
 ## 7. Macro-événements
@@ -338,6 +362,23 @@ SILENCE     RMS < −45 dBFS pendant ≥ 0,4 s     ← les coupures nettes sont 
 `BUILDUP` a une **durée**, ce qui est essentiel : le visuel doit monter *pendant* le buildup, pas
 réagir à sa fin. C'est pour cela que la timeline est requêtable en avant — une scène qui sait qu'un
 drop arrive dans 3,2 secondes peut construire une tension.
+
+**Implémenté à l'Étape 12/P10** (`src/analysis/macro.ts`, `detectMacroEvents()`) : les 6 motifs
+ci-dessus depuis `E_bar` agrégé par mesure. `ENERGY_UP`/`ENERGY_DOWN` sont supprimés sur les mesures
+déjà couvertes par un `DROP` (évite la redondance visuelle sur la même transition).
+
+**Dépendance d'ordre :** `BREAK` a besoin des événements `KICK` déjà **typés** (« absence de kick »)
+— pas seulement des onsets bruts. `analysis/finalize.ts` impose donc `classifyOnsets()` avant
+`detectMacroEvents()`, jamais l'inverse ; un test dédié (`finalize.test.ts`) vérifie qu'un kick caché
+dans la plage basse supprime effectivement un `BREAK` qui serait sinon détecté.
+
+**Écart d'implémentation — SILENCE.** Les pistes de features générales du PMDI sont normalisées par
+percentile (docs/04 : jamais de normalisation en valeur absolue, pour qu'un master silencieux ou
+fort paraisse également engageant). Mais SILENCE a besoin d'un seuil dBFS **absolu** (−45 dBFS), non
+exprimable depuis `energy` normalisée. Ajout d'une piste brute (non normalisée) `ext.rawRmsDb` à la
+sortie d'`AnalysisPipeline.ts`, sans toucher à `features[].rms` existante. Le balayage est fait
+échantillon par échantillon (pas un pas fixe de 0,4 s, qui raterait le vrai début du silence de
+manière asymétrique) — corrigé pendant les tests unitaires de cette étape.
 
 ---
 
