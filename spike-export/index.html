@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>PULSAR VISUALIZER — Spike P0 export MP4</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #14161b;
+      color: #e8e8ec;
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    h1 { font-size: 1.1rem; font-weight: 600; }
+    button {
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+    }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
+    #status { margin: 1rem 0; min-height: 1.4em; }
+    #report {
+      background: #0b0d12;
+      padding: 0.75rem;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      font-size: 0.85rem;
+    }
+    video { width: 100%; max-width: 480px; margin-top: 1rem; background: #000; }
+  </style>
+</head>
+<body>
+  <h1>PULSAR VISUALIZER — Spike P0 : prototype d'export MP4 (WebCodecs + Mediabunny)</h1>
+  <p>Étape 1 / docs/00a_ORDRE_DES_ETAPES.md — jetable, valide uniquement le risque « produire un MP4 depuis le navigateur ».</p>
+  <button id="run">Lancer l'export (5 s, 1920×1080, 60 fps)</button>
+  <div id="status">Prêt.</div>
+  <pre id="report"></pre>
+  <video id="preview" controls></video>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
