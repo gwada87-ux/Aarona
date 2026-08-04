@@ -264,3 +264,90 @@ non fiable. `density`/`release`/`chaos` absents de `VisualSignals` (voir décisi
 Dette introduite : aucune connue.
 Bloque la suite : rien. Prochaine étape (00a) : Étape 9, `Scene`/`Layer`/style `Pulse` (P7) —
 premier lot qui produira une image à l'écran.
+
+## Étape 9 — P7 : Scene, Layer, style Pulse
+
+Fait et vérifié : `render/Renderer.ts`+`Canvas2DRenderer.ts` étendus (`strokeCircle`, `strokePath`
+sur tableaux typés, `fillRadialGradient`, `createSprite`/`drawSprite` additif, `applyShake`).
+`visual/palette/Palette.ts` (`lerpColor`, `defaultPalette` = valeurs Trap Dark de docs/08).
+`visual/safety/FlashLimiter.ts` (`FlashRateGate`, cœur pur ; `FlashLimiter`, couplé au canvas).
+`visual/scene/{Layer,Scene}.ts`. Cinq couches (`visual/layers/`) : `RadialBackground`,
+`PulseRings` (anneau central + pool de 8 anneaux secondaires sur DOWNBEAT), `CircularWaveform`
+(déformée par `step.bands`), `CentralGlow` (sprite additif, fondu enchaîné entre deux teintes),
+`ScreenShake` (réutilise `Impulse`, direction seedée par `step.rng`). `styles/pulse/
+createPulseStyle.ts` assemble les cinq dans l'ordre `[ScreenShake, Background, Geometry,
+Waveform, Glow]`. Harnais (`index.html`+`main.ts`) réécrit : timeline PMDI SYNTHÉTIQUE (clic
+120 BPM, KICK/SNARE/HAT/DOWNBEAT/DROP + 3 FeatureTracks sinusoïdales) pilotant le pipeline RÉEL
+`StepContextBuilder → BehaviourEngine → Scene Pulse → Canvas2DRenderer → FlashLimiter`.
+22 nouveaux tests : `FakeRenderer` (double de test implémentant `Renderer` en enregistrant les
+appels — permet de tester le COMPORTEMENT des couches sans canvas ni navigateur) + `palette`,
+`flashLimiter` (`FlashRateGate` : seuil, fenêtre de fréquence en temps musical, mode réduit),
+`scene` (délégation dans l'ordre), `pulseRings` (rayon/épaisseur, pool DOWNBEAT borné, reset),
+`screenShake` (seuil, amplitude bornée, décroissance, direction stable par choc). `npx tsc
+--noEmit` : 0 erreur. `npx vitest run` : **167/167** verts (34 fichiers : 145 précédents + 22
+nouveaux). `npm run test:arch` : 1/1 (aucun import interdit — `visual/` n'importe que
+`core`/`behaviour`/`music`/`render`). `npm run build` : succès, 31 modules (contre 8 avant : tout
+le pipeline est maintenant réellement importé par `main.ts`, pas seulement testé isolément).
+
+Vérification navigateur (Browser pane) : bug d'outil rencontré et documenté — le premier
+`preview_start` a résolu `.claude/launch.json` du MAUVAIS projet (répertoire de travail
+principal, Beat Studio CDJ), pas celui de PULSAR_VISUALIZER_v2 (répertoire additionnel) ;
+contourné en démarrant `npm run dev` manuellement puis en attachant `preview_start` à son URL.
+Second obstacle : l'onglet du Browser pane n'était pas COMPOSITÉ côté client
+(`document.hidden === true`), ce qui suspend totalement `requestAnimationFrame` — capture d'écran
+impossible dans cette session. Contourné en exposant `window.__pulsarDebug` (`step(dt)`,
+`play()`, `pause()`, `t`) en mode DEV, qui appelle directement la fonction de frame sans dépendre
+de rAF. A permis de vérifier, par échantillonnage de pixels réel (`getImageData`) sur des frames
+produites par le pipeline RÉEL après une lecture simulée : (1) l'anneau central est exactement
+`palette.primary` (123,76,255) et son rayon suit dynamiquement la décroissance d'`impact` dans le
+temps simulé (retrouvé à 0,28 exactement en creux de décroissance, comme attendu, à deux instants
+t différents) ; (2) le dégradé de fond est présent et correct aux bords ; (3) le glow additif est
+visible au centre ; (4) le test de stress du FlashLimiter (alternance noir/blanc ~20/s, largement
+au-dessus du seuil de 3/s) produit bien des clampages (`clampedCount` : 0 → 9 sur ~1 s). Cette
+même exploration a révélé et corrigé un vrai bug du harnais (pas du moteur) : la boucle avançait
+la simulation d'une constante `1/60` par callback `rAF` au lieu du `frameDt` réellement mesuré —
+sans effet visible à 60 fps stables, mais faux dès que `rAF` est irrégulier (throttlé,
+justement, comme dans cette session). Corrigé, plafonné à 0,25 s (même garde-fou que
+`MAX_WINDOW` d'`EventDispatcher`, docs/06).
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) `pushLayer`/`popLayer` (compositing hors-écran groupé) et `drawText` différés — aucune couche
+de `Pulse` n'en a besoin, premiers besoins réels en P9 (`Field`) et P12 (`Text`). (2)
+`LayerRegistry`/`Composer` (nommés dans docs/16) différés — aucun consommateur avant que les
+presets (P11) assemblent des couches par nom depuis du JSON ; `Pulse` est assemblé directement en
+code. (3) `ScreenShake` doit être dessinée EN PREMIER (pas en dernier comme le suggère l'ordre
+descriptif de docs/07) : un décalage global ne peut affecter que ce qui est dessiné après lui —
+c'est `createPulseStyle` qui ordonne le tableau, `Scene` ne réordonne jamais rien. (4)
+`FlashLimiter.apply` prend directement le `HTMLCanvasElement`, pas un `Renderer` : lire/écrire des
+pixels bruts (`getImageData`, survoile correctif) est délibérément hors de l'abstraction
+`Renderer`, réservé au seul backend Canvas 2D. (5) Constantes non spécifiées par docs/07, choisies
+et documentées dans le code : épaisseur d'anneau `0,006+0,014·weight`, pool d'anneaux secondaires
+à 8, expansion `+0,32` sur 1,2 s, glow à deux sprites pré-rendus fondus par poids
+`(1-brightness)`/`brightness` plutôt que recolorés par image (interdit par la règle de perf), delta
+de luminance du FlashLimiter clampé par un survoile approximant la moyenne (pas le contraste
+local).
+
+Fait mais non vérifié automatiquement : `Canvas2DRenderer` (comme en P2) et `CircularWaveform`/
+`RadialBackground`/`CentralGlow` (comme couches, contrairement à `PulseRings`/`ScreenShake` qui
+ont une vraie logique de branchement testée via `FakeRenderer`) — ces trois-là sont surtout de
+l'arithmétique-vers-pixels avec peu de branchement, vérifiées seulement par lecture de pixels
+manuelle ci-dessus, pas par un test automatisé dédié. `Envelope`/`Trend`/`density`/`release`/
+`chaos` toujours sans câblage par défaut (hérité de l'Étape 8, inchangé). Aucune intégration
+audio réelle → visuel : le harnais reste piloté par une timeline synthétique écrite à la main,
+pas un fichier chargé et analysé (P4 et P7 sont chacun vérifiés séparément, leur assemblage UI
+est un chantier futur, probablement P12).
+
+Limites connues : `fillStyle` recalculé en chaîne à chaque appel dans `Canvas2DRenderer` (hérité
+de P2, toujours vrai — sans conséquence pour Pulse, à revoir en P9 avec 2500 particules).
+`fillRadialGradient` recrée le dégradé chaque image (docs/10 reporte explicitement sa mise en
+cache à la phase 12). Aucune mesure de performance chiffrée (60 fps p95 1080p, critère docs/14)
+n'a été prise dans cette session : le harnais tourne dans un onglet non composité, donc non
+mesurable ici — à faire par Aaron en conditions réelles. `t` du harnais avance par `1/60 s` de
+temps réel par défaut (pas d'horloge audio réelle branchée) — acceptable pour ce lot, l'horloge
+compensée d'`AudioEngine` (P3) reste disponible mais non re-câblée à ce harnais.
+Dette introduite : aucune connue.
+Bloque la suite : rien côté code. **Recommandé avant de poursuivre : qu'Aaron ouvre
+`npm run dev` et regarde le style Pulse tourner** — c'est le premier lot qui produit une image, et
+un jugement esthétique/« ça sonne juste » n'est vérifiable qu'à l'œil, pas par un test automatisé.
+Prochaine étape (00a) : Étape 10, export production (P8) — ou retour d'Aaron d'abord si des
+ajustements de Pulse sont souhaités.

@@ -142,6 +142,14 @@ interface Scene {
 | `Overlay` | cadre, lettrage, éléments fixes | faible |
 | `PostFx` | feedback, décalage chromatique, tremblement | moyen à élevé |
 
+**Implémenté à l'Étape 9/P7** (`src/visual/scene/`, `src/visual/layers/`) : `Scene` exactement comme
+ci-dessus, plus `init(ctx)` (docs/02 §4, absent de ce croquis). Seules les familles `Background`,
+`Geometry`, `Waveform`, `Glow`, `PostFx` existent — celles que `Pulse` requiert ; `Field`,
+`Spectrum`, `Particles`, `Text`, `Overlay` attendent leur premier style consommateur (P9, P12).
+`LayerRegistry`/`Composer` (nommés dans `docs/16_STRUCTURE_ET_RISQUES.md`) ne sont PAS construits :
+aucun consommateur avant que les presets (P11) assemblent des couches par nom depuis du JSON — les
+styles sont pour l'instant assemblés directement en code (`styles/pulse/createPulseStyle.ts`).
+
 ### Contrat d'une couche
 
 ```ts
@@ -299,6 +307,18 @@ PostFx       tremblement d'écran sur impact > 0,7, amplitude ≤ 0.012, décroi
 Rapport aux fréquences : le rayon suit le grave, l'épaisseur le corps, la déformation les aigus.
 Sur un break, tout se contracte et le halo respire.
 
+**Implémenté à l'Étape 9/P7** (`src/visual/layers/`, `src/visual/styles/pulse/`) — constantes non
+précisées ci-dessus, choisies et documentées dans le code plutôt que dans ce fichier :
+- `épaisseur = f(weight)` : linéaire, `0,006 + 0,014·weight`.
+- Anneaux secondaires : pool fixe de 8 (zéro allocation), rayon final ≈ `0,28 + 0,32·progress`.
+- « déformée par le spectre » : `visual/` ne voit jamais de spectre plein (Loi 2) — utilise les 6
+  `step.bands` de `StepContext` (P5/P6), interpolés entre secteurs adjacents.
+- Glow « teinte pilotée par brightness » sans re-rendre le sprite par image (interdit,
+  `shadowBlur`-like) : deux sprites pré-rendus (`palette.temperature(0)`/`(1)`) fondus
+  additivement avec des poids `1-brightness`/`brightness`.
+- PostFx doit être dessinée EN PREMIER, pas en dernier : voir `render/Renderer.ts` (`applyShake`).
+  Le tableau ci-dessus décrit des responsabilités, pas un ordre d'exécution.
+
 ### 2. `Field` — champ de particules
 
 > Espace profond, mouvement continu, réaction en gerbes. Le style « impressionnant ».
@@ -389,6 +409,17 @@ pour rester déterministe entre preview et export.
 |---|---|---|
 | Normal | 0,45 | 3 |
 | Réduction des flashs | 0,18 | 2 |
+
+**Écarts d'implémentation (Étape 9/P7)** : la signature réelle est `apply(t: number)` — `reduced`
+devient `setReducedFlashing(reduced)` (état, pas un paramètre répété à chaque appel), et `r:
+Renderer` disparaît : `FlashLimiter` lit/écrit directement le `HTMLCanvasElement` (`getImageData`,
+survoile de correction) — `Renderer` n'expose délibérément aucun accès aux pixels bruts, seul le
+backend Canvas 2D le peut, comme documenté dans `render/Renderer.ts`. Le cœur pur (seuil + fenêtre
+de fréquence, sans canvas) est isolé dans `FlashRateGate`, testé automatiquement ; le clampage
+lui-même (survoile noir/blanc dont l'alpha vise `cible = actuelle·(1−a)` ou `actuelle·(1−a)+a`) est
+une approximation qui déplace la luminance MOYENNE sans préserver le contraste local — acceptable
+car elle ne s'engage que sur des transitions déjà extrêmes et rares. Un compteur public
+`clampedCount` existe pour l'observation en développement (panneau de debug du harnais).
 
 Le mode réduction est **activé par défaut sur les presets à forte énergie** (Trap Rage, Hyperpop,
 Drill), avec un message clair. Ce n'est pas une contrainte imposée à l'utilisateur : c'est une

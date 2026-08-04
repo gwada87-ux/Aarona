@@ -2,13 +2,13 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>PULSAR VISUALIZER — dev P3 (audio + Transport)</title>
+  <title>PULSAR VISUALIZER — dev P7 (style Pulse)</title>
   <style>
     body {
       font-family: system-ui, sans-serif;
       background: #14161b;
       color: #e8e8ec;
-      max-width: 720px;
+      max-width: 960px;
       margin: 2rem auto;
       padding: 0 1rem;
     }
@@ -19,67 +19,51 @@
     label { display: block; margin: 0.5rem 0; font-size: 0.9rem; }
     button { font-size: 0.95rem; padding: 0.4rem 0.9rem; cursor: pointer; margin-right: 0.4rem; }
     input[type="range"] { width: 100%; }
-    input[type="number"] { width: 6rem; }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; font-size: 0.9rem; }
     dt { opacity: 0.7; }
     dd { margin: 0; font-variant-numeric: tabular-nums; }
-    #log { font-size: 0.8rem; opacity: 0.7; white-space: pre-wrap; max-height: 8rem; overflow-y: auto; }
+    #canvas { width: 100%; aspect-ratio: 16 / 9; background: #05060B; border-radius: 6px; display: block; }
   </style>
 </head>
 <body>
-  <h1>PULSAR VISUALIZER — Étape 4 / P3 : moteur audio et Transport</h1>
+  <h1>PULSAR VISUALIZER — Étape 9 / P7 : Scene, Layer, style Pulse</h1>
   <p>
-    Harnais de vérification manuelle. Les critères chiffrés de docs/14_ROADMAP.md (dérive ≤ 20 ms sur
-    3 min, jamais en avance ; 50 seeks sans dérive cumulée ; casque Bluetooth compensé) ne sont pas
-    automatisables : ils se lisent ici, à l'oreille et à l'œil.
+    Harnais de vérification manuelle. Timeline SYNTHÉTIQUE (clic 120 BPM écrit à la main, pas de
+    fichier audio) — pipeline réel : MusicTimeline → StepContextBuilder → BehaviourEngine → Scene
+    Pulse → Canvas2DRenderer → FlashLimiter (docs/03_DATA_FLOW.md FLUX 2).
   </p>
 
-  <fieldset>
-    <legend>Source</legend>
-    <input type="file" id="file-input" accept="audio/*,.mp3,.wav,.ogg,.flac" />
-  </fieldset>
+  <canvas id="canvas"></canvas>
 
   <fieldset>
-    <legend>Transport</legend>
+    <legend>Transport (synthétique)</legend>
     <button id="btn-play">Lecture</button>
     <button id="btn-pause">Pause</button>
     <label>
       Position (secondes)
-      <input type="range" id="seek-range" min="0" max="1" step="0.01" value="0" />
-    </label>
-    <label>
-      Volume
-      <input type="range" id="volume-range" min="0" max="1" step="0.01" value="1" />
-    </label>
-    <label>
-      <input type="checkbox" id="loop-checkbox" /> Boucle
-    </label>
-    <label>
-      Calibration de latence (ms)
-      <input type="number" id="calibration-input" value="0" step="1" />
+      <input type="range" id="seek-range" min="0" max="60" step="0.1" value="0" />
     </label>
   </fieldset>
 
   <fieldset>
-    <legend>Test de robustesse du seek (critère : 50 aller-retour sans dérive cumulée)</legend>
-    <button id="btn-seek-stress">Lancer 50 seeks aller-retour</button>
-    <span id="seek-stress-status"></span>
+    <legend>FlashLimiter (docs/07 — critère : 3 flashs/s max, 2 en mode réduit)</legend>
+    <label>
+      <input type="checkbox" id="reduced-flashing" /> Mode réduction des flashs (seuil 0,18, 2/s)
+    </label>
+    <label>
+      <input type="checkbox" id="flash-stress" /> Test de stress (alternance noir/blanc ~20/s, doit être clampée)
+    </label>
   </fieldset>
 
   <fieldset>
-    <legend>État (docs/03_DATA_FLOW.md FLUX 2)</legend>
+    <legend>État</legend>
     <dl>
-      <dt>t (Transport)</dt><dd id="out-t">0.000</dd>
-      <dt>dt</dt><dd id="out-dt">0.000</dd>
-      <dt>playing</dt><dd id="out-playing">false</dd>
-      <dt>durée</dt><dd id="out-duration">0.000</dd>
-      <dt>chronomètre navigateur depuis lecture</dt><dd id="out-wallclock">0.000</dd>
-      <dt>outputLatency (décalage fixe attendu, pas une dérive)</dt><dd id="out-latency">0</dd>
-      <dt>dérive depuis stabilisation (~2 s) — c'est le chiffre du critère ≤ 20 ms</dt><dd id="out-drift">—</dd>
+      <dt>t (synthétique)</dt><dd id="out-t">0.00</dd>
+      <dt>FPS (lissé)</dt><dd id="out-fps">0.0</dd>
+      <dt>régime</dt><dd id="out-regime">—</dd>
+      <dt>frames clampées par le FlashLimiter</dt><dd id="out-clamped">0</dd>
     </dl>
   </fieldset>
-
-  <div id="log"></div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

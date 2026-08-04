@@ -229,6 +229,14 @@ interface Renderer {
 permet d'écrire une couche de 3 000 particules une seule fois et de la faire tourner aussi bien sur
 le backend Canvas 2D (boucle `drawImage`) que sur un futur backend WebGL2 (un seul appel instancié).
 
+**Réalisé à l'Étape 9/P7** (ce croquis était illustratif) : `strokeCircle`, `strokePath` (tableaux
+typés parallèles, zéro allocation), `fillRadialGradient`, `createSprite`/`drawSprite` et
+`applyShake` (décalage global — voir `07_VISUAL_ENGINE.md` §"Table de câblage" et
+`docs/JOURNAL.md` Étape 9 pour le raisonnement complet). `pushLayer`/`popLayer` et `drawText`
+restent différés : aucune couche du style `Pulse` n'en a besoin — premiers vrais besoins
+respectivement en P9 (`Field`, feedback) et P12 (couche `Text`). `fillRect` n'a pas été ajouté non
+plus : sans consommateur (le fond de `Pulse` est un dégradé radial, pas un rectangle).
+
 ## Traitement du `seek` — le cas qui casse tout le monde
 
 ```
