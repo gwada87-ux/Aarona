@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>PULSAR VISUALIZER — Outil d'annotation (tap-tempo)</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #14161b;
+      color: #e8e8ec;
+      max-width: 860px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    h1 { font-size: 1.1rem; font-weight: 600; }
+    h2 { font-size: 0.95rem; font-weight: 600; margin-top: 1.5rem; }
+    audio { width: 100%; margin: 0.5rem 0; }
+    label { display: inline-block; min-width: 12rem; }
+    .row { margin: 0.4rem 0; }
+    input[type="number"], input[type="text"] {
+      background: #0b0d12; color: #e8e8ec; border: 1px solid #333; border-radius: 4px;
+      padding: 0.3rem 0.5rem;
+    }
+    button {
+      font-size: 0.95rem; padding: 0.4rem 0.8rem; cursor: pointer;
+      background: #2a2d36; color: #e8e8ec; border: 1px solid #444; border-radius: 4px;
+    }
+    button:hover { background: #33363f; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #2a2d36; font-size: 0.85rem; }
+    kbd {
+      background: #2a2d36; border: 1px solid #444; border-radius: 4px;
+      padding: 0.1rem 0.4rem; font-family: monospace;
+    }
+    #report {
+      background: #0b0d12; padding: 0.75rem; border-radius: 6px;
+      white-space: pre-wrap; font-size: 0.8rem; max-height: 300px; overflow: auto;
+    }
+    .counts span { margin-right: 1.2rem; }
+    .legend { font-size: 0.85rem; opacity: 0.85; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>PULSAR VISUALIZER — Outil d'annotation (tools/annotate/)</h1>
+  <p>Étape 2 (P1a) — jetable-outil interne, ne fait pas partie du produit livré. Format de sortie
+  conforme à <code>docs/11_TESTING.md</code> (§Annotation) : <code>{ bpm, beats[], downbeats[], kicks[], snares[], sections[] }</code>.</p>
+
+  <div class="row">
+    <label for="file">Fichier audio local</label>
+    <input type="file" id="file" accept="audio/*" />
+  </div>
+  <audio id="player" controls></audio>
+
+  <div class="row">
+    <label for="latency">Latence clavier à corriger (ms)</label>
+    <input type="number" id="latency" value="0" step="1" style="width: 6rem" />
+  </div>
+  <div class="row">
+    <label for="bpm">BPM (auto, éditable)</label>
+    <input type="number" id="bpm" value="0" step="0.1" style="width: 6rem" />
+  </div>
+  <div class="row">
+    <label for="sectionLabel">Libellé de la prochaine section</label>
+    <input type="text" id="sectionLabel" placeholder="intro / couplet / drop…" style="width: 16rem" />
+    <button id="markSection">Marquer section (touche N)</button>
+  </div>
+
+  <h2>Comptes</h2>
+  <div class="counts row">
+    <span>Beats (B) : <b id="countBeats">0</b></span>
+    <span>Downbeats (D) : <b id="countDownbeats">0</b></span>
+    <span>Kicks (K) : <b id="countKicks">0</b></span>
+    <span>Snares (S) : <b id="countSnares">0</b></span>
+    <span>Sections : <b id="countSections">0</b></span>
+  </div>
+  <button id="undo">Annuler le dernier tap (touche Z)</button>
+  <button id="clearAll">Tout effacer</button>
+
+  <h2>Raccourcis clavier (pendant la lecture)</h2>
+  <div class="legend">
+    <kbd>Espace</kbd> lecture / pause ·
+    <kbd>B</kbd> tap beat ·
+    <kbd>D</kbd> tap downbeat (compte aussi comme beat) ·
+    <kbd>K</kbd> tap kick ·
+    <kbd>S</kbd> tap snare ·
+    <kbd>N</kbd> marquer une section avec le libellé ci-dessus ·
+    <kbd>Z</kbd> annuler le dernier tap
+  </div>
+
+  <h2>Export</h2>
+  <div class="row">
+    <button id="export">Générer le JSON (<code>*.truth.json</code>)</button>
+    <button id="download" disabled>Télécharger</button>
+  </div>
+  <pre id="report">Chargez un fichier audio pour commencer.</pre>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
