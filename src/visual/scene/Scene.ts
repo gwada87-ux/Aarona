@@ -15,9 +15,20 @@ import type { Layer, LayerInitContext } from './Layer';
  * faire (docs/03_DATA_FLOW.md FLUX 2 : beginFrame → scene.draw → endFrame →
  * FlashLimiter.apply, dans cet ordre — le clampage du FlashLimiter doit voir
  * un canvas dont le décalage de shake a déjà été annulé par `endFrame`).
+ *
+ * `usesFeedback` (Étape 11/P9) : si `true`, `draw()` appelle
+ * `renderer.captureFeedback()` après avoir dessiné toutes les couches — la
+ * capture doit voir le composite COMPLET de l'image (grille + particules +
+ * glow), donc ne peut pas être la responsabilité d'une couche individuelle
+ * (aucune n'est garantie d'être dessinée en dernier). Coût non nul
+ * (`drawImage` + `clearRect` par image) : `false` par défaut pour ne pas le
+ * payer sur les styles qui n'en ont pas besoin (Pulse, Spectrum Pro).
  */
 export class Scene {
-  constructor(readonly layers: readonly Layer[]) {}
+  constructor(
+    readonly layers: readonly Layer[],
+    private readonly usesFeedback: boolean = false,
+  ) {}
 
   init(ctx: LayerInitContext): void {
     for (const layer of this.layers) layer.init(ctx);
@@ -29,6 +40,7 @@ export class Scene {
 
   draw(renderer: Renderer, viewport: Viewport): void {
     for (const layer of this.layers) layer.draw(renderer, viewport);
+    if (this.usesFeedback) renderer.captureFeedback();
   }
 
   reset(t: number): void {

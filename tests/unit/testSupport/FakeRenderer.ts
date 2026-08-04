@@ -6,10 +6,13 @@ export type RecordedCall =
   | { type: 'clear'; color: Color }
   | { type: 'fillCircle'; x: number; y: number; radius: number; color: Color }
   | { type: 'strokeCircle'; x: number; y: number; radius: number; lineWidth: number; color: Color }
-  | { type: 'strokePath'; xs: Float32Array; ys: Float32Array; count: number; lineWidth: number; color: Color }
+  | { type: 'strokePath'; xs: Float32Array; ys: Float32Array; count: number; lineWidth: number; color: Color; closed: boolean }
+  | { type: 'fillPath'; xs: Float32Array; ys: Float32Array; count: number; color: Color }
   | { type: 'fillRadialGradient'; innerRadius: number; outerRadius: number; inner: Color; outer: Color }
-  | { type: 'drawSprite'; sprite: SpriteHandle; transforms: readonly SpriteTransform[] }
+  | { type: 'drawSprite'; sprite: SpriteHandle; transforms: readonly SpriteTransform[]; count: number }
   | { type: 'applyShake'; dx: number; dy: number }
+  | { type: 'drawFeedback'; scale: number; alpha: number }
+  | { type: 'captureFeedback' }
   | { type: 'endFrame' };
 
 /**
@@ -38,8 +41,20 @@ export class FakeRenderer implements Renderer {
     this.calls.push({ type: 'strokeCircle', x, y, radius, lineWidth, color });
   }
 
-  strokePath(xs: Float32Array, ys: Float32Array, count: number, lineWidth: number, color: Color): void {
-    this.calls.push({ type: 'strokePath', xs: xs.slice(0, count), ys: ys.slice(0, count), count, lineWidth, color });
+  strokePath(xs: Float32Array, ys: Float32Array, count: number, lineWidth: number, color: Color, closed: boolean): void {
+    this.calls.push({
+      type: 'strokePath',
+      xs: xs.slice(0, count),
+      ys: ys.slice(0, count),
+      count,
+      lineWidth,
+      color,
+      closed,
+    });
+  }
+
+  fillPath(xs: Float32Array, ys: Float32Array, count: number, color: Color): void {
+    this.calls.push({ type: 'fillPath', xs: xs.slice(0, count), ys: ys.slice(0, count), count, color });
   }
 
   fillRadialGradient(innerRadius: number, outerRadius: number, inner: Color, outer: Color): void {
@@ -50,12 +65,25 @@ export class FakeRenderer implements Renderer {
     return { size }; // ne pas invoquer `_draw` : aucun OffscreenCanvasRenderingContext2D en environnement Node
   }
 
-  drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[]): void {
-    this.calls.push({ type: 'drawSprite', sprite, transforms });
+  drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[], count: number): void {
+    this.calls.push({ type: 'drawSprite', sprite, transforms: transforms.slice(0, count), count });
   }
 
   applyShake(dx: number, dy: number): void {
     this.calls.push({ type: 'applyShake', dx, dy });
+  }
+
+  /** Reflète `Canvas2DRenderer` : sans effet tant qu'aucune capture n'a eu lieu. */
+  feedbackCaptured = false;
+
+  drawFeedback(scale: number, alpha: number): void {
+    if (!this.feedbackCaptured) return;
+    this.calls.push({ type: 'drawFeedback', scale, alpha });
+  }
+
+  captureFeedback(): void {
+    this.feedbackCaptured = true;
+    this.calls.push({ type: 'captureFeedback' });
   }
 
   endFrame(): void {

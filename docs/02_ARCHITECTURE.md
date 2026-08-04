@@ -237,6 +237,16 @@ restent différés : aucune couche du style `Pulse` n'en a besoin — premiers v
 respectivement en P9 (`Field`, feedback) et P12 (couche `Text`). `fillRect` n'a pas été ajouté non
 plus : sans consommateur (le fond de `Pulse` est un dégradé radial, pas un rectangle).
 
+**Complété à l'Étape 11/P9** (`Field`/`Spectrum Pro`) : `fillPath` (polygone plein, tableaux
+typés — les barres de `Spectrum Pro` ; `fillRect` seul n'aurait pas suffi non plus, remplacé par
+ce primitif plus général). `drawSprite` prend désormais un `count` séparé (comme `strokePath`) :
+le pool de 2500 particules de `Field` pré-alloue son tableau de transformations et le mute en
+place, un `.slice()` par image aurait été une allocation. `strokePath` prend un `closed: boolean`
+(la ligne d'onde plate de `Spectrum Pro` ne doit pas se refermer, contrairement au cercle de
+`Pulse`). `pushLayer`/`popLayer` restent différés : le besoin concret rencontré (le feedback de
+`Field`) s'est avéré plus spécifique — voir `drawFeedback`/`captureFeedback`, ajoutées à sa place
+(`docs/JOURNAL.md`, Étape 11).
+
 ## Traitement du `seek` — le cas qui casse tout le monde
 
 ```

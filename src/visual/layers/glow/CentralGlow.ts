@@ -47,8 +47,12 @@ export class CentralGlow implements Layer {
   draw(renderer: Renderer, _viewport: Viewport): void {
     const coolAlpha = (1 - this.brightness) * this.drive;
     const hotAlpha = this.brightness * this.drive;
-    if (coolAlpha > 0.001) renderer.drawSprite(this.coolSprite, [{ x: 0, y: 0, scale: GLOW_DIAMETER, alpha: coolAlpha }]);
-    if (hotAlpha > 0.001) renderer.drawSprite(this.hotSprite, [{ x: 0, y: 0, scale: GLOW_DIAMETER, alpha: hotAlpha }]);
+    if (coolAlpha > 0.001) {
+      renderer.drawSprite(this.coolSprite, [{ x: 0, y: 0, scale: GLOW_DIAMETER, alpha: coolAlpha }], 1);
+    }
+    if (hotAlpha > 0.001) {
+      renderer.drawSprite(this.hotSprite, [{ x: 0, y: 0, scale: GLOW_DIAMETER, alpha: hotAlpha }], 1);
+    }
   }
 
   reset(_t: number): void {

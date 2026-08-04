@@ -12,13 +12,18 @@ export interface SpriteHandle {
   readonly size: number;
 }
 
-/** Une instance de sprite à dessiner — `drawSprite` prend un tableau pour permettre l'instanciation. */
+/**
+ * Une instance de sprite à dessiner — `drawSprite` prend un tableau pour
+ * permettre l'instanciation. Champs MUTABLES (pas `readonly`) : un pool de
+ * particules pré-alloue ses transformations une fois et les mute en place
+ * chaque image plutôt que d'en recréer (docs/10_PERFORMANCE.md).
+ */
 export interface SpriteTransform {
-  readonly x: number;
-  readonly y: number;
+  x: number;
+  y: number;
   /** Taille de rendu en unités normalisées (diamètre) — pas un facteur multipliant `sprite.size`. */
-  readonly scale: number;
-  readonly alpha: number;
+  scale: number;
+  alpha: number;
 }
 
 /**
@@ -27,10 +32,12 @@ export interface SpriteTransform {
  * (anneaux, forme d'onde circulaire), `fillRadialGradient` (fond), `createSprite`/
  * `drawSprite` (glow additif), `applyShake` (tremblement d'écran, PostFx).
  *
- * `pushLayer`/`popLayer` (compositing hors-écran groupé, ex. feedback de
- * `Field`) restent DIFFÉRÉS — voir docs/JOURNAL.md Étape 9 : aucune couche de
- * Pulse n'a besoin d'un groupe alpha, seulement d'un composite additif par
- * sprite. `drawText` reste différé aussi : aucune couche `Text` avant P12.
+ * `pushLayer`/`popLayer` (compositing hors-écran groupé générique) restent
+ * DIFFÉRÉS — le seul besoin concret rencontré (le feedback de `Field`, P9)
+ * s'est avéré plus spécifique qu'un groupe alpha générique : voir
+ * `drawFeedback`/`captureFeedback` ci-dessous, ajoutées à sa place (docs/
+ * JOURNAL.md, Étape 11). `drawText` reste différé : aucune couche `Text`
+ * avant P12.
  *
  * Toutes les coordonnées reçues sont en espace normalisé (Loi 4).
  */
@@ -42,12 +49,22 @@ export interface Renderer {
   strokeCircle(x: number, y: number, radius: number, lineWidth: number, color: Color): void;
 
   /**
-   * Chemin fermé à partir de tableaux typés parallèles — zéro allocation
-   * par appel côté appelant (docs/10_PERFORMANCE.md). `count` peut être
+   * Chemin à partir de tableaux typés parallèles — zéro allocation par
+   * appel côté appelant (docs/10_PERFORMANCE.md). `count` peut être
    * inférieur à la capacité des tableaux (pool pré-alloué plus grand que
-   * l'usage courant).
+   * l'usage courant). `closed` (Étape 11/P9) : `true` referme le chemin sur
+   * son premier point (boucle, ex. la forme d'onde circulaire de Pulse),
+   * `false` le laisse ouvert (ex. la ligne d'onde plate de Spectrum Pro).
    */
-  strokePath(xs: Float32Array, ys: Float32Array, count: number, lineWidth: number, color: Color): void;
+  strokePath(xs: Float32Array, ys: Float32Array, count: number, lineWidth: number, color: Color, closed: boolean): void;
+
+  /**
+   * Polygone REMPLI à partir de tableaux typés parallèles — même
+   * convention que `strokePath`. Ajouté à l'Étape 11/P9 pour les barres de
+   * `Spectrum Pro` : ni `fillCircle` (rond) ni `strokePath` (contour seul)
+   * ne peuvent produire un rectangle plein.
+   */
+  fillPath(xs: Float32Array, ys: Float32Array, count: number, color: Color): void;
 
   /** Dégradé radial couvrant tout le viewport, centré en (0,0). */
   fillRadialGradient(innerRadius: number, outerRadius: number, inner: Color, outer: Color): void;
@@ -55,8 +72,15 @@ export interface Renderer {
   /** Rendu une seule fois dans un canvas hors écran ; réutilisé par `drawSprite`. */
   createSprite(draw: (ctx: OffscreenCanvasRenderingContext2D) => void, size: number): SpriteHandle;
 
-  /** Composite additif (`globalCompositeOperation = 'lighter'`), une traversée pour tout `transforms`. */
-  drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[]): void;
+  /**
+   * Composite additif (`globalCompositeOperation = 'lighter'`), une
+   * traversée pour les `count` premières entrées de `transforms`. `count`
+   * en paramètre séparé (comme `strokePath`) depuis l'Étape 11/P9 : `Field`
+   * pré-alloue son tableau de transformations à la taille du pool de
+   * particules (2500) et le MUTE en place chaque image — passer un
+   * `count` évite un `.slice()` (donc une allocation) par image.
+   */
+  drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[], count: number): void;
 
   /**
    * Décalage global (unités normalisées) appliqué à tout ce qui est dessiné
@@ -66,6 +90,26 @@ export interface Renderer {
    * peut affecter que ce qui est dessiné après lui).
    */
   applyShake(dx: number, dy: number): void;
+
+  /**
+   * Redessine le contenu capturé par le dernier `captureFeedback()`, centré,
+   * mis à l'échelle et atténué — docs/07 §"Field" : « canvas précédent
+   * redessiné à 0,88 d'alpha, mis à l'échelle 1,004 ». Sans effet (rien
+   * dessiné) tant qu'aucune capture n'a encore eu lieu, ex. toute première
+   * image ou juste après `reset(t)`.
+   *
+   * Doit être appelé EN PREMIER dans la frame (avant le nouveau contenu),
+   * comme `applyShake` : c'est la base sur laquelle le reste se compose.
+   */
+  drawFeedback(scale: number, alpha: number): void;
+
+  /**
+   * Capture l'état ACTUEL du canvas (après `endFrame()`) pour le prochain
+   * `drawFeedback()`. Couche à état de framebuffer (docs/02 §Layer,
+   * `needsDrawPriming = true`) : ne peut pas être reconstruite par
+   * `update()` seul après un seek.
+   */
+  captureFeedback(): void;
 
   endFrame(): void;
 }

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>PULSAR VISUALIZER — dev P8 (export)</title>
+  <title>PULSAR VISUALIZER — dev P9 (styles Field / Spectrum Pro)</title>
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -35,6 +35,17 @@
   </p>
 
   <canvas id="canvas"></canvas>
+
+  <fieldset>
+    <legend>Style (docs/07_VISUAL_ENGINE.md)</legend>
+    <label>
+      <select id="style-select">
+        <option value="pulse" selected>Pulse — géométrie réactive (P7)</option>
+        <option value="field">Field — champ de particules (P9)</option>
+        <option value="spectrum-pro">Spectrum Pro — 6 bandes réelles (P9)</option>
+      </select>
+    </label>
+  </fieldset>
 
   <fieldset>
     <legend>Transport (synthétique)</legend>

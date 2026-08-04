@@ -34,6 +34,8 @@ export class Canvas2DRenderer implements Renderer {
   private minSide = 0;
   private halfWidth = 0;
   private halfHeight = 0;
+  private feedbackBuffer: OffscreenCanvas | null = null;
+  private feedbackCtx: OffscreenCanvasRenderingContext2D | null = null;
 
   constructor(private readonly canvas: Canvas2DLike) {
     // `getContext('2d')` sur l'union HTMLCanvasElement|OffscreenCanvas perd la
@@ -85,7 +87,7 @@ export class Canvas2DRenderer implements Renderer {
     this.ctx.stroke();
   }
 
-  strokePath(xs: Float32Array, ys: Float32Array, count: number, lineWidth: number, color: Color): void {
+  strokePath(xs: Float32Array, ys: Float32Array, count: number, lineWidth: number, color: Color, closed: boolean): void {
     if (count < 2) return;
     this.ctx.strokeStyle = toCssColor(color);
     this.ctx.lineWidth = lineWidth * this.minSide;
@@ -96,8 +98,22 @@ export class Canvas2DRenderer implements Renderer {
       const [px, py] = this.toPx(xs[i]!, ys[i]!);
       this.ctx.lineTo(px, py);
     }
-    this.ctx.closePath();
+    if (closed) this.ctx.closePath();
     this.ctx.stroke();
+  }
+
+  fillPath(xs: Float32Array, ys: Float32Array, count: number, color: Color): void {
+    if (count < 3) return;
+    this.ctx.fillStyle = toCssColor(color);
+    this.ctx.beginPath();
+    const [x0, y0] = this.toPx(xs[0]!, ys[0]!);
+    this.ctx.moveTo(x0, y0);
+    for (let i = 1; i < count; i++) {
+      const [px, py] = this.toPx(xs[i]!, ys[i]!);
+      this.ctx.lineTo(px, py);
+    }
+    this.ctx.closePath();
+    this.ctx.fill();
   }
 
   fillRadialGradient(innerRadius: number, outerRadius: number, inner: Color, outer: Color): void {
@@ -127,14 +143,15 @@ export class Canvas2DRenderer implements Renderer {
     return new CanvasSpriteHandle(size, offscreen);
   }
 
-  drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[]): void {
+  drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[], count: number): void {
     if (!(sprite instanceof CanvasSpriteHandle)) {
       throw new Error('Canvas2DRenderer.drawSprite: SpriteHandle étranger à ce Renderer');
     }
     const prevComposite = this.ctx.globalCompositeOperation;
     const prevAlpha = this.ctx.globalAlpha;
     this.ctx.globalCompositeOperation = 'lighter';
-    for (const t of transforms) {
+    for (let i = 0; i < count; i++) {
+      const t = transforms[i]!;
       const [px, py] = this.toPx(t.x, t.y);
       // `t.scale` : taille de rendu en unités normalisées (diamètre), pas un
       // facteur appliqué à `sprite.size` — cohérent avec `radius` ailleurs
@@ -149,6 +166,31 @@ export class Canvas2DRenderer implements Renderer {
 
   applyShake(dx: number, dy: number): void {
     this.ctx.translate(dx * this.minSide, -dy * this.minSide);
+  }
+
+  drawFeedback(scale: number, alpha: number): void {
+    if (!this.feedbackBuffer) return; // rien capturé encore (première image, ou juste après un seek)
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const scaledW = w * scale;
+    const scaledH = h * scale;
+    const prevAlpha = this.ctx.globalAlpha;
+    this.ctx.globalAlpha = alpha;
+    this.ctx.drawImage(this.feedbackBuffer, (w - scaledW) / 2, (h - scaledH) / 2, scaledW, scaledH);
+    this.ctx.globalAlpha = prevAlpha;
+  }
+
+  captureFeedback(): void {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    if (!this.feedbackBuffer || this.feedbackBuffer.width !== w || this.feedbackBuffer.height !== h) {
+      this.feedbackBuffer = new OffscreenCanvas(w, h);
+      this.feedbackCtx = this.feedbackBuffer.getContext('2d');
+    }
+    // `drawImage(this.canvas, ...)` fonctionne que `this.canvas` soit un
+    // <canvas> réel ou un OffscreenCanvas (export) — même méthode des deux côtés.
+    this.feedbackCtx!.clearRect(0, 0, w, h);
+    this.feedbackCtx!.drawImage(this.canvas, 0, 0);
   }
 
   endFrame(): void {

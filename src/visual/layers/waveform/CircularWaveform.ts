@@ -54,7 +54,7 @@ export class CircularWaveform implements Layer {
   }
 
   draw(renderer: Renderer, _viewport: Viewport): void {
-    renderer.strokePath(this.xs, this.ys, SEGMENTS, LINE_WIDTH, this.palette.secondary);
+    renderer.strokePath(this.xs, this.ys, SEGMENTS, LINE_WIDTH, this.palette.secondary, true);
   }
 
   reset(_t: number): void {

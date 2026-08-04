@@ -339,6 +339,27 @@ PostFx       feedback léger (canvas précédent redessiné à 0,88 d'alpha, mis
 Sur un `BUILDUP` : les particules convergent vers le centre et la vitesse monte. Sur le `DROP` :
 explosion radiale. Cette anticipation est ce qui fait la valeur du style.
 
+**Implémenté à l'Étape 11/P9** (`src/visual/layers/{background,field,particles,postfx}/`,
+`src/visual/styles/field/`) :
+- Pas de couche `Glow` séparée : `ParticleField` dessine déjà chaque particule en sprite additif
+  dont la taille dépend de sa vitesse — exactement ce que ferait une couche dédiée, sans un second
+  passage sur 2500 sprites.
+- Grille en perspective rendue comme des anneaux concentriques (`strokeCircle`), rayon en
+  `maxRayon·perspective/(perspective+profondeur)` (perspective classique, rayon ∝ 1/profondeur).
+  24 rangées, `perspective = 0,65` (valeurs de l'exemple « Trap Dark » de docs/08_PRESETS.md).
+  « Piloté par pulse » : utilise `step.beat.index + step.beat.phase` directement, PAS
+  `signals.pulse` (une sinusoïde qui oscillerait avant/arrière, incompatible avec « jamais un
+  saut »).
+- SNARE → 60 particules en anneau ; DROP → 400 particules, explosion pleine puissance (au-delà du
+  simple KICK ×120) ; BUILDUP → fenêtre de convergence (attraction centrale renforcée, vitesse
+  ×1,6) pendant sa durée (`MusicEvent.dur`), interrompue net par le DROP suivant.
+- Feedback : `Renderer.drawFeedback`/`captureFeedback` (ajoutées à cette étape), pas le
+  `pushLayer`/`popLayer` générique un temps envisagé — voir `render/Renderer.ts` et
+  `docs/JOURNAL.md`, Étape 11.
+- `SpriteTransform` (glow/particules) et `drawSprite` acceptent désormais un `count` — le pool de
+  2500 particules pré-alloue son tableau de transformations une fois et le mute en place (zéro
+  allocation par image, docs/10_PERFORMANCE.md).
+
 ### 3. `Spectrum Pro` — le spectre, mais bien fait
 
 > Le classique, exécuté avec le soin qu'on ne lui accorde jamais.
@@ -359,6 +380,30 @@ Text         titre / artiste, typographie soignée, dans la safe area
 Une échelle logarithmique, un lissage asymétrique, des chapeaux de pics et une vraie typographie
 suffisent à faire passer un spectre d'« amateur » à « pro ». C'est un excellent rapport
 qualité/effort, et c'est le style que la plupart des utilisateurs choisiront pour du R&B et du Lofi.
+
+**Implémenté à l'Étape 11/P9** (`src/visual/layers/{background,spectrum,waveform}/`,
+`src/visual/styles/spectrum-pro/`) — PÉRIMÈTRE RÉDUIT ET DOCUMENTÉ, décidé sans mandat d'Aaron
+(coût d'erreur : corrigible en une étape dédiée si besoin) :
+- **6 bandes RÉELLES, pas 64.** Le spectrogramme est explicitement jeté après l'analyse hors-ligne
+  (docs/03_DATA_FLOW.md : « le spectrogramme est traité par blocs et libéré au fur et à mesure ») —
+  aucune donnée plus fine que les 6 `step.bands` n'atteint `visual/`. Un vrai spectre log-scale à
+  64 bandes exigerait de conserver une résolution spectrale plus fine en sortie d'analyse (P4),
+  un chantier séparé et plus gros que celui-ci. Les largeurs de barres restent non uniformes
+  (proportionnelles à `log(hauteHz/basseHz)` par bande, dupliquées depuis `analysis/bands.ts` —
+  `visual/` ne peut pas l'importer) pour garder l'esprit « plus d'espace pour le grave ».
+- Lissage par bande via `Continuous` (behaviour/signals, déjà existant) — une instance par bande,
+  montée 0,05s / descente 0,35s.
+- Chapeaux de pics à chute gravitaire : accélération constante, rattrapés (vitesse remise à 0)
+  dès que la barre les dépasse à nouveau.
+- Pas de couche `Glow` séparée, même raisonnement que `Field` : `SpectrumBars` dessine un halo
+  additif par barre dans son propre `draw()`.
+- `Text` (titre/artiste) non implémenté : `Renderer.drawText` reste différé (aucune couche `Text`
+  avant P12).
+- `Renderer.fillPath` ajouté à cette étape : ni `fillCircle` (rond) ni `strokePath` (contour) ne
+  peuvent produire une barre rectangulaire pleine — voir `render/Renderer.ts`.
+- Waveform « superposée » : comme `CircularWaveform` (Pulse), approximée depuis les 6 bandes
+  (aucune forme d'onde réelle n'atteint `visual/`), dépliée horizontalement. `strokePath` accepte
+  désormais un paramètre `closed` : `false` ici (ligne ouverte), `true` pour le cercle de Pulse.
 
 ---
 

@@ -437,3 +437,79 @@ Bloque la suite : rien. **Le produit fait maintenant le tour complet : import (s
 analyse (P4) → visuel (P7) → vidéo (P8).** C'est le premier jalon démontrable de docs/14 (M2),
 plus tôt que les ~38 jours du plan initial ne le laissaient supposer. Prochaine étape (00a) :
 Étape 11, styles `Field` et `Spectrum Pro` (P9) — ou retour d'Aaron d'abord.
+
+## Étape 11 — P9 : styles Field et Spectrum Pro
+
+Fait et vérifié : `render/Renderer.ts`+`Canvas2DRenderer.ts` étendus — `fillPath` (polygone plein
+sur tableaux typés), `strokePath`/`drawSprite` acceptent respectivement `closed`/`count` (zéro
+allocation), `drawFeedback`/`captureFeedback` (buffer image-précédente scale+alpha persistant).
+`visual/scene/Scene.ts` : option `usesFeedback` (capture après toutes les couches, coût payé
+seulement par les styles qui en ont besoin). Style **Field** (`visual/layers/{background,field,
+particles,postfx}/`) : `DeepVignette`, `PerspectiveGrid` (24 anneaux concentriques, perspective
+hyperbolique, avancée = `beat.index+beat.phase`, PAS `signals.pulse`), `ParticleField` (pool de
+2500, Float32Array parallèles, curseur circulaire pour le recyclage, spawn KICK/HAT/SNARE/DROP,
+fenêtre de convergence sur BUILDUP), `FrameFeedback` (`needsDrawPriming=true`). Style **Spectrum
+Pro** (`visual/layers/{background,spectrum,waveform}/`) : `AnimatedDuotone`, `SpectrumBars` (6
+`Continuous` par bande, pics à chute gravitaire, réflexion, glow par barre), `FlatWaveform`.
+`createFieldStyle`/`createSpectrumProStyle` assemblés. Harnais : sélecteur de style en direct
+(Pulse/Field/Spectrum Pro), timeline synthétique enrichie (6 bandes réelles au lieu d'une seule,
+événements BUILDUP avant chaque DROP).
+
+24 nouveaux tests, dans 5 fichiers (`particleField`, `perspectiveGrid`, `spectrumBars`,
+`frameFeedback` + `Scene.usesFeedback`) : spawn exact par type d'événement (120/20/60/400
+particules), extinction après durée de vie, pool jamais débordé, `reset()` efface tout ; grille
+déterministe et indépendante de `signals.pulse` (utilise directement `beat.phase`) ; lissage par
+bande démontré par convergence chiffrée, chute gravitaire du pic démontrée par comparaison
+quantitative barre-vs-pic après une chute nette du signal (barre à exp(-1)≈37 %, pic encore
+>85 % — la physique de chute libre, pas juste "un pic existe") ; capture du feedback bien après
+toutes les couches, jamais si `usesFeedback=false`. `npx tsc --noEmit` : 0 erreur. `npx vitest
+run` : **206/206** verts (43 fichiers : 39 précédents + 4 nouveaux, 24 tests nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 117 modules.
+
+Vérification navigateur — les trois styles testés en conditions réelles (rAF actif dans cette
+session, contrairement à P7/P8 où il avait fallu contourner via `__pulsarDebug`) :
+- **Field** : particules visibles (couleur `palette.accent` confirmée par échantillonnage de
+  pixels), grille en anneaux visible, **60,1 FPS** mesuré en lecture avec particules + feedback +
+  grille actifs simultanément — cohérent avec le critère « 2500 particules à 60 fps p95 ».
+- **Spectrum Pro** : barres violettes avec glow visibles et animées, couleur proche de
+  `palette.primary` confirmée par échantillonnage, **60,0 FPS**.
+- Bascule en direct entre les trois styles (Pulse ↔ Field ↔ Spectrum Pro) : aucune erreur
+  console, aucun plantage.
+- **Export réel du style Field** (3 s, WebCodecs, canvas hors écran) : 90 images, 1,7 Mo, encodage
+  2,7 s — confirme que `drawFeedback`/`captureFeedback`/`createSprite` fonctionnent aussi sur
+  `OffscreenCanvas` (chemin distinct du canvas de preview), pas seulement en lecture.
+- Aucune erreur console sur l'ensemble des essais (trois styles + export).
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour,
+corrigible dans une étape dédiée si besoin) :
+(1) **Spectrum Pro réduit à 6 bandes réelles, pas 64.** Découverte en relisant docs/03 : le
+spectrogramme est explicitement jeté après l'analyse hors-ligne — aucune donnée plus fine que les
+6 `step.bands` n'atteint `visual/`. Fabriquer 64 bandes en interpolant les 6 réelles aurait simulé
+une résolution inexistante (contraire à « ne jamais présenter comme certain ce qui est estimé »,
+docs/07 Loi 3, étendu par analogie ici à la richesse des données). Un vrai spectre log-scale à 64
+bandes est un chantier P4 séparé (conserver une résolution spectrale plus fine en sortie
+d'analyse), pas une extension de `visual/`. (2) `drawFeedback`/`captureFeedback` remplacent le
+`pushLayer`/`popLayer` générique envisagé en P7 : le seul besoin réel rencontré (un buffer
+image-précédente scale+alpha) est plus spécifique qu'un groupe de compositing générique — API
+plus étroite, plus simple à implémenter correctement, et suffisante. (3) `ParticleField`/
+`SpectrumBars` n'ont pas de couche `Glow` séparée : chacune dessine déjà son propre halo additif
+dans son `draw()` — une couche dédiée aurait dupliqué le même rendu pour un second passage sans
+rien ajouter visuellement. (4) Largeurs de barres de `Spectrum Pro` non uniformes (proportionnelles
+à `log(hauteHz/basseHz)`, dupliquées depuis `analysis/bands.ts` car `visual/` ne peut pas
+l'importer) — garde l'esprit « plus d'espace pour le grave » d'une échelle log avec les données
+disponibles.
+
+Fait mais non vérifié : le repli `MediaRecorder` avec Field/Spectrum Pro (même limite qu'en P8 —
+ce Chrome supporte WebCodecs). Mesure de performance p95 sur une fenêtre glissante de 90 images
+(docs/10) non instrumentée : le harnais affiche un FPS lissé simple, pas un p95 — 60 fps
+instantané observé, mais pas le percentile exact du critère.
+Limites connues : `PerspectiveGrid`/`ParticleField` recréent leur état par `update()` seul après
+un seek (pas de `needsDrawPriming`) sauf `FrameFeedback` — cohérent avec docs/02 (seules les
+couches à état de FRAMEBUFFER en ont besoin), mais signifie que des particules ou anneaux
+"manqués" pendant un rattrapage court ne réapparaissent pas rétroactivement (même principe déjà
+documenté pour les anneaux secondaires de Pulse, Étape 9). Le drift de couleur observé au
+navigateur (particules/barres légèrement différentes de la couleur palette exacte) vient du
+compositing additif de plusieurs sprites superposés — attendu, pas un bug.
+Dette introduite : aucune connue.
+Bloque la suite : rien. Les trois styles du MVP sont livrés (Pulse, Field, Spectrum Pro).
+Prochaine étape (00a) : Étape 12, classification complète et structure du morceau (P10).

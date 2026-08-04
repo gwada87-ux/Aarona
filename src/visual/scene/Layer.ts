@@ -4,8 +4,12 @@ import type { StepContext } from '../../music/StepContext';
 import type { VisualSignals } from '../../behaviour/BehaviourEngine';
 import type { Palette } from '../palette/Palette';
 
-/** Familles de docs/07_VISUAL_ENGINE.md §"Familles de couches" — seules celles utilisées par Pulse pour l'instant. */
-export type LayerKind = 'background' | 'geometry' | 'waveform' | 'glow' | 'postfx';
+/**
+ * Familles de docs/07_VISUAL_ENGINE.md §"Familles de couches" — celles
+ * utilisées par Pulse (P7), Field et Spectrum Pro (P9). `text`/`overlay`
+ * restent hors périmètre, attendent P12.
+ */
+export type LayerKind = 'background' | 'geometry' | 'waveform' | 'glow' | 'postfx' | 'field' | 'particles' | 'spectrum';
 
 /** Sérialisable, animable (docs/02) — chaque couche interprète ses propres clés. */
 export type LayerParams = Readonly<Record<string, number | string | boolean>>;

@@ -5,6 +5,9 @@ import type { MusicEvent, PmdiDocument } from './music/pmdi';
 import { BehaviourEngine } from './behaviour/BehaviourEngine';
 import { defaultMapping } from './behaviour/mapping/defaults';
 import { createPulseStyle } from './visual/styles/pulse/createPulseStyle';
+import { createFieldStyle } from './visual/styles/field/createFieldStyle';
+import { createSpectrumProStyle } from './visual/styles/spectrum-pro/createSpectrumProStyle';
+import type { Scene } from './visual/scene/Scene';
 import { defaultPalette } from './visual/palette/Palette';
 import { FlashLimiter } from './visual/safety/FlashLimiter';
 import { Canvas2DRenderer } from './render/canvas2d/Canvas2DRenderer';
@@ -19,19 +22,19 @@ import { runRealtimeCapture } from './export/encoders/MediaRecorderFallback';
 import { BITRATE_BPS } from './export/formats';
 
 /**
- * Harnais de développement P7 — vérification manuelle du style `Pulse`
- * (docs/07_VISUAL_ENGINE.md). Remplace le harnais P3 (audio + Transport,
- * déjà vérifié et journalisé). Piloté par une timeline SYNTHÉTIQUE (clic
- * 120 BPM écrit à la main) plutôt que par un fichier audio réel : l'analyse
- * (P4) et le rendu visuel (P7) sont déjà tous deux vérifiés séparément,
- * l'intégration bout en bout audio→visuel reste un chantier futur (UI, P12).
+ * Harnais de développement P9 — vérification manuelle des trois styles
+ * (`Pulse` P7, `Field`/`Spectrum Pro` P9 — docs/07_VISUAL_ENGINE.md).
+ * Piloté par une timeline SYNTHÉTIQUE (clic 120 BPM écrit à la main) plutôt
+ * que par un fichier audio réel : l'analyse (P4) et le rendu visuel sont
+ * déjà tous deux vérifiés séparément, l'intégration bout en bout
+ * audio→visuel reste un chantier futur (UI, P12).
  *
  * Le pipeline câblé ici est RÉEL, pas une maquette : MusicTimeline (P5) →
- * StepContextBuilder (P5) → BehaviourEngine (P6) → Scene Pulse (P7) →
+ * StepContextBuilder (P5) → BehaviourEngine (P6) → Scene (P7/P9) →
  * Canvas2DRenderer → FlashLimiter, exactement l'ordre de docs/03_DATA_FLOW.md
  * FLUX 2. Seule l'horloge est un repli : sans `AudioEngine.Transport` réel
- * branché ici, `t` avance par `1/60 s` de temps réel par image plutôt que
- * par l'horloge audio compensée (déjà vérifiée séparément en P3).
+ * branché ici, `t` avance par le temps réel écoulé entre deux `rAF` plutôt
+ * que par l'horloge audio compensée (déjà vérifiée séparément en P3).
  */
 
 function buildSyntheticDoc(durationSec: number): PmdiDocument {
@@ -49,18 +52,30 @@ function buildSyntheticDoc(durationSec: number): PmdiDocument {
   for (const dropT of [8, 20, 36]) {
     if (dropT < durationSec) events.push({ t: dropT, type: 'DROP', intensity: 1, confidence: 0.7 });
   }
+  // BUILDUP de 3s avant chaque DROP — teste la convergence des particules du style Field (docs/07).
+  for (const dropT of [8, 20, 36]) {
+    if (dropT < durationSec) events.push({ t: dropT - 3, type: 'BUILDUP', intensity: 0.9, confidence: 0.7, dur: 3 });
+  }
   events.sort((a, b) => a.t - b.t);
 
   const hz = 10;
   const sampleCount = Math.ceil(durationSec * hz) + 1;
   const energy = new Array<number>(sampleCount);
-  const bandSub = new Array<number>(sampleCount);
   const centroid = new Array<number>(sampleCount);
+  // 6 bandes (docs/06 : sub/bass/lowmid/mid/himid/high) — déphasées entre elles pour un
+  // spectre visuellement varié (Spectrum Pro) plutôt que 6 courbes identiques.
+  const bandIds = ['sub', 'bass', 'lowmid', 'mid', 'himid', 'high'];
+  const bands: Record<string, number[]> = {};
+  for (const id of bandIds) bands[id] = new Array<number>(sampleCount);
   for (let i = 0; i < sampleCount; i++) {
     const t = i / hz;
     energy[i] = 0.5 + 0.35 * Math.sin(t * 0.25);
-    bandSub[i] = 0.4 + 0.3 * Math.sin(t * 0.4 + 1);
     centroid[i] = 0.5 + 0.4 * Math.sin(t * 0.15 + 2);
+    bandIds.forEach((id, bandIndex) => {
+      const phase = bandIndex * 0.9;
+      const freq = 0.3 + bandIndex * 0.05;
+      bands[id]![i] = 0.5 + 0.4 * Math.sin(t * freq + phase);
+    });
   }
 
   return {
@@ -72,8 +87,8 @@ function buildSyntheticDoc(durationSec: number): PmdiDocument {
     events,
     features: [
       { id: 'energy', hz, t0: 0, data: energy },
-      { id: 'band.sub', hz, t0: 0, data: bandSub },
       { id: 'centroid', hz, t0: 0, data: centroid },
+      ...bandIds.map((id) => ({ id: `band.${id}`, hz, t0: 0, data: bands[id]! })),
     ],
     confidence: { tempo: 1, grid: 1, classification: 1, structure: 1 },
   };
@@ -87,12 +102,27 @@ if (!validation.ok) throw new Error(`Timeline synthétique invalide : ${JSON.str
 const timeline = buildMusicTimeline(doc);
 const stepper = new StepContextBuilder(timeline, 1);
 const behaviourEngine = new BehaviourEngine(timeline, defaultMapping);
-const scene = createPulseStyle();
+
+const STYLE_FACTORIES: Record<string, () => Scene> = {
+  pulse: createPulseStyle,
+  field: createFieldStyle,
+  'spectrum-pro': createSpectrumProStyle,
+};
+let scene: Scene = createPulseStyle();
 
 const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
 const renderer = new Canvas2DRenderer(canvas);
 const flashLimiter = new FlashLimiter(canvas);
 scene.init({ renderer, palette: defaultPalette });
+
+const styleSelect = document.querySelector<HTMLSelectElement>('#style-select')!;
+styleSelect.addEventListener('change', () => {
+  const factory = STYLE_FACTORIES[styleSelect.value];
+  if (!factory) return;
+  scene = factory();
+  scene.init({ renderer, palette: defaultPalette });
+  scene.reset(t);
+});
 
 function resizeCanvas(): void {
   const rect = canvas.getBoundingClientRect();
@@ -256,7 +286,7 @@ async function runExportFromUi(): Promise<void> {
           timeline: exportTimeline,
           projectSeed: 1,
           mapping: defaultMapping,
-          createScene: createPulseStyle,
+          createScene: STYLE_FACTORIES[styleSelect.value] ?? createPulseStyle,
           palette: defaultPalette,
           fps,
           durationSec,
