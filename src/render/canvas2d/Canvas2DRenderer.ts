@@ -14,6 +14,10 @@ import type { Viewport } from '../Viewport';
  *
  * Non testé automatiquement (nécessiterait un canvas mocké, comme en P2) :
  * vérifié manuellement au navigateur.
+ *
+ * Accepte `OffscreenCanvas` depuis l'Étape 10/P8 : `ExportPipeline` dessine
+ * sur un canvas hors écran, INDÉPENDANT du canvas de preview (docs/09
+ * §"Le pipeline déterministe" — étape 1, préparation).
  */
 class CanvasSpriteHandle implements SpriteHandle {
   constructor(
@@ -22,14 +26,21 @@ class CanvasSpriteHandle implements SpriteHandle {
   ) {}
 }
 
+type Canvas2DLike = HTMLCanvasElement | OffscreenCanvas;
+type Context2DLike = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 export class Canvas2DRenderer implements Renderer {
-  private readonly ctx: CanvasRenderingContext2D;
+  private readonly ctx: Context2DLike;
   private minSide = 0;
   private halfWidth = 0;
   private halfHeight = 0;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
-    const ctx = canvas.getContext('2d');
+  constructor(private readonly canvas: Canvas2DLike) {
+    // `getContext('2d')` sur l'union HTMLCanvasElement|OffscreenCanvas perd la
+    // surcharge précise de TypeScript (retombe sur `RenderingContext`, qui
+    // inclut `ImageBitmapRenderingContext`) : on sait par construction que
+    // l'id `'2d'` ne peut renvoyer que l'un des deux types 2D.
+    const ctx = canvas.getContext('2d') as Context2DLike | null;
     if (!ctx) {
       throw new Error('Canvas2DRenderer: contexte 2D indisponible');
     }

@@ -74,6 +74,9 @@ const SAMPLE_HEIGHT = 18;
  * l'état à neutre et laisse le rattrapage par sous-pas rappeler `apply()`
  * plusieurs fois avant la frame réelle, exactement comme `EventDispatcher`
  * se corrige lui-même (docs/06).
+ *
+ * Accepte `OffscreenCanvas` depuis l'Étape 10/P8 (canvas d'export, voir
+ * `Canvas2DRenderer`).
  */
 export class FlashLimiter {
   readonly needsDrawPriming = true;
@@ -86,7 +89,7 @@ export class FlashLimiter {
   private frameParity = 0;
 
   constructor(
-    private readonly canvas: HTMLCanvasElement,
+    private readonly canvas: HTMLCanvasElement | OffscreenCanvas,
     private config: FlashLimiterConfig = NORMAL_MODE,
   ) {
     this.gate = new FlashRateGate(config);
@@ -139,7 +142,9 @@ export class FlashLimiter {
    * construction (rate-gate à 2-3/s).
    */
   private dimTowards(target: number, current: number): void {
-    const ctx = this.canvas.getContext('2d');
+    // Même remarque que Canvas2DRenderer : l'union HTMLCanvasElement|OffscreenCanvas
+    // perd la surcharge précise de `getContext('2d')`.
+    const ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
     if (!ctx) return;
     if (target < current) {
       const alpha = clamp01(1 - target / Math.max(current, 1e-6));

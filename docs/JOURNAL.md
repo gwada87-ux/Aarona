@@ -351,3 +351,89 @@ Bloque la suite : rien côté code. **Recommandé avant de poursuivre : qu'Aaron
 un jugement esthétique/« ça sonne juste » n'est vérifiable qu'à l'œil, pas par un test automatisé.
 Prochaine étape (00a) : Étape 10, export production (P8) — ou retour d'Aaron d'abord si des
 ajustements de Pulse sont souhaités.
+
+## Étape 10 — P8 : export production
+
+Fait et vérifié : `src/export/` — `formats.ts` (5 formats de docs/09, fps 30|60, paliers de débit
+8/12/20 Mb/s), `encoders/FrameEncoder.ts` (interface au niveau de l'export entier, pas par image —
+voir décision 2), `encoders/MediabunnyEncoder.ts` (chemin principal, technique du spike jetable de
+l'Étape 1 industrialisée), `encoders/detectSupport.ts` (`canEncodeVideo`/`canEncodeAudio`),
+`encoders/MediaRecorderFallback.ts` (repli temps réel), `ExportPipeline.ts` (boucle déterministe
+`t=f/fps`, sous-pas fixes jusqu'à la cible, annulation par `AbortSignal`, progression toutes les
+15 images, yield par `MessageChannel`), `createOffscreenExportTarget.ts` (glue canvas hors écran,
+browser-only), `watermark.ts`. `render/Renderer.ts`+`Canvas2DRenderer.ts` et
+`visual/safety/FlashLimiter.ts` élargis à `OffscreenCanvas` (docs/09 : « canvas hors écran,
+indépendant du canvas de preview »). Harnais (`index.html`/`main.ts`) : formulaire d'export
+complet (format/fps/durée/watermark), bouton Annuler, téléchargement automatique du MP4.
+
+19 nouveaux tests, dans 5 fichiers. Le plus important : **`exportDeterminism.test.ts`**, qui prouve — sans canvas
+ni navigateur — que la boucle export (`t=f/fps`) et une boucle preview simulée avec un `dt` réel
+volontairement irrégulier (jitter 58-62 fps + un décrochage à 30 fps) produisent EXACTEMENT la
+même séquence de sous-pas (`stepIndex`, événements traversés, tirages du PRNG), et que 30fps et
+60fps convergent sur la même grille de sous-pas. C'est la preuve automatisée de « preview ≡ export »
+au niveau qui compte réellement (la simulation ; le rendu pixel n'en est qu'une fonction pure).
+`exportPipeline.test.ts` (7 tests, `FakeRenderer` + un nouveau `FakeFrameEncoder`) : séquence
+`start→N×addVideoFrame→addAudio→finish`, timestamps `f/fps` exacts, progression toutes les 15
+images + un appel final, annulation immédiate ET en cours de route (aucun appel à `finish()`,
+`cancel()` systématique), watermark. `exportFormats.test.ts`, `watermark.test.ts` (position dans
+la safe area, aucun texte), `mediaRecorderFallback.test.ts` (sélection de type MIME).
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **186/186** verts (39 fichiers : 34 précédents +
+5 nouveaux, 167 tests précédents + 19 nouveaux). `npm run test:arch` : 1/1. `npm run build` :
+succès, 108 modules (mediabunny inclus).
+
+Vérification navigateur — export RÉEL exécuté plusieurs fois avec succès :
+- Aperçu (854×480, 30fps, 3s) : chemin `webcodecs` détecté, 90 images, 1439,5 Ko, encodage 1739 ms.
+- **1080p60, 3s** (180 images) : encodage 3362 ms → **≈1,12 s d'encodage par seconde de contenu**
+  à la résolution/fps cible du critère d'acceptation.
+- **1080p60, 10s** (600 images) : encodage 10391 ms — cohérent avec la mesure précédente.
+  Extrapolation à 60 s : **≈67 s, contre une cible ≤120 s** (docs/14) — marge confortable, MÊME
+  mesurée dans un onglet d'outil automatisé (pas une machine de développement dédiée, donc plutôt
+  pessimiste que le contraire).
+- Annulation en cours de route déclenchée manuellement sur un export de 20s : arrêt immédiat,
+  statut « Export annulé », aucune erreur console, `cancel()` appelé (confirmé par les tests
+  unitaires ET observé sans crash en conditions réelles).
+- Aucune erreur console sur l'ensemble des essais.
+Non vérifié au navigateur : le repli `MediaRecorder` lui-même (Chrome dans ce Browser pane
+supporte WebCodecs, donc `detectExportPath` choisit toujours le chemin principal) — sa logique
+pure (`pickSupportedMimeType`) est testée, son intégration (`captureStream`+`MediaRecorder`) suit
+des patterns d'API standard mais n'a pas été exercée en conditions réelles faute de navigateur
+sans WebCodecs disponible dans cette session.
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) Découverte en lisant `spike-export/main.js` (Étape 1) : `CanvasSource.add()`/
+`AudioBufferSource.add()` de Mediabunny respectent déjà la contre-pression en interne (leur
+Promise n'est résolue que quand l'encodeur est prêt) — inutile de re-câbler
+`encodeQueueSize`/`ondequeue` à la main comme le pseudocode bas niveau de docs/09 le suggère.
+(2) `FrameEncoder` est une interface AU NIVEAU DE L'EXPORT ENTIER, pas par image :
+`MediaRecorder` ne peut pas recevoir « encode cette image à cet instant », il capture à son
+propre rythme (`captureStream`) — le forcer dans une interface par-image aurait été artificiel.
+`MediabunnyEncoder` (déterministe) et `runRealtimeCapture` (temps réel) sont deux fonctions
+distinctes, unifiées seulement par leur type de retour. (3) `ExportPipeline.runExport` reçoit un
+`ExportTarget` (renderer/viewport/flashLimiter déjà construits) plutôt que de construire son
+canvas en interne : découplage nécessaire pour rester testable avec `FakeRenderer` — la
+construction réelle (`createOffscreenExportTarget.ts`, `OffscreenCanvas`) est isolée dans un
+module séparé, browser-only, comme `Canvas2DRenderer`. (4) Remux audio sans réencodage (branche
+« MP4+AAC » de docs/09) non implémenté : `AudioBufferSource` réencode toujours depuis
+l'`AudioBuffer` décodé — fonctionne pour toute source, au prix de ne pas être optimal pour le cas
+MP4/AAC pur. (5) Repli Firefox PARTIEL (vidéo WebCodecs + audio remuxé) non implémenté pour la
+même raison — un Firefox sans `AudioEncoder` AAC bascule sur le repli `MediaRecorder` complet.
+(6) Watermark = mécanisme de dessin uniquement (point + anneau géométriques, pas de texte) ; la
+logique commerciale (licence, plafond 720p) est un chantier UI (P16) hors périmètre.
+
+Fait mais non vérifié : le repli `MediaRecorder` en conditions réelles (voir ci-dessus). Le
+critère « test golden : preview ≡ export à moins de 2% de différence pixel » (docs/14) n'est
+vérifié qu'au niveau simulation (voir `exportDeterminism.test.ts`) — la comparaison PIXEL par
+pixel nécessiterait un canvas en environnement Node (`node-canvas` ou équivalent), une dépendance
+non listée dans docs/15_ADR.md ; non ajoutée sans mandat. AV1 non proposé (H.264 uniquement).
+Blob >2 Go (segmentation ou File System Access API) non traité — hors de portée des durées
+testées. `beforeunload` non câblé — aucune UI de fermeture d'onglet n'existe encore (P12).
+Estimation avant export (banc de 30 images, docs/09) non implémentée — P12/UI.
+Limites connues : `AudioBufferSource` réencode toujours l'audio (voir décision 4) — un export
+MP4/AAC pur perd donc le remux sans perte que docs/09 prévoyait en cas optimal. Le harnais génère
+un ton sinusoïdal déterministe en l'absence de tout fichier audio réel chargé (comme
+`spike-export/main.js`) — aucune vérification round-trip d'un VRAI fichier audio utilisateur.
+Dette introduite : aucune connue.
+Bloque la suite : rien. **Le produit fait maintenant le tour complet : import (synthétique) →
+analyse (P4) → visuel (P7) → vidéo (P8).** C'est le premier jalon démontrable de docs/14 (M2),
+plus tôt que les ~38 jours du plan initial ne le laissaient supposer. Prochaine étape (00a) :
+Étape 11, styles `Field` et `Spectrum Pro` (P9) — ou retour d'Aaron d'abord.

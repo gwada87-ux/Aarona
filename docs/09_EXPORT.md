@@ -90,6 +90,19 @@ ExportPipeline.run(config)
   └─ 5. téléchargement local (aucun upload)
 ```
 
+**Implémenté à l'Étape 10/P8** (`src/export/`) — écarts par rapport au pseudocode ci-dessus,
+documentés en détail dans `docs/JOURNAL.md` :
+- Pas de `VideoFrame`/`VideoEncoder` bas niveau ni de `encodeQueueSize`/`ondequeue` manuels :
+  `CanvasSource.add()`/`AudioBufferSource.add()` de **Mediabunny** renvoient déjà une Promise qui
+  respecte la contre-pression en interne (confirmé en lisant `spike-export/main.js`, le spike
+  jetable de l'Étape 1). `await` suffit.
+- L'annulation est vérifiée à chaque image comme prévu, mais via un `AbortSignal` standard
+  (`AbortController`), pas un flag maison.
+- Audio TOUJOURS réencodé via `AudioBufferSource` (branche « sinon » ci-dessus) : le remux direct
+  sans perte (branche « MP4 + AAC ») n'est pas implémenté, faute de capacité de démuxage dans ce
+  lot — `AudioEngine` fournit déjà un `AudioBuffer` décodé, qui couvre tous les formats d'entrée
+  uniformément, au prix de ne pas être maximal pour le cas MP4/AAC pur.
+
 ### Pourquoi ce pipeline garantit l'identité preview/export
 
 | Source de non-déterminisme | Neutralisation |
@@ -183,6 +196,17 @@ Repli :  canvas.captureStream(fps) → MediaRecorder
          conteneur WebM/VP9 (ou MP4/H.264 sur Safari selon la version)
          audio : piste de l'élément média, capturée en direct
 
+**Implémenté à l'Étape 10/P8** (`src/export/encoders/MediaRecorderFallback.ts`) : le repli
+PARTIEL Firefox décrit ci-dessus n'est PAS implémenté — faute de capacité de remux audio (voir
+plus haut), un navigateur avec vidéo WebCodecs mais sans `AudioEncoder` AAC bascule sur le repli
+`MediaRecorder` COMPLET, pas le chemin partiel optimal. `detectExportPath()` teste donc les deux
+en bloc (`canEncodeVideo` ET `canEncodeAudio`, via Mediabunny), pas séparément avec un chemin
+intermédiaire. Par ailleurs, `MediaRecorder` étant structurellement temps réel (`captureStream`)
+et `ExportPipeline` déterministe (`t = f/fps`), les deux chemins ne partagent PAS une interface
+par-image : `FrameEncoder` (`ExportPipeline`, `MediabunnyEncoder`) et `runRealtimeCapture`
+(`MediaRecorderFallback`) sont deux fonctions distinctes, unifiées seulement au niveau du résultat
+(`{blob, elapsedMs, totalFrames}`) — voir `docs/JOURNAL.md`, Étape 10, pour le raisonnement complet.
+
 Message UI, sans euphémisme :
   « Export en mode compatible : le rendu s'effectue en temps réel et certaines images
     peuvent être perdues sur une machine chargée. Pour une qualité optimale, utilisez
@@ -207,6 +231,12 @@ Position retenue :
 - version payante : clé de licence, aucun watermark, jusqu'à 4K ;
 - vérification de licence locale, contrôle en ligne optionnel et non bloquant ;
 - pas d'obfuscation agressive : elle gêne les utilisateurs honnêtes et ne retient pas les autres.
+
+**Implémenté à l'Étape 10/P8** (`src/export/watermark.ts`) : uniquement le MÉCANISME de dessin — un
+point plein + un anneau, en bas-droite dans la safe area, sans typographie (`Renderer.drawText`
+reste différé, aucune couche `Text` avant P12). Gardé par un simple booléen `watermarked` fourni
+par l'appelant. La logique commerciale (clé de licence, plafond 720p en gratuit) n'existe pas
+encore — c'est un chantier UI/P16, hors périmètre de ce lot.
 
 Ce compromis est celui de la majorité des outils créatifs indépendants qui réussissent. Le
 contournement existe et reste marginal ; la friction imposée aux clients payants, elle, se paierait

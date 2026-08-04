@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>PULSAR VISUALIZER — dev P7 (style Pulse)</title>
+  <title>PULSAR VISUALIZER — dev P8 (export)</title>
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -26,11 +26,12 @@
   </style>
 </head>
 <body>
-  <h1>PULSAR VISUALIZER — Étape 9 / P7 : Scene, Layer, style Pulse</h1>
+  <h1>PULSAR VISUALIZER — Étape 10 / P8 : export production</h1>
   <p>
     Harnais de vérification manuelle. Timeline SYNTHÉTIQUE (clic 120 BPM écrit à la main, pas de
     fichier audio) — pipeline réel : MusicTimeline → StepContextBuilder → BehaviourEngine → Scene
-    Pulse → Canvas2DRenderer → FlashLimiter (docs/03_DATA_FLOW.md FLUX 2).
+    Pulse → Canvas2DRenderer → FlashLimiter (docs/03_DATA_FLOW.md FLUX 2), et désormais
+    ExportPipeline → Mediabunny (ou repli MediaRecorder) → fichier MP4 téléchargé (docs/09_EXPORT.md).
   </p>
 
   <canvas id="canvas"></canvas>
@@ -53,6 +54,37 @@
     <label>
       <input type="checkbox" id="flash-stress" /> Test de stress (alternance noir/blanc ~20/s, doit être clampée)
     </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Export (docs/09_EXPORT.md)</legend>
+    <label>
+      Format
+      <select id="export-format">
+        <option value="preview" selected>Aperçu rapide (854×480)</option>
+        <option value="youtube">YouTube (1920×1080, 16:9)</option>
+        <option value="vertical">Shorts/TikTok/Reels (1080×1920, 9:16)</option>
+        <option value="square">Post carré (1080×1080, 1:1)</option>
+        <option value="free">Gratuit (1280×720, watermark)</option>
+      </select>
+    </label>
+    <label>
+      Fps
+      <select id="export-fps">
+        <option value="30" selected>30</option>
+        <option value="60">60</option>
+      </select>
+    </label>
+    <label>
+      Durée à exporter (secondes)
+      <input type="number" id="export-duration" value="5" min="1" max="60" step="1" />
+    </label>
+    <label>
+      <input type="checkbox" id="export-watermark" /> Watermark (marque discrète en bas à droite)
+    </label>
+    <button id="btn-export">Exporter</button>
+    <button id="btn-export-cancel" disabled>Annuler</button>
+    <p id="export-status" style="opacity: 0.8; font-size: 0.85rem;"></p>
   </fieldset>
 
   <fieldset>

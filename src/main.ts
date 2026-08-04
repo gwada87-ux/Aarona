@@ -10,6 +10,13 @@ import { FlashLimiter } from './visual/safety/FlashLimiter';
 import { Canvas2DRenderer } from './render/canvas2d/Canvas2DRenderer';
 import { createViewport } from './render/Viewport';
 import { FixedStep, FIXED_DT } from './core/time/FixedStep';
+import { findFormat } from './export/formats';
+import { runExport, ExportCancelledError } from './export/ExportPipeline';
+import { createOffscreenExportTarget } from './export/createOffscreenExportTarget';
+import { MediabunnyEncoder } from './export/encoders/MediabunnyEncoder';
+import { detectExportPath } from './export/encoders/detectSupport';
+import { runRealtimeCapture } from './export/encoders/MediaRecorderFallback';
+import { BITRATE_BPS } from './export/formats';
 
 /**
  * Harnais de développement P7 — vérification manuelle du style `Pulse`
@@ -183,6 +190,120 @@ function raf(nowMs: number): void {
   requestAnimationFrame(raf);
 }
 requestAnimationFrame(raf);
+
+/**
+ * Export (Étape 10/P8) — docs/09_EXPORT.md. Aucun fichier audio réel dans ce
+ * harnais (timeline synthétique, voir en-tête) : un ton sinusoïdal déterministe
+ * tient lieu de piste audio, exactement comme `spike-export/main.js` ("pas de
+ * Math.random, pas de fichier source"). Uniquement un besoin du harnais — la
+ * production attendra un vrai `AudioBuffer` décodé par `AudioEngine` (P3).
+ */
+function buildToneBuffer(durationSec: number): AudioBuffer {
+  const sampleRate = 48000;
+  const length = Math.round(sampleRate * durationSec);
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new AudioCtx();
+  const buffer = ctx.createBuffer(1, length, sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = 0.15 * Math.sin((2 * Math.PI * 220 * i) / sampleRate);
+  void ctx.close();
+  return buffer;
+}
+
+const exportFormatSelect = document.querySelector<HTMLSelectElement>('#export-format')!;
+const exportFpsSelect = document.querySelector<HTMLSelectElement>('#export-fps')!;
+const exportDurationInput = document.querySelector<HTMLInputElement>('#export-duration')!;
+const exportWatermarkCheckbox = document.querySelector<HTMLInputElement>('#export-watermark')!;
+const btnExport = document.querySelector<HTMLButtonElement>('#btn-export')!;
+const btnExportCancel = document.querySelector<HTMLButtonElement>('#btn-export-cancel')!;
+const exportStatus = document.querySelector<HTMLElement>('#export-status')!;
+
+let exportController: AbortController | null = null;
+
+btnExportCancel.addEventListener('click', () => exportController?.abort());
+
+btnExport.addEventListener('click', () => {
+  void runExportFromUi();
+});
+
+async function runExportFromUi(): Promise<void> {
+  const format = findFormat(exportFormatSelect.value);
+  if (!format) return;
+  const fps = Number(exportFpsSelect.value) as 30 | 60;
+  const durationSec = Number(exportDurationInput.value);
+  const watermarked = exportWatermarkCheckbox.checked;
+
+  btnExport.disabled = true;
+  btnExportCancel.disabled = false;
+  exportController = new AbortController();
+  const startedAt = performance.now();
+
+  try {
+    const bitrateBps = BITRATE_BPS.medium;
+    exportStatus.textContent = 'Détection du support codec…';
+    const path = await detectExportPath(format.width, format.height, bitrateBps);
+
+    const exportTimeline = timeline; // même timeline que la preview — voir buildSyntheticDoc plus haut
+    const audioBuffer = buildToneBuffer(durationSec);
+
+    let result;
+    if (path === 'webcodecs') {
+      exportStatus.textContent = `Export WebCodecs — ${format.label}, ${fps}fps…`;
+      const { target, canvas: exportCanvas } = createOffscreenExportTarget(format.width, format.height, false);
+      const encoder = new MediabunnyEncoder(exportCanvas, fps, bitrateBps);
+      result = await runExport(
+        {
+          timeline: exportTimeline,
+          projectSeed: 1,
+          mapping: defaultMapping,
+          createScene: createPulseStyle,
+          palette: defaultPalette,
+          fps,
+          durationSec,
+          audioBuffer,
+          watermarked,
+          signal: exportController.signal,
+          onProgress: (done, total) => {
+            exportStatus.textContent = `Encodage : image ${done}/${total}`;
+          },
+        },
+        target,
+        encoder,
+      );
+    } else {
+      exportStatus.textContent = 'WebCodecs indisponible — repli MediaRecorder (temps réel)…';
+      result = await runRealtimeCapture({
+        canvas,
+        fps,
+        bitrateBps,
+        durationSec,
+        signal: exportController.signal,
+      });
+    }
+
+    const url = URL.createObjectURL(result.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pulsar-export-${format.id}-${fps}fps.mp4`;
+    link.click();
+
+    const totalMs = performance.now() - startedAt;
+    exportStatus.textContent =
+      `Terminé (${path}) — ${result.totalFrames} images, ${(result.blob.size / 1024).toFixed(1)} Ko, ` +
+      `encodage ${result.elapsedMs.toFixed(0)} ms, total ${totalMs.toFixed(0)} ms.`;
+  } catch (err) {
+    if (err instanceof ExportCancelledError) {
+      exportStatus.textContent = 'Export annulé.';
+    } else {
+      exportStatus.textContent = `Échec : ${err instanceof Error ? err.message : String(err)}`;
+      console.error(err);
+    }
+  } finally {
+    btnExport.disabled = false;
+    btnExportCancel.disabled = true;
+    exportController = null;
+  }
+}
 
 /**
  * `requestAnimationFrame` est suspendu par le navigateur tant que l'onglet
