@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Destination des « suppressions » de l'agent de codage.
+# Rien n'est jamais supprimé : tout y est déplacé, et l'utilisateur décide.
+_corbeille/
+
+# Sorties de tests et de bancs
+tests/golden/actual/
+tests/bench/results/
+
+# Corpus audio (droits, poids) — les annotations .truth.json sont versionnées
+tests/fixtures/*.mp3
+tests/fixtures/*.wav
+tests/fixtures/*.flac
+
+.env
+.env.*
+.DS_Store
+Thumbs.db

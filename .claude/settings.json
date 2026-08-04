@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "permissions": {
+    "defaultMode": "default",
+
+    "allow": [
+      "Bash(npm run dev)",
+      "Bash(npm run build)",
+      "Bash(npm run test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx vitest:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(node --check:*)"
+    ],
+
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(unlink:*)",
+      "Bash(shred:*)",
+      "Bash(truncate:*)",
+      "Bash(del:*)",
+      "Bash(erase:*)",
+      "Bash(Remove-Item:*)",
+      "Bash(sudo:*)",
+      "Bash(su:*)",
+      "Bash(doas:*)",
+      "Bash(chmod:*)",
+      "Bash(chown:*)",
+      "Bash(icacls:*)",
+      "Bash(attrib:*)",
+      "Bash(dd:*)",
+      "Bash(mkfs:*)",
+      "Bash(diskpart:*)",
+      "Bash(fdisk:*)",
+      "Bash(format:*)",
+      "Bash(apt:*)",
+      "Bash(apt-get:*)",
+      "Bash(brew:*)",
+      "Bash(choco:*)",
+      "Bash(winget:*)",
+      "Bash(snap:*)",
+      "Bash(dnf:*)",
+      "Bash(yum:*)",
+      "Bash(pacman:*)",
+      "Bash(kill:*)",
+      "Bash(killall:*)",
+      "Bash(pkill:*)",
+      "Bash(taskkill:*)",
+      "Bash(systemctl:*)",
+      "Bash(launchctl:*)",
+      "Bash(reg:*)",
+      "Bash(regedit:*)",
+      "Bash(npm install -g:*)",
+      "Bash(npm i -g:*)",
+      "Bash(pnpm add -g:*)",
+      "Bash(yarn global:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm cache clean:*)",
+      "Bash(git clean:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git checkout -- :*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git branch -D:*)",
+      "Bash(git rebase:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(iwr:*)",
+      "Bash(Invoke-WebRequest:*)",
+      "Bash(eval:*)",
+      "Bash(find:*)",
+      "Bash(xargs:*)",
+
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(//**/.ssh/**)",
+      "Read(//**/.aws/**)",
+      "Read(//**/id_rsa*)",
+      "Read(//**/*.pem)",
+
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Edit(./.claude/settings.json)",
+      "Edit(./.claude/hooks/**)",
+      "Edit(//**/.bashrc)",
+      "Edit(//**/.zshrc)",
+      "Edit(//**/.gitconfig)",
+      "Edit(//**/.ssh/**)",
+
+      "Write(./.env)",
+      "Write(./.claude/settings.json)",
+      "Write(./.claude/hooks/**)"
+    ],
+
+    "ask": [
+      "Bash(npm install:*)",
+      "Bash(npm i:*)",
+      "Bash(pnpm:*)",
+      "Bash(yarn:*)",
+      "Bash(npx:*)",
+      "Bash(git push:*)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "WebFetch"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/garde-fou.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}
