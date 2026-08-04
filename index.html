@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>PULSAR VISUALIZER — dev P2 (fondations)</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #14161b;
+      color: #e8e8ec;
+      max-width: 960px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    h1 { font-size: 1.1rem; font-weight: 600; }
+    p { opacity: 0.8; font-size: 0.9rem; }
+    #controls { margin: 1rem 0; display: flex; gap: 0.5rem; }
+    button {
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+    }
+    button[aria-pressed="true"] { outline: 2px solid #ff5a3c; }
+    canvas {
+      display: block;
+      background: #000;
+      max-width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>PULSAR VISUALIZER — Étape 3 / P2 : vérification visuelle de Loi 4</h1>
+  <p>
+    Un cercle normalisé (rayon 0,3, centré) doit occuper la même proportion du petit côté et
+    rester centré, sans code conditionnel par ratio.
+  </p>
+  <div id="controls">
+    <button data-aspect="16:9">16:9</button>
+    <button data-aspect="9:16">9:16</button>
+    <button data-aspect="1:1">1:1</button>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

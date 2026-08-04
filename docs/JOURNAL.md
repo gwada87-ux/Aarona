@@ -26,3 +26,24 @@ Limites connues : pleine bande uniquement (pas les 6 sous-bandes de docs/04 §É
 P4) ; pas de test navigateur réel de `tools/annotate/` par un humain.
 Bloque la suite : **3 morceaux réels annotés à la main**, à fournir par Aaron — je ne peux ni
 générer ni télécharger de musique. Sans eux, la vérité terrain (docs/11 §Annotation) n'existe pas.
+
+## Étape 3 — P2 : fondations
+
+Fait et vérifié : TypeScript strict (`noUncheckedIndexedAccess`) + Vite + Vitest configurés.
+`core/` : `mulberry32`/`hash` (RNG seedé, Loi 1), `FixedStep` (pas fixe 1/120s, reliquat
+reporté), `TypedEmitter`, `clamp`/`lerp`. `render/` : `Renderer` (interface minimale),
+`Viewport` (espace normalisé, aucun pixel exposé), `Canvas2DRenderer`.
+`tests/unit/architecture.test.ts` parse les imports de `src/` via l'API TypeScript et encode les
+9 couches de docs/02 — testé positif et négatif : un import `render→audio` temporaire le fait
+échouer (preuve collée dans la session), retiré ensuite. `npx tsc --noEmit` : 0 erreur.
+`npx vitest run` : 14/14. Cercle normalisé vérifié en 16:9/9:16/1:1 par échantillonnage de
+pixels réel dans le navigateur (`npm run dev`), pas seulement par le calcul.
+Fait mais non vérifié : `Canvas2DRenderer` non couvert par un test automatisé (nécessiterait un
+canvas mocké), seulement vérifié manuellement au navigateur. Restrictions fines
+`analysis→music/pmdi` et `visual→music` (types uniquement) pas encore encodées dans le test
+d'architecture — ces dossiers n'existent pas encore.
+Limites connues : `rgba()` recalculée à chaque appel dans `Canvas2DRenderer` (interdit en
+boucle particules, à revoir P7/P9). 2 vulnérabilités npm transitives (vite/vitest), non
+traitées. `typescript` fixé en 5.7 (la 7.0.2 tout juste sortie casse sa propre résolution de
+module en `moduleResolution: "Bundler"`). Pas de CI (pas de remote git).
+Bloque la suite : rien. Prochaine étape (00a) : Étape 4, moteur audio et Transport (P3).
