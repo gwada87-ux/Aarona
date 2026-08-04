@@ -1,0 +1,1275 @@
+{
+  "pmdi": "1.0",
+  "source": {
+    "kind": "pulsar",
+    "generator": "beat-studio-cdj/v18-melvelbase@pmdi-export-1",
+    "createdAt": "2026-08-04T19:12:24.895Z"
+  },
+  "audio": {
+    "duration": 14.117647058823529,
+    "sampleRate": 48000,
+    "channels": 2,
+    "ref": {
+      "kind": "none"
+    }
+  },
+  "tempo": {
+    "global": 136,
+    "confidence": 1,
+    "map": [
+      {
+        "t": 0,
+        "bpm": 136
+      }
+    ]
+  },
+  "meter": {
+    "map": [
+      {
+        "t": 0,
+        "num": 4,
+        "den": 4
+      }
+    ]
+  },
+  "grid": {
+    "beats": [
+      0,
+      0.4411764705882353,
+      0.8823529411764706,
+      1.3235294117647058,
+      1.7647058823529411,
+      2.2058823529411766,
+      2.6470588235294117,
+      3.0882352941176467,
+      3.5294117647058822,
+      3.9705882352941178,
+      4.411764705882353,
+      4.852941176470588,
+      5.294117647058823,
+      5.735294117647059,
+      6.1764705882352935,
+      6.617647058823529,
+      7.0588235294117645,
+      7.5,
+      7.9411764705882355,
+      8.382352941176471,
+      8.823529411764707,
+      9.26470588235294,
+      9.705882352941176,
+      10.147058823529411,
+      10.588235294117647,
+      11.029411764705882,
+      11.470588235294118,
+      11.911764705882353,
+      12.352941176470587,
+      12.794117647058822,
+      13.235294117647058,
+      13.676470588235293
+    ],
+    "downbeats": [
+      0,
+      1.7647058823529411,
+      3.5294117647058822,
+      5.294117647058823,
+      7.0588235294117645,
+      8.823529411764707,
+      10.588235294117647,
+      12.352941176470587
+    ],
+    "bars": [
+      0,
+      1.7647058823529411,
+      3.5294117647058822,
+      5.294117647058823,
+      7.0588235294117645,
+      8.823529411764707,
+      10.588235294117647,
+      12.352941176470587
+    ]
+  },
+  "events": [
+    {
+      "t": 0.003472464338807499,
+      "type": "HAT_CLOSED",
+      "intensity": 0.42391750387676935,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.005331441176470589,
+      "type": "KICK",
+      "intensity": 0.9433890851778641,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 0.1184819447267599,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1923360727700596,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.22191563390807545,
+      "type": "HAT_CLOSED",
+      "intensity": 0.27793292909555345,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.22756836833729463,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 0.44195426347499733,
+      "type": "HAT_CLOSED",
+      "intensity": 0.267869278489006,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.4620330268213608,
+      "type": "SNARE",
+      "intensity": 0.42815881967302527,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 0.5572991421588764,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1923360727700596,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.6644905900177862,
+      "type": "HAT_OPEN",
+      "intensity": 0.28828147746524097,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 0.6665181037801013,
+      "type": "HAT_CLOSED",
+      "intensity": 0.22076997294021986,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.6710209535482817,
+      "type": "PERC",
+      "intensity": 0.1184892995941413,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 1.0006470588235294,
+      "type": "KICK",
+      "intensity": 0.28326222531645956,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 1.0070864798097745,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 1.3311192315694023,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3247911842201664,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.3440298224060956,
+      "type": "SNARE",
+      "intensity": 0.36037471220140543,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 1.4434643380366305,
+      "type": "HAT_CLOSED",
+      "intensity": 0.18571560322640857,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.549719088235294,
+      "type": "KICK",
+      "intensity": 0.36824089291139744,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 1.5506922664875842,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 1.5524333806265662,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1992584584592222,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.6635517818869523,
+      "type": "HAT_CLOSED",
+      "intensity": 0.13388780884060328,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.7700064702901068,
+      "type": "KICK",
+      "intensity": 0.9402735963170162,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 1.7700409537100967,
+      "type": "HAT_CLOSED",
+      "intensity": 0.42088829226005864,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.8839852514449853,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19145068369759,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.9936179690073812,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 1.9943298252718764,
+      "type": "HAT_CLOSED",
+      "intensity": 0.27674956309584287,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.221235916247859,
+      "type": "SNARE",
+      "intensity": 0.42936446590419175,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 2.425959295234756,
+      "type": "PERC",
+      "intensity": 0.11870751906364801,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 2.429756944209635,
+      "type": "HAT_OPEN",
+      "intensity": 0.2891918286929514,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 2.4320411761724596,
+      "type": "KICK",
+      "intensity": 0.3633807302884747,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 2.769632372116044,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 2.985472799998843,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19639197138424078,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.1062394196598433,
+      "type": "SNARE",
+      "intensity": 0.3613716400570045,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 3.319686279478523,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 3.4271176470588234,
+      "type": "KICK",
+      "intensity": 0.27952363868344204,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 3.534661666863088,
+      "type": "KICK",
+      "intensity": 0.9410970227203312,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 3.5386328354362795,
+      "type": "HAT_CLOSED",
+      "intensity": 0.5690271239421283,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.650078894920731,
+      "type": "HAT_CLOSED",
+      "intensity": 0.186306136840822,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.75194871068866,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19972152993622624,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.7556684946214314,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 3.8657007994170307,
+      "type": "HAT_CLOSED",
+      "intensity": 0.13398098036986633,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.868294117647059,
+      "type": "KICK",
+      "intensity": 0.2805117503674201,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 3.974309354423487,
+      "type": "HAT_CLOSED",
+      "intensity": 0.16483041853651942,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.9878869728466935,
+      "type": "SNARE",
+      "intensity": 0.4313451045975444,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 4.089725363546856,
+      "type": "HAT_CLOSED",
+      "intensity": 0.14221551261733023,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.1911128279071095,
+      "type": "PERC",
+      "intensity": 0.11906620871622654,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 4.195550449226595,
+      "type": "HAT_CLOSED",
+      "intensity": 0.17146078337266504,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.200432721370754,
+      "type": "HAT_OPEN",
+      "intensity": 0.2906885961504483,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 4.307519240844041,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20124122786382417,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.3094705882352935,
+      "type": "KICK",
+      "intensity": 0.2805117503674201,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 4.413757557759277,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19731467052265014,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.527938141999057,
+      "type": "HAT_CLOSED",
+      "intensity": 0.14221551261733023,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.5362325874857605,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 4.634907394871003,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21585633731398285,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.750515858108491,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20124122786382417,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.864859838994426,
+      "type": "SNARE",
+      "intensity": 0.36300939567240587,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 5.090073085378886,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 5.19218018862253,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19079334017000532,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.29930576647079,
+      "type": "KICK",
+      "intensity": 0.9424497497088742,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 5.518717571793766,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 5.518717571793766,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 5.633,
+      "type": "KICK",
+      "intensity": 0.2821350227536716,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 5.634089513534453,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20085304080121158,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.636511799851319,
+      "type": "SNARE",
+      "intensity": 0.09565570153563002,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 5.73797122689833,
+      "type": "HAT_CLOSED",
+      "intensity": 0.300438766581846,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.749609649823091,
+      "type": "SNARE",
+      "intensity": 0.43375937731660985,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 5.9537906285816025,
+      "type": "PERC",
+      "intensity": 0.11950375983977884,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 5.958753948075366,
+      "type": "HAT_OPEN",
+      "intensity": 0.2925151342422723,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 5.961782023075017,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1649885615996128,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.0741764705882355,
+      "type": "KICK",
+      "intensity": 0.2821350227536716,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 6.180927549519226,
+      "type": "HAT_CLOSED",
+      "intensity": 0.374944559746816,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.307062811643569,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 6.397365402771413,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2077082928531199,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.618647058823529,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2637898833455941,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.63741429394082,
+      "type": "SNARE",
+      "intensity": 0.3650057157059538,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 6.728941176470588,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2077650694208253,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.839235294117647,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3103170424769678,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.849379769713218,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 6.949529411764706,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2694252400670428,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 7.049291819785448,
+      "type": "FX",
+      "intensity": 0.43941511879210565,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 7.063979822855049,
+      "type": "KICK",
+      "intensity": 0.9440986379567629,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 7.280833337807232,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 7.397705882352941,
+      "type": "KICK",
+      "intensity": 0.28411368865113795,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 7.512589643639619,
+      "type": "SNARE",
+      "intensity": 0.43500303471077695,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 7.7281405655286335,
+      "type": "PERC",
+      "intensity": 0.11972929548681885,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 7.728193358521278,
+      "type": "HAT_OPEN",
+      "intensity": 0.2934569177874259,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 7.9450039421179985,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3778745041729356,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 8.057167881292084,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 8.163030386193299,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2089906476379784,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 8.396239420982472,
+      "type": "SNARE",
+      "intensity": 0.3660340743297495,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 8.608097172613281,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 8.60836746991387,
+      "type": "KICK",
+      "intensity": 0.36934779524647937,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 8.828666702280337,
+      "type": "KICK",
+      "intensity": 0.9449480250394433,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 9.049607024128074,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 9.162947566522087,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20451983187575662,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 9.287706072604431,
+      "type": "SNARE",
+      "intensity": 0.4357456085417172,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 9.48647129136951,
+      "type": "HAT_OPEN",
+      "intensity": 0.2940195315951707,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 9.487040293301565,
+      "type": "PERC",
+      "intensity": 0.11986400585256382,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 9.709203177026517,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2032127360897014,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 9.824176470588235,
+      "type": "KICK",
+      "intensity": 0.28513295315035453,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 9.826047576184592,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1451685835571221,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 9.829854988701756,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 9.932599472560636,
+      "type": "HAT_CLOSED",
+      "intensity": 0.22080882999029303,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 10.044943283207754,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2053437162771008,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 10.166305797145515,
+      "type": "SNARE",
+      "intensity": 0.366648095688392,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 10.375910344984726,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 10.485941176470588,
+      "type": "KICK",
+      "intensity": 0.28513295315035453,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 10.593318848096828,
+      "type": "KICK",
+      "intensity": 0.9454551845054628,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 10.593459020255416,
+      "type": "HAT_CLOSED",
+      "intensity": 0.26643774303164647,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 10.812446030531033,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21327636895001117,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 10.815160464309884,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 10.924471634331676,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19411374328769554,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.04486964179969,
+      "type": "SNARE",
+      "intensity": 0.43784546107273425,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 11.250633538577775,
+      "type": "PERC",
+      "intensity": 0.1202451238767147,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 11.259891896828305,
+      "type": "HAT_OPEN",
+      "intensity": 0.29561164325909145,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 11.364918574384443,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2061408231439208,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.368294117647057,
+      "type": "KICK",
+      "intensity": 0.28574154450957806,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 11.58631570923804,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 11.807947477374702,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2061408231439208,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.919319202989513,
+      "type": "HAT_CLOSED",
+      "intensity": 0.15864360463990543,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.933265769430934,
+      "type": "SNARE",
+      "intensity": 0.3683844271484056,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 12.031889272729403,
+      "type": "HAT_CLOSED",
+      "intensity": 0.14602138357870958,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.13805889725188,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 12.13943004370279,
+      "type": "HAT_CLOSED",
+      "intensity": 0.22233463950833846,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.248457951238914,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20667223480998953,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.250647058823528,
+      "type": "KICK",
+      "intensity": 0.28574154450957806,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 12.356548655742323,
+      "type": "HAT_CLOSED",
+      "intensity": 0.5141149255014853,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.357581118317606,
+      "type": "KICK",
+      "intensity": 0.9468893315814543,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 12.57313229809623,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21908807853659912,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.573411110428479,
+      "type": "CLAP",
+      "intensity": 0.09463551983734472,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 12.691823529411762,
+      "type": "KICK",
+      "intensity": 0.28746252100076763,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 12.796335993592445,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3193899466485878,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.813911889472458,
+      "type": "SNARE",
+      "intensity": 0.4518873431011745,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 13.018217485422689,
+      "type": "HAT_OPEN",
+      "intensity": 0.3063012247541629,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 13.021407575348812,
+      "type": "HAT_CLOSED",
+      "intensity": 0.17402784667311152,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 13.021428540804084,
+      "type": "PERC",
+      "intensity": 0.12280054762339238,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 13.24190082241604,
+      "type": "HAT_CLOSED",
+      "intensity": 0.39976822336667955,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 13.349604382406444,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 13.353588235294115,
+      "type": "KICK",
+      "intensity": 0.28746252100076763,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 13.460618985628471,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21908807853659912,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 13.682109339679958,
+      "type": "HAT_CLOSED",
+      "intensity": 0.29713726712887994,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 13.682470588235294,
+      "type": "SNARE",
+      "intensity": 0.2737671387715326,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 13.792764705882352,
+      "type": "SNARE",
+      "intensity": 0.30631656051978384,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 13.90305882352941,
+      "type": "SNARE",
+      "intensity": 0.4407011310205079,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 13.903975141645445,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21908807853659912,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 14.01335294117647,
+      "type": "SNARE",
+      "intensity": 0.41783902566561293,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    }
+  ],
+  "sections": [
+    {
+      "t": 0,
+      "dur": 7.0588235294117645,
+      "energy": 0.15,
+      "label": "intro",
+      "confidence": 1
+    },
+    {
+      "t": 7.0588235294117645,
+      "dur": 10.588235294117647,
+      "energy": 0.45,
+      "label": "build",
+      "confidence": 1
+    }
+  ],
+  "confidence": {
+    "tempo": 1,
+    "grid": 1,
+    "classification": 1,
+    "structure": 1
+  }
+}

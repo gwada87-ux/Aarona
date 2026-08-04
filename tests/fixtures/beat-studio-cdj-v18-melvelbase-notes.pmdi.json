@@ -1,0 +1,1799 @@
+{
+  "pmdi": "1.0",
+  "source": {
+    "kind": "pulsar",
+    "generator": "beat-studio-cdj/v18-melvelbase@pmdi-export-1",
+    "createdAt": "2026-08-04T19:12:45.639Z"
+  },
+  "audio": {
+    "duration": 13.81294964028777,
+    "sampleRate": 48000,
+    "channels": 2,
+    "ref": {
+      "kind": "none"
+    }
+  },
+  "tempo": {
+    "global": 139,
+    "confidence": 1,
+    "map": [
+      {
+        "t": 0,
+        "bpm": 139
+      }
+    ]
+  },
+  "meter": {
+    "map": [
+      {
+        "t": 0,
+        "num": 4,
+        "den": 4
+      }
+    ]
+  },
+  "grid": {
+    "beats": [
+      0,
+      0.4316546762589928,
+      0.8633093525179856,
+      1.2949640287769784,
+      1.7266187050359711,
+      2.158273381294964,
+      2.5899280575539567,
+      3.0215827338129495,
+      3.4532374100719423,
+      3.884892086330935,
+      4.316546762589928,
+      4.748201438848921,
+      5.179856115107913,
+      5.611510791366906,
+      6.043165467625899,
+      6.474820143884892,
+      6.906474820143885,
+      7.338129496402877,
+      7.76978417266187,
+      8.201438848920862,
+      8.633093525179856,
+      9.06474820143885,
+      9.496402877697841,
+      9.928057553956833,
+      10.359712230215827,
+      10.79136690647482,
+      11.223021582733812,
+      11.654676258992804,
+      12.086330935251798,
+      12.517985611510792,
+      12.949640287769784,
+      13.381294964028775
+    ],
+    "downbeats": [
+      0,
+      1.7266187050359711,
+      3.4532374100719423,
+      5.179856115107913,
+      6.906474820143885,
+      8.633093525179856,
+      10.359712230215827,
+      12.086330935251798
+    ],
+    "bars": [
+      0,
+      1.7266187050359711,
+      3.4532374100719423,
+      5.179856115107913,
+      6.906474820143885,
+      8.633093525179856,
+      10.359712230215827,
+      12.086330935251798
+    ]
+  },
+  "events": [
+    {
+      "t": 0,
+      "type": "KICK",
+      "intensity": 0.9524714945449888,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 0,
+      "type": "HAT_CLOSED",
+      "intensity": 0.4844737999451512,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.21355950788344238,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20889703425348544,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.21849848890820509,
+      "type": "CLAP",
+      "intensity": 0.08766034497810254,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 0.4474356203383301,
+      "type": "SNARE",
+      "intensity": 0.3532134938547456,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 0.8569111966267232,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3775907700320581,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 0.9744851247405678,
+      "type": "KICK",
+      "intensity": 0.28605321463270905,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 0.9801079873281433,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 1.0770471531212895,
+      "type": "PERC",
+      "intensity": 0.1328721998975359,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 1.0773353653924824,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20889703425348544,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.2942287607271792,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3566266224307429,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.3001162154875923,
+      "type": "SNARE",
+      "intensity": 0.3545282578775192,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 1.4068577947036813,
+      "type": "HAT_CLOSED",
+      "intensity": 0.18898193200958066,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.5078859800181268,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20287665619674838,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.509196676225971,
+      "type": "FX",
+      "intensity": 0.05721679597191874,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 1.5120955054476963,
+      "type": "KICK",
+      "intensity": 0.37186917902252176,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 1.6199942509420666,
+      "type": "HAT_CLOSED",
+      "intensity": 0.10787577435294869,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.6201274532646495,
+      "type": "HAT_OPEN",
+      "intensity": 0.2348249252967507,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 1.7263487050359712,
+      "type": "KICK",
+      "intensity": 0.9493253086996919,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 1.727956987512044,
+      "type": "HAT_CLOSED",
+      "intensity": 0.48233075097675654,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 1.9393622688746417,
+      "type": "CLAP",
+      "intensity": 0.08806636562657444,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 1.9421146232308424,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20831883816399258,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.053490492112696,
+      "type": "KICK",
+      "intensity": 0.2822777916183527,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 2.157635363173846,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2714504678743197,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.164830180342011,
+      "type": "SNARE",
+      "intensity": 0.35417723413296553,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 2.2682724087857515,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19483770218453778,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.3734447218006642,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2823344315544383,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.5870812583096776,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1990585508079787,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.6996143469099376,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 2.7011312526095703,
+      "type": "KICK",
+      "intensity": 0.2822777916183527,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 2.7019575548870196,
+      "type": "HAT_CLOSED",
+      "intensity": 0.14338283330123724,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.7995523751481968,
+      "type": "PERC",
+      "intensity": 0.1331772545728384,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 2.805822351498416,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21820697749665963,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 2.914281506383265,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20345378132095882,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.025835420474088,
+      "type": "SNARE",
+      "intensity": 0.35545351070866293,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 3.2355288309387737,
+      "type": "FX",
+      "intensity": 0.057445632856238014,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 3.345549268144218,
+      "type": "HAT_OPEN",
+      "intensity": 0.235445223644716,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 3.4494910906174066,
+      "type": "HAT_CLOSED",
+      "intensity": 0.48675853182925694,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.4514473348103496,
+      "type": "KICK",
+      "intensity": 0.9501165676298581,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 3.662495490195801,
+      "type": "CLAP",
+      "intensity": 0.08886664173764676,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 3.6654607405583497,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2098294941128829,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.8793288081211443,
+      "type": "HAT_CLOSED",
+      "intensity": 0.35851862155935343,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 3.894858413207398,
+      "type": "SNARE",
+      "intensity": 0.35607803283909406,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 3.9938022143332255,
+      "type": "HAT_CLOSED",
+      "intensity": 0.18967617776178944,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.0993712356611836,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20344608254712687,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.100719424460431,
+      "type": "KICK",
+      "intensity": 0.36819549303491766,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 4.210091011968452,
+      "type": "HAT_CLOSED",
+      "intensity": 0.13595034733419198,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.423342291128545,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 4.427743887913707,
+      "type": "KICK",
+      "intensity": 0.28322730233455207,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 4.5302737313144545,
+      "type": "PERC",
+      "intensity": 0.1337792741171484,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 4.74213219001206,
+      "type": "HAT_CLOSED",
+      "intensity": 0.35851862155935343,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.75374257621917,
+      "type": "SNARE",
+      "intensity": 0.35727840007359424,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 4.853570452448686,
+      "type": "HAT_CLOSED",
+      "intensity": 0.18967617776178944,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 4.957812554483576,
+      "type": "FX",
+      "intensity": 0.05789697110935321,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 4.959330985360681,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20344608254712687,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.0709471274416416,
+      "type": "HAT_CLOSED",
+      "intensity": 0.10798919940812164,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.075149441793606,
+      "type": "HAT_OPEN",
+      "intensity": 0.2366697324988517,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 5.1754907038041456,
+      "type": "HAT_CLOSED",
+      "intensity": 0.49222668590809115,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.179586115107913,
+      "type": "KICK",
+      "intensity": 0.951677178911406,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 5.391747538972545,
+      "type": "CLAP",
+      "intensity": 0.08967722752598482,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 5.392196033013926,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21166119353199425,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.609935298128209,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3068874082347882,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 5.617185705377722,
+      "type": "SNARE",
+      "intensity": 0.3580049800654198,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 5.827550533084569,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21166119353199425,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.042150820715937,
+      "type": "HAT_CLOSED",
+      "intensity": 0.45577193459838844,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.149210371665897,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 6.151167571274441,
+      "type": "HAT_CLOSED",
+      "intensity": 0.191337748105366,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.254660655393133,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2054182964935694,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.262296051392468,
+      "type": "PERC",
+      "intensity": 0.13439005461258371,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 6.364515859129131,
+      "type": "HAT_CLOSED",
+      "intensity": 0.13710183703233578,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 6.370233694050568,
+      "type": "KICK",
+      "intensity": 0.2851000358724097,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 6.490911966347424,
+      "type": "SNARE",
+      "intensity": 0.3591283937045706,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 6.697463012473474,
+      "type": "FX",
+      "intensity": 0.05835451824055176,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 6.802062607815786,
+      "type": "KICK",
+      "intensity": 0.2851000358724097,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 6.802355029883653,
+      "type": "HAT_OPEN",
+      "intensity": 0.23791254878924697,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 6.906204820143884,
+      "type": "KICK",
+      "intensity": 0.9532592588921298,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 7.118763982983234,
+      "type": "CLAP",
+      "intensity": 0.09003808312688741,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 7.338202658434952,
+      "type": "HAT_CLOSED",
+      "intensity": 0.27915050073884545,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 7.34169321830791,
+      "type": "SNARE",
+      "intensity": 0.358863347161929,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 7.4465829779673065,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19946122165888724,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 7.550867608001291,
+      "type": "HAT_CLOSED",
+      "intensity": 0.2895945356935331,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 7.665073638888227,
+      "type": "KICK",
+      "intensity": 0.2869985318492782,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 7.7684917938914655,
+      "type": "HAT_CLOSED",
+      "intensity": 0.38606407006998583,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 7.88433210160577,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 7.980370688053633,
+      "type": "PERC",
+      "intensity": 0.13466228390553753,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 7.986068747153771,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21282516016316425,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 8.09692392276721,
+      "type": "KICK",
+      "intensity": 0.2869985318492782,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 8.211190487053871,
+      "type": "SNARE",
+      "intensity": 0.35995248148439507,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 8.411334950505115,
+      "type": "FX",
+      "intensity": 0.058558334617646784,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 8.525191841476545,
+      "type": "HAT_OPEN",
+      "intensity": 0.23846663820318934,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 8.62635242487548,
+      "type": "HAT_CLOSED",
+      "intensity": 0.49803444360805355,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 8.632823525179855,
+      "type": "KICK",
+      "intensity": 0.9539640033609695,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 8.846578622952896,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21356935372391242,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 8.854231413624248,
+      "type": "CLAP",
+      "intensity": 0.09034450939075171,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 8.960023744052199,
+      "type": "KICK",
+      "intensity": 0.28784422521188596,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 9.071439883517202,
+      "type": "SNARE",
+      "intensity": 0.35959249770214685,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 9.280575539568344,
+      "type": "KICK",
+      "intensity": 0.3741974927754517,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 9.493230338649397,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21730533424869602,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 9.600571078902048,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 9.707260777490001,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21610347396769666,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 9.715526372017884,
+      "type": "PERC",
+      "intensity": 0.1348936068976443,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 9.81729974719246,
+      "type": "HAT_CLOSED",
+      "intensity": 0.19658740337754851,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 9.944493210828938,
+      "type": "SNARE",
+      "intensity": 0.3606525130353359,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 10.140826377116497,
+      "type": "SNARE",
+      "intensity": 0.1702222516512779,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 10.145486753801647,
+      "type": "FX",
+      "intensity": 0.05873146895849986,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 10.256119651910707,
+      "type": "HAT_OPEN",
+      "intensity": 0.2389375436363737,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 10.258263231033496,
+      "type": "SNARE",
+      "intensity": 0.13042051238649277,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 10.359442230215826,
+      "type": "KICK",
+      "intensity": 0.9545626572612179,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 10.584371210329431,
+      "type": "CLAP",
+      "intensity": 0.09113903073336732,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 10.803509572126583,
+      "type": "SNARE",
+      "intensity": 0.3614841640209376,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 11.33583449080798,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 11.43884892086331,
+      "type": "KICK",
+      "intensity": 0.37513139285983915,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 11.442031142268142,
+      "type": "PERC",
+      "intensity": 0.13549405553636343,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 11.5472239069198,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21002667069398692,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.654228881684757,
+      "type": "HAT_CLOSED",
+      "intensity": 0.18104822367603707,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.667339299686528,
+      "type": "SNARE",
+      "intensity": 0.3624686347193574,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 11.867499081818297,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21734652589397954,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 11.870819487831861,
+      "type": "FX",
+      "intensity": 0.05918063875698885,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 11.871658039671052,
+      "type": "KICK",
+      "intensity": 0.37513139285983915,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 11.977307573160951,
+      "type": "HAT_OPEN",
+      "intensity": 0.2401602034508724,
+      "confidence": 1,
+      "band": "HAT_O",
+      "source": "openhat"
+    },
+    {
+      "t": 11.977775854190734,
+      "type": "HAT_CLOSED",
+      "intensity": 0.1570188725927932,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.086060935251798,
+      "type": "KICK",
+      "intensity": 0.9561157705859014,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 12.08655488740176,
+      "type": "HAT_CLOSED",
+      "intensity": 0.27055672606815595,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.196190989819726,
+      "type": "HAT_CLOSED",
+      "intensity": 0.15336007918762334,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.299069325345672,
+      "type": "HAT_CLOSED",
+      "intensity": 0.23590751773058904,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.29990010749699,
+      "type": "CLAP",
+      "intensity": 0.09602656774719998,
+      "confidence": 1,
+      "band": "CLAP",
+      "source": "clap"
+    },
+    {
+      "t": 12.4083781491577,
+      "type": "HAT_CLOSED",
+      "intensity": 0.21877003044305554,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.514162886309755,
+      "type": "HAT_CLOSED",
+      "intensity": 0.3262214095089977,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.526197152633895,
+      "type": "SNARE",
+      "intensity": 0.3731538810188796,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 12.728790640908825,
+      "type": "HAT_CLOSED",
+      "intensity": 0.22327141285939625,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 12.844937725760277,
+      "type": "KICK",
+      "intensity": 0.2904263458818041,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 13.064392326056591,
+      "type": "SNARE",
+      "intensity": 0.088,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    },
+    {
+      "t": 13.16546762589928,
+      "type": "KICK",
+      "intensity": 0.3775542496463453,
+      "confidence": 1,
+      "band": "KICK",
+      "source": "kicksmp"
+    },
+    {
+      "t": 13.167139975344018,
+      "type": "PERC",
+      "intensity": 0.13920819722436104,
+      "confidence": 1,
+      "band": "PERC",
+      "source": "perc"
+    },
+    {
+      "t": 13.27305503416685,
+      "type": "HAT_CLOSED",
+      "intensity": 0.20966592862202973,
+      "confidence": 1,
+      "band": "HAT_C",
+      "source": "hihat"
+    },
+    {
+      "t": 13.59418536514401,
+      "type": "FX",
+      "intensity": 0.06195157376826491,
+      "confidence": 1,
+      "band": "FXC",
+      "source": "fx"
+    },
+    {
+      "t": 13.711035971223021,
+      "type": "SNARE",
+      "intensity": 0.3944275148095323,
+      "confidence": 1,
+      "band": "SNARE",
+      "source": "snare"
+    }
+  ],
+  "sections": [
+    {
+      "t": 0,
+      "dur": 6.906474820143885,
+      "energy": 0.15,
+      "label": "intro",
+      "confidence": 1
+    },
+    {
+      "t": 6.906474820143885,
+      "dur": 10.359712230215827,
+      "energy": 0.45,
+      "label": "build",
+      "confidence": 1
+    }
+  ],
+  "confidence": {
+    "tempo": 1,
+    "grid": 1,
+    "classification": 1,
+    "structure": 1
+  },
+  "notes": [
+    {
+      "t": 0,
+      "dur": 1.618705035971223,
+      "midi": 61,
+      "velocity": 0.21978218780370243,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 0,
+      "dur": 1.618705035971223,
+      "midi": 66,
+      "velocity": 0.21978218780370243,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 0,
+      "dur": 1.618705035971223,
+      "midi": 69,
+      "velocity": 0.21978218780370243,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 0.42881027029000884,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.21219505567773767,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 0.6466857856617843,
+      "dur": 0.2158273381294964,
+      "midi": 54,
+      "velocity": 0.10915852071006137,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 0.8621551657923692,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.24331479950180893,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 1.0806227466574103,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.10326038400898516,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 1.2913098747147072,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.16464335814544825,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 1.6176375472104656,
+      "dur": 0.2158273381294964,
+      "midi": 66,
+      "velocity": 0.07019527391942627,
+      "track": "bells",
+      "confidence": 1
+    },
+    {
+      "t": 1.7263487050359712,
+      "dur": 1.618705035971223,
+      "midi": 62,
+      "velocity": 0.2577247823011762,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 1.7263487050359712,
+      "dur": 1.618705035971223,
+      "midi": 67,
+      "velocity": 0.2577247823011762,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 1.7263487050359712,
+      "dur": 1.618705035971223,
+      "midi": 71,
+      "velocity": 0.2577247823011762,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 2.159098056219179,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.24673855551460125,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 2.3733335138682268,
+      "dur": 0.2158273381294964,
+      "midi": 50,
+      "velocity": 0.13068596877574631,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 2.587279843948871,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.2814588286575495,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 3.022850544634483,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.1923789776110554,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 3.4514473348103496,
+      "dur": 1.618705035971223,
+      "midi": 64,
+      "velocity": 0.17284042982794506,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 3.4514473348103496,
+      "dur": 1.618705035971223,
+      "midi": 68,
+      "velocity": 0.17284042982794506,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 3.4514473348103496,
+      "dur": 1.618705035971223,
+      "midi": 71,
+      "velocity": 0.17284042982794506,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 3.8832270709513472,
+      "dur": 0.1079136690647482,
+      "midi": 56,
+      "velocity": 0.26917444356348147,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 4.315732113166964,
+      "dur": 0.1079136690647482,
+      "midi": 56,
+      "velocity": 0.3764372446940318,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 4.743771586085109,
+      "dur": 0.1079136690647482,
+      "midi": 56,
+      "velocity": 0.26757131827655584,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 5.074761041281951,
+      "dur": 0.2158273381294964,
+      "midi": 71,
+      "velocity": 0.10098362116650843,
+      "track": "bells",
+      "confidence": 1
+    },
+    {
+      "t": 5.179586115107913,
+      "dur": 1.618705035971223,
+      "midi": 62,
+      "velocity": 0.2136490907412285,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 5.179586115107913,
+      "dur": 1.618705035971223,
+      "midi": 66,
+      "velocity": 0.2136490907412285,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 5.179586115107913,
+      "dur": 1.618705035971223,
+      "midi": 71,
+      "velocity": 0.2136490907412285,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 5.394021973446405,
+      "dur": 0.1079136690647482,
+      "midi": 59,
+      "velocity": 0.18188506726269732,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 5.608484946196885,
+      "dur": 0.1079136690647482,
+      "midi": 62,
+      "velocity": 0.2920090864551836,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 6.041910866783105,
+      "dur": 0.1079136690647482,
+      "midi": 62,
+      "velocity": 0.3890248719307895,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 6.474698503361617,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.2619845011127467,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 6.906204820143884,
+      "dur": 1.618705035971223,
+      "midi": 61,
+      "velocity": 0.22608121811190457,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 6.906204820143884,
+      "dur": 1.618705035971223,
+      "midi": 66,
+      "velocity": 0.22608121811190457,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 6.906204820143884,
+      "dur": 1.618705035971223,
+      "midi": 69,
+      "velocity": 0.22608121811190457,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 7.119000607010844,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.16234314345530998,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 7.336723969049591,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.21318471833774782,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 7.550827344633691,
+      "dur": 0.2158273381294964,
+      "midi": 54,
+      "velocity": 0.1202321289477051,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 7.768086427497635,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.25285592409853114,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 8.203324089634618,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.15036423076886918,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 8.52888709483245,
+      "dur": 0.2158273381294964,
+      "midi": 66,
+      "velocity": 0.08261930664277903,
+      "track": "bells",
+      "confidence": 1
+    },
+    {
+      "t": 8.632823525179855,
+      "dur": 1.618705035971223,
+      "midi": 62,
+      "velocity": 0.1810317173100757,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 8.632823525179855,
+      "dur": 1.618705035971223,
+      "midi": 67,
+      "velocity": 0.1810317173100757,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 8.632823525179855,
+      "dur": 1.618705035971223,
+      "midi": 71,
+      "velocity": 0.1810317173100757,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 9.064234566757147,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.25546951711470833,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 9.495262999424831,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.2907839678664864,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 9.711043321410529,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.13566893407121683,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 9.926844005614447,
+      "dur": 0.1079136690647482,
+      "midi": 50,
+      "velocity": 0.17431866360034137,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 10.139549909929576,
+      "dur": 0.2158273381294964,
+      "midi": 57,
+      "velocity": 0.1503041811608356,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 10.359442230215826,
+      "dur": 1.618705035971223,
+      "midi": 62,
+      "velocity": 0.24831603992712553,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 10.359442230215826,
+      "dur": 1.618705035971223,
+      "midi": 66,
+      "velocity": 0.24831603992712553,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 10.359442230215826,
+      "dur": 1.618705035971223,
+      "midi": 55,
+      "velocity": 0.24831603992712553,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 10.577378327767626,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.17124783834859597,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 10.790315298647474,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.2649029874708666,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 11.003004993327961,
+      "dur": 0.2158273381294964,
+      "midi": 54,
+      "velocity": 0.14499261745386666,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 11.224595001510007,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.28688483056389324,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 11.43884892086331,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.13067679847430058,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 11.652715282789522,
+      "dur": 0.1079136690647482,
+      "midi": 54,
+      "velocity": 0.18163829512282528,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 11.978732022023976,
+      "dur": 0.2158273381294964,
+      "midi": 66,
+      "velocity": 0.08264079222402332,
+      "track": "bells",
+      "confidence": 1
+    },
+    {
+      "t": 12.086060935251798,
+      "dur": 1.618705035971223,
+      "midi": 61,
+      "velocity": 0.1765819443222575,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 12.086060935251798,
+      "dur": 1.618705035971223,
+      "midi": 65,
+      "velocity": 0.1765819443222575,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 12.086060935251798,
+      "dur": 1.618705035971223,
+      "midi": 71,
+      "velocity": 0.1765819443222575,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 12.301728007080458,
+      "dur": 0.1079136690647482,
+      "midi": 53,
+      "velocity": 0.16867791765993986,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 12.516598727775134,
+      "dur": 0.1079136690647482,
+      "midi": 53,
+      "velocity": 0.2370100820943588,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 12.946855184210289,
+      "dur": 0.1079136690647482,
+      "midi": 53,
+      "velocity": 0.2972018136698596,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 13.16546762589928,
+      "dur": 0.1079136690647482,
+      "midi": 53,
+      "velocity": 0.1124838181251349,
+      "track": "piano",
+      "confidence": 1
+    },
+    {
+      "t": 13.273381294964029,
+      "dur": 0.2158273381294964,
+      "midi": 65,
+      "velocity": 0.37,
+      "track": "bells",
+      "confidence": 1
+    },
+    {
+      "t": 13.383515383435666,
+      "dur": 0.1079136690647482,
+      "midi": 53,
+      "velocity": 0.2167859448412226,
+      "track": "piano",
+      "confidence": 1
+    }
+  ],
+  "chords": [
+    {
+      "t": 0,
+      "dur": 1.7266187050359711,
+      "root": 6,
+      "quality": "min",
+      "confidence": 1
+    },
+    {
+      "t": 1.7266187050359711,
+      "dur": 1.7266187050359711,
+      "root": 7,
+      "quality": "maj",
+      "confidence": 1
+    },
+    {
+      "t": 3.4532374100719423,
+      "dur": 1.7266187050359711,
+      "root": 2,
+      "quality": "?",
+      "confidence": 1
+    },
+    {
+      "t": 5.179856115107913,
+      "dur": 1.7266187050359711,
+      "root": 11,
+      "quality": "min",
+      "confidence": 1
+    },
+    {
+      "t": 6.906474820143885,
+      "dur": 1.7266187050359711,
+      "root": 6,
+      "quality": "min",
+      "confidence": 1
+    },
+    {
+      "t": 8.633093525179856,
+      "dur": 1.7266187050359711,
+      "root": 7,
+      "quality": "maj",
+      "confidence": 1
+    },
+    {
+      "t": 10.359712230215827,
+      "dur": 1.7266187050359711,
+      "root": 2,
+      "quality": "?",
+      "confidence": 1
+    },
+    {
+      "t": 12.086330935251798,
+      "dur": 1.7266187050359711,
+      "root": 11,
+      "quality": "min",
+      "confidence": 1
+    }
+  ]
+}

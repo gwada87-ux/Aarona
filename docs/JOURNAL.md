@@ -71,3 +71,89 @@ hors périmètre P3. `waveform.ts` non créé (rattaché à P4, pas à P3). Pas 
 calibrationOffset (P13).
 Dette introduite : aucune connue.
 Bloque la suite : rien. Prochaine étape (00a) : Étape 5, types et validateur PMDI (P3bis).
+
+## Étape 5 — P3bis : types et validateur PMDI
+
+Fait et vérifié : `src/music/pmdi.ts` (types `PmdiDocument`, `TempoPoint`, `MeterPoint`,
+`MusicEvent`, `FeatureTrack`, `OnsetDescriptor`, `Section`, `NoteEvent`, `ChordEvent`,
+`TrackDescriptor`, `AudioRef` — copie fidèle de docs/12_INTEGRATION_PULSAR.md, aucune
+dépendance hors `core/`). `src/music/validatePmdi.ts` (`validatePmdi(doc: unknown):
+ValidationResult`, jamais de throw) : les 5 erreurs et 4 avertissements du tableau
+§"Validation" de la spec, plus la règle de version `MAJEUR.MINEUR` (MAJEUR≠1 → rejet,
+MINEUR>0 → avertissement). `tests/unit/pmdi.test.ts` : 14 tests (document minimal valide,
+chaque erreur, chaque avertissement, et un test chargeant un `.pmdi.json` RÉEL exporté par
+Beat Studio CDJ v18 MELVELBASE — `tests/fixtures/beat-studio-cdj-v18-melvelbase.pmdi.json`,
+squelette rythmique Mode B, 43 événements). `tests/unit/architecture.test.ts` couvrait déjà
+`music: ['core']` (anticipé à l'Étape 3) — aucune modification nécessaire, testé positif tel
+quel. `npx tsc --noEmit` : 0 erreur. `npx vitest run` : 38/38 (6 fichiers). `npm run
+test:arch` : 1/1.
+Fait mais non vérifié : intégration réelle dans le pipeline (`PmdiSource`, chargement dans
+`MusicTimeline`, rendu visuel à partir d'un PMDI) — hors périmètre P3bis, prévue à l'Étape
+qui couvrira P5 (MusicTimeline/StepContext).
+Limites connues : le vocabulaire `KNOWN_EVENT_TYPES`/`KNOWN_FEATURE_ID_PATTERN` du
+validateur (utilisé uniquement pour décider avertissement vs silence, jamais pour rejeter)
+est déduit des exemples cités dans la spec, pas d'une liste normative complète — un type ou
+une piste de features légitime mais absente de cette liste ne produira qu'un avertissement
+informatif, jamais une erreur (conforme au principe #3 de tolérance à l'inconnu).
+Dette introduite : aucune connue.
+Bloque la suite : rien. Prochaine étape (00a) : intégration Mode B réelle (PmdiSource,
+MusicTimeline) — pas encore planifiée dans ce journal.
+
+## Étape 6 — P4 : pipeline d'analyse audio
+
+Fait et vérifié : `src/analysis/` complet — `fft.ts` (FFT réelle par paquetage dans une FFT
+complexe N/2, docs/04 §Étape 1), `resample.ts` (interpolation par sinc fenêtrée Blackman
+CENTRÉE sur la position cible : non causale, donc retard de groupe nul par construction —
+pas besoin de le mesurer puis le soustraire), `stft.ts` (Hann 1024/hop 128, `frameTimestamp`
+au centre de fenêtre), `bands.ts` (6 bandes), `features.ts` (rms/peak/energy/centroid/
+flatness/rolloff85), `normalize.ts` (p05/p95), `onsets.ts` (seuil médian adaptatif par bande,
+période réfractaire, ancrage sur le pic d'énergie avant affinage ±6ms — le correctif trouvé
+par exécution en Étape 2, reporté ici car absent de la description abstraite de docs/04),
+`tempo.ts` (ODF pondéré, autocorrélation + peigne harmonique + pondération perceptuelle,
+résolution ×2/÷2 à trois tests, confiance), `beats.ts` (DP façon Ellis), `downbeats.ts`
+(score sur 4 phases), `onsetDescriptors.ts` (spectre de différence, decay30/saturation),
+`bassContour.ts` (Butterworth ordre 4 + autocorrélation + segmentation en notes),
+`waveformPeaks.ts`, `gridConfidence.ts` (docs/05 §8), `AnalysisPipeline.ts` (orchestration
+complète en document PMDI), `worker.ts` (enveloppe Worker).
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **89/89** verts (19 fichiers). `npm run
+test:arch` : 1/1. `npm run build` : succès. Le test de Dirac (docs/04 l.94-97, "aucun autre
+travail DSP ne commence avant qu'il ne passe") a été PORTÉ sur le code de production avant
+tout le reste — vert en premier, comme l'exige la règle. Tempo : clic à 120 BPM exact →
+120,19 BPM, confiance 0,92 (>0,9 requis, docs/11). Piège ×2/÷2 (motif Trap synthétique à
+70 BPM + hats en doubles-croches) → retourne bien 70, pas 140 ; a nécessité deux itérations
+sur `resolveOctaveAmbiguity` (voir Limites) après qu'un premier test (clic pur 120 BPM,
+tests/unit/tempo.test.ts) a révélé que l'arbitrage à trois tests peut, en cas d'égalité
+véritable entre candidats, faire basculer à tort vers l'octave concurrente — corrigé en
+gardant le candidat principal quand la COURBE PRIMAIRE (déjà favorisée par la pondération
+perceptuelle) sépare déjà nettement les deux candidats, l'arbitrage à trois tests ne
+tranchant que si elle hésite elle-même. Test d'intégration (`tests/unit/pipeline.test.ts`) :
+un morceau synthétique complet (kick + hats, 10s) produit un document PMDI qui passe
+`validatePmdi` sans erreur, avec progression croissante sur les 10 étapes jusqu'à 1,0.
+Fait mais non vérifié : `worker.ts` n'est pas testable en environnement Node (`self`/
+`postMessage` absents) — même limite qu'`AudioEngine.ts` en Étape 4 ; vérification manuelle
+au navigateur prévue à l'Étape 14 quand l'UI le branchera. Tout le DSP reste validé sur
+signaux synthétiques uniquement : le corpus de 3 morceaux annotés à la main, demandé à
+Aaron depuis l'Étape 2, n'a toujours pas été fourni — sans lui, aucune F-mesure réelle
+(docs/11 niveau 2) n'est mesurable. Le budget de performance (≤8s pour 4min, docs/03) n'a
+pas été mesuré sur un morceau de cette durée. `AnalysisPipeline` n'est pas encore branché
+dans `main.ts`/l'UI : module autonome, appelé uniquement par ses tests.
+Limites connues : classification d'onsets (KICK/SNARE/HAT/CLAP/PERC), structure par
+auto-similarité et macro-événements (DROP/BUILDUP/BREAK) sont hors périmètre de cette étape
+(docs/00a — Étape 12/P10 les couvre) ; `confidence.classification` et `confidence.structure`
+valent 0 dans le PMDI produit ici. `events[]` ne contient donc que des `SUB_HIT` (contour de
+basse) — aucun événement rythmique typé pour l'instant, les descripteurs bruts par bande
+attendent en `ext.onsetDescriptors`. Test 3 (plage de genre) de la résolution d'ambiguïté
+×2/÷2 (docs/05 l.58-61) est omis : aucun preset n'existe encore. `gridConfidence.ts`
+implémente la formule de confiance de docs/05 §8 mais pas le lissage de transition sur 2
+secondes (comportement d'exécution, Étapes 7-8, hors périmètre d'un module d'analyse
+hors-ligne). Le rééchantillonneur non causal n'a jamais été comparé numériquement à un
+filtre polyphase causal de référence — décision documentée en tête de fichier, pas mesurée.
+Dette introduite : aucune connue.
+Anomalie relevée (pas introduite par cette session) : le dernier commit du dépôt est
+« Etape 4 (P3) » — le travail de l'Étape 5 (P3bis : `src/music/`, `tests/unit/pmdi.test.ts`,
+fixtures) est présent sur le disque mais n'a jamais été committé. Signalé à Aaron plutôt que
+committé silencieusement ; les fichiers de l'Étape 5 ET de l'Étape 6 sont actuellement tous
+non indexés (`git status`).
+Bloque la suite : rien côté code. Le corpus de 3 morceaux annotés reste en attente d'Aaron
+(bloquant pour toute F-mesure réelle depuis l'Étape 2). Prochaine étape (00a) : Étape 7,
+`MusicTimeline` et `StepContext` (P5).
