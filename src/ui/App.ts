@@ -31,6 +31,8 @@ import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
 import type { MacroName } from '../presets/schema';
+import { applyMacroCurves } from '../presets/macros';
+import { LAYER_MACRO_CURVES } from '../presets/layerMacros';
 import { importTrack, type ImportedTrack } from './pipeline';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
@@ -221,6 +223,7 @@ function applyActiveConfiguration(): void {
   } else if (scene) {
     scene.init({ renderer, palette: currentPalette });
   }
+  applyLayerMacros();
 
   if (currentTimeline) {
     behaviourEngine = new BehaviourEngine(currentTimeline, currentMapping);
@@ -256,6 +259,31 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
     scene = STYLE_FACTORIES.field(QUALITY_LEVEL_CONFIGS[level].maxParticles);
     scene.init({ renderer, palette: currentPalette });
     if (currentTimeline) scene.reset(simT);
+    applyLayerMacros(); // la Scene vient d'être reconstruite : ses couches ont des `params` vides tant qu'on ne les réapplique pas
+  }
+}
+
+/**
+ * Câble `density`/`movement`/`depth`/`glow`/`chaos`/`smoothness` (Étape 20,
+ * `presets/layerMacros.ts`) sur `layer.params` de chaque couche de la Scene
+ * active — SANS jamais reconstruire la Scene (contrairement à un changement
+ * de style ou de niveau de qualité) : chaque couche lit ses `params` à
+ * chaque `update()`/`draw()`, donc réassigner l'objet suffit à faire
+ * apparaître l'effet dès l'image suivante, pool de particules et traînée de
+ * feedback intacts. `energy`/`reactivity` restent sur `WIRED_MACRO_CURVES` →
+ * `mapping.*` → `BehaviourEngine` (`resolvePreset`, inchangé).
+ */
+function applyLayerMacros(): void {
+  if (!scene) return;
+  const flat = applyMacroCurves(currentMacros, LAYER_MACRO_CURVES);
+  const layerPrefix = `${currentStyleId}.`;
+  for (const layer of scene.layers) {
+    const paramPrefix = `${layerPrefix}${layer.id}.`;
+    const params: Record<string, number> = {};
+    for (const [path, value] of Object.entries(flat)) {
+      if (path.startsWith(paramPrefix)) params[path.slice(paramPrefix.length)] = value;
+    }
+    layer.params = params;
   }
 }
 

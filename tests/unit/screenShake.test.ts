@@ -75,3 +75,41 @@ describe('ScreenShake — décroissance et direction', () => {
     expect(lastShake(renderer)).toEqual({ type: 'applyShake', dx: 0, dy: 0 });
   });
 });
+
+describe('ScreenShake — params (Étape 20, macro douceur)', () => {
+  it('params.decaySec plus long fait décroître le tremblement plus lentement', () => {
+    function magnitudeAfter(decaySec: number | undefined): number {
+      const shake = new ScreenShake();
+      shake.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      if (decaySec !== undefined) shake.params = { decaySec };
+      const stepper = makeStepBuilder();
+      shake.update(stepper.build(0), makeSignals({ impact: 1.0 }));
+      for (let t = 1 / 120; t <= 0.15; t += 1 / 120) shake.update(stepper.build(t), makeSignals({ impact: 0 }));
+      const renderer = new FakeRenderer();
+      shake.draw(renderer, testViewport);
+      const call = lastShake(renderer)!;
+      return Math.hypot(call.dx, call.dy);
+    }
+
+    const snappy = magnitudeAfter(0.08);
+    const soft = magnitudeAfter(0.3);
+    expect(soft).toBeGreaterThan(snappy);
+  });
+
+  it('params absent → comportement inchangé (décroissance par défaut de 0,15s)', () => {
+    function magnitudeAfter150ms(withParams: boolean): number {
+      const shake = new ScreenShake();
+      shake.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      if (withParams) shake.params = { decaySec: 0.15 };
+      const stepper = makeStepBuilder();
+      shake.update(stepper.build(0), makeSignals({ impact: 1.0 }));
+      for (let t = 1 / 120; t <= 0.15; t += 1 / 120) shake.update(stepper.build(t), makeSignals({ impact: 0 }));
+      const renderer = new FakeRenderer();
+      shake.draw(renderer, testViewport);
+      const call = lastShake(renderer)!;
+      return Math.hypot(call.dx, call.dy);
+    }
+
+    expect(magnitudeAfter150ms(false)).toBeCloseTo(magnitudeAfter150ms(true), 9);
+  });
+});

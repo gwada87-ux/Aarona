@@ -3,7 +3,6 @@ import type { Viewport } from '../../../render/Viewport';
 import type { StepContext } from '../../../music/StepContext';
 import type { VisualSignals } from '../../../behaviour/BehaviourEngine';
 import { BAND_IDS } from '../../../music/StepContext';
-import { Continuous } from '../../../behaviour/signals/Continuous';
 import type { Layer, LayerInitContext, LayerKind, LayerParams } from '../../scene/Layer';
 import type { Color } from '../../../render/Renderer';
 import type { Palette } from '../../palette/Palette';
@@ -16,14 +15,18 @@ const BAND_COUNT = BAND_IDS.length;
 const BAND_WIDTH_WEIGHTS = [1.1, 0.69, 1.2, 1.61, 1.1, 0.61] as const;
 const TOTAL_WEIGHT = BAND_WIDTH_WEIGHTS.reduce((a, b) => a + b, 0);
 
-const BAR_RISE_TAU = 0.05;
-const BAR_FALL_TAU = 0.35;
-const GAP = 0.006;
+// Valeurs par défaut — reprises telles quelles si `params` ne fournit rien (Étape 20 : densité/
+// mouvement/profondeur/glow/chaos/douceur pilotent ces constantes via `presets/layerMacros.ts`).
+const DEFAULT_BAR_RISE_TAU = 0.05;
+const DEFAULT_BAR_FALL_TAU = 0.35;
+const DEFAULT_GAP = 0.006;
 const MAX_HEIGHT = 0.42;
 const BASELINE = -0.05;
 const PEAK_GRAVITY = 1.3; // unités normalisées / s² — chute des chapeaux de pics
 const PEAK_HEIGHT = 0.006;
-const REFLECTION_ALPHA = 0.25; // docs/07 : « réflexion inférieure atténuée à 0,25 »
+const DEFAULT_REFLECTION_ALPHA = 0.25; // docs/07 : « réflexion inférieure atténuée à 0,25 »
+const DEFAULT_GLOW_ALPHA_MUL = 1;
+const DEFAULT_PEAK_CHAOS_JITTER = 0;
 const GLOW_SPRITE_SIZE = 48;
 
 /**
@@ -40,6 +43,13 @@ const GLOW_SPRITE_SIZE = 48;
  * séparé (voir docs/JOURNAL.md, Étape 11). Les largeurs de barres restent
  * non uniformes (plus larges pour le grave) pour garder l'esprit de
  * l'échelle logarithmique avec les données disponibles.
+ *
+ * Lissage par bande INLINE (Étape 20) plutôt que via `Continuous`
+ * (behaviour/signals) : `Continuous` fixe `riseTau`/`fallTau` au
+ * constructeur, alors que les macros mouvement/douceur doivent pouvoir les
+ * faire varier à tout instant pendant la lecture — recréer des `Continuous`
+ * à chaque changement réinitialiserait leur valeur et ferait sauter les
+ * barres. Même raisonnement que `ScreenShake` pour `Impulse`.
  */
 export class SpectrumBars implements Layer {
   readonly id = 'spectrumBars';
@@ -49,7 +59,6 @@ export class SpectrumBars implements Layer {
 
   private palette!: Palette;
   private glowSprite!: SpriteHandle;
-  private readonly smoothers = Array.from({ length: BAND_COUNT }, () => new Continuous(BAR_RISE_TAU, BAR_FALL_TAU));
   private readonly heights = new Float32Array(BAND_COUNT);
   private readonly peakHeights = new Float32Array(BAND_COUNT);
   private readonly peakVelocities = new Float32Array(BAND_COUNT);
@@ -79,37 +88,52 @@ export class SpectrumBars implements Layer {
     }, GLOW_SPRITE_SIZE);
   }
 
+  private param(key: string, fallback: number): number {
+    const v = this.params[key];
+    return typeof v === 'number' ? v : fallback;
+  }
+
   update(step: StepContext, _signals: VisualSignals): void {
+    const riseTau = this.param('riseTau', DEFAULT_BAR_RISE_TAU);
+    const fallTau = this.param('fallTau', DEFAULT_BAR_FALL_TAU);
+    const peakChaosJitter = this.param('peakChaosJitter', DEFAULT_PEAK_CHAOS_JITTER);
+
     for (let i = 0; i < BAND_COUNT; i++) {
       const target = step.bands[BAND_IDS[i]!];
-      this.smoothers[i]!.update(target, step.dt);
-      this.heights[i] = this.smoothers[i]!.value;
+      const tau = target > this.heights[i]! ? riseTau : fallTau;
+      this.heights[i]! += (target - this.heights[i]!) * (1 - Math.exp(-step.dt / tau));
 
       this.peakVelocities[i]! += PEAK_GRAVITY * step.dt;
       this.peakHeights[i]! -= this.peakVelocities[i]! * step.dt;
       if (this.peakHeights[i]! < 0) this.peakHeights[i] = 0;
       if (this.heights[i]! > this.peakHeights[i]!) {
         this.peakHeights[i] = this.heights[i]!;
-        this.peakVelocities[i] = 0;
+        // Macro chaos (Étape 20) : au lieu de retomber exactement de 0, un petit à-coup de
+        // vitesse initiale — amplitude nulle par défaut (comportement inchangé).
+        this.peakVelocities[i] = peakChaosJitter > 0 ? -step.rng.next() * peakChaosJitter : 0;
       }
     }
   }
 
   draw(renderer: Renderer, viewport: Viewport): void {
+    const gap = this.param('gap', DEFAULT_GAP);
+    const reflectionAlpha = this.param('reflectionAlpha', DEFAULT_REFLECTION_ALPHA);
+    const glowAlphaMul = this.param('glowAlphaMul', DEFAULT_GLOW_ALPHA_MUL);
+
     const halfW = viewport.aspect >= 1 ? viewport.aspect / 2 : 0.5;
     const totalWidth = halfW * 1.6;
     const left = -totalWidth / 2;
     const barColor: Color = this.palette.primary;
-    const reflectionColor: Color = { ...barColor, a: barColor.a * REFLECTION_ALPHA };
+    const reflectionColor: Color = { ...barColor, a: barColor.a * reflectionAlpha };
 
     let cursor = left;
     for (let i = 0; i < BAND_COUNT; i++) {
-      const width = (BAND_WIDTH_WEIGHTS[i]! / TOTAL_WEIGHT) * totalWidth - GAP;
+      const width = (BAND_WIDTH_WEIGHTS[i]! / TOTAL_WEIGHT) * totalWidth - gap;
       const height = this.heights[i]! * MAX_HEIGHT;
       const cx = cursor + width / 2;
 
       this.drawBar(renderer, cx, BASELINE, width, height, barColor);
-      this.drawBar(renderer, cx, BASELINE, width, -height * (1 - REFLECTION_ALPHA), reflectionColor);
+      this.drawBar(renderer, cx, BASELINE, width, -height * (1 - reflectionAlpha), reflectionColor);
 
       const peakY = BASELINE + this.peakHeights[i]! * MAX_HEIGHT;
       this.drawBar(renderer, cx, peakY, width, PEAK_HEIGHT, barColor);
@@ -118,9 +142,9 @@ export class SpectrumBars implements Layer {
       t.x = cx;
       t.y = BASELINE + height;
       t.scale = 0.12 + this.heights[i]! * 0.18;
-      t.alpha = this.heights[i]! * 0.5;
+      t.alpha = Math.min(1, this.heights[i]! * 0.5 * glowAlphaMul);
 
-      cursor += width + GAP;
+      cursor += width + gap;
     }
     renderer.drawSprite(this.glowSprite, this.glowTransforms, BAND_COUNT);
   }
@@ -135,7 +159,6 @@ export class SpectrumBars implements Layer {
     this.heights.fill(0);
     this.peakHeights.fill(0);
     this.peakVelocities.fill(0);
-    for (const smoother of this.smoothers) smoother.reset(0);
   }
 
   dispose(): void {}

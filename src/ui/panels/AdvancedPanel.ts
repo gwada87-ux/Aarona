@@ -20,8 +20,15 @@ const MACRO_LABELS: Readonly<Record<MacroName, string>> = {
   smoothness: 'Douceur',
 };
 
-/** Seules ces deux macros ont un effet câblé aujourd'hui (docs/JOURNAL.md, Étape 13/P11). */
-const WIRED_MACROS = new Set<MacroName>(['energy', 'reactivity']);
+/**
+ * Les 8 macros ont désormais toutes un effet câblé (Étape 20/JOURNAL.md) :
+ * `energy`/`reactivity` sur `behaviour/mapping` (depuis l'Étape 13/P11), les
+ * 6 autres sur des paramètres de couches visuelles (`presets/layerMacros.ts`).
+ * Exception non signalée individuellement ici (grille commune aux 3 styles,
+ * pas de variante par style) : `depth` (Profondeur) n'a AUCUN effet en style
+ * `pulse`, volontairement — voir le commentaire en tête de `layerMacros.ts`.
+ */
+const WIRED_MACROS = new Set<MacroName>(MACRO_NAMES);
 
 export interface AdvancedPanelCallbacks {
   readonly onStyleSelect: (styleId: StyleId) => void;

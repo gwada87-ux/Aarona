@@ -6,7 +6,8 @@ import type { Layer, LayerInitContext, LayerKind, LayerParams } from '../../scen
 import type { Color } from '../../../render/Renderer';
 
 const SPRITE_SIZE = 128; // docs/07 §"Le glow : jamais shadowBlur" — 128×128, exemple donné
-const GLOW_DIAMETER = 0.5; // taille de rendu, unités normalisées — non spécifié précisément
+const DEFAULT_GLOW_DIAMETER = 0.5; // taille de rendu, unités normalisées — non spécifié précisément
+const DEFAULT_INTENSITY_MUL = 1;
 
 /**
  * Glow du style Pulse (docs/07) : « halo central, intensité = drive, teinte
@@ -45,13 +46,18 @@ export class CentralGlow implements Layer {
   }
 
   draw(renderer: Renderer, _viewport: Viewport): void {
-    const coolAlpha = (1 - this.brightness) * this.drive;
-    const hotAlpha = this.brightness * this.drive;
+    const intensityRaw = this.params.intensityMul;
+    const intensityMul = typeof intensityRaw === 'number' ? intensityRaw : DEFAULT_INTENSITY_MUL;
+    const diameterRaw = this.params.diameter;
+    const diameter = typeof diameterRaw === 'number' ? diameterRaw : DEFAULT_GLOW_DIAMETER;
+
+    const coolAlpha = Math.min(1, (1 - this.brightness) * this.drive * intensityMul);
+    const hotAlpha = Math.min(1, this.brightness * this.drive * intensityMul);
     if (coolAlpha > 0.001) {
-      renderer.drawSprite(this.coolSprite, [{ x: 0, y: 0, scale: GLOW_DIAMETER, alpha: coolAlpha }], 1);
+      renderer.drawSprite(this.coolSprite, [{ x: 0, y: 0, scale: diameter, alpha: coolAlpha }], 1);
     }
     if (hotAlpha > 0.001) {
-      renderer.drawSprite(this.hotSprite, [{ x: 0, y: 0, scale: GLOW_DIAMETER, alpha: hotAlpha }], 1);
+      renderer.drawSprite(this.hotSprite, [{ x: 0, y: 0, scale: diameter, alpha: hotAlpha }], 1);
     }
   }
 

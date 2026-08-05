@@ -1095,3 +1095,82 @@ Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu pour ce chantier précis. Restent ouverts, sans lien
 avec ce correctif : le corpus annoté (Étape 2), et les cinq décisions produit/business de l'Étape 18
 (licence, page produit, analytique, démo réelle, hébergeur).
+
+## Étape 20 — hors roadmap : câblage des 6 macros inertes (densité, mouvement, profondeur, glow, chaos, douceur)
+
+**Hors de docs/00a** (roadmap close depuis l'Étape 18). Limite documentée depuis l'Étape 13/P11
+(docs/08_PRESETS.md §"Les 8 macro-contrôles") : seules `energy`/`reactivity` avaient un effet câblé,
+faute de couche acceptant des paramètres de construction. Proposition détaillée (table macro × style
+× paramètre × plage) présentée et validée par Aaron AVANT tout code.
+
+Fait et vérifié : `src/presets/layerMacros.ts` (nouveau) — `LAYER_MACRO_CURVES`, même mécanique
+`MacroCurveTable`/`applyMacroCurves` que `WIRED_MACRO_CURVES`, chemins `<styleId>.<layerId>.
+<paramKey>`. `ui/App.ts::applyLayerMacros()` — résout la table pour les macros courantes et assigne
+`layer.params` de chaque couche de la Scene active, appelée depuis `applyActiveConfiguration()` (à
+chaque changement de macro/preset/style) et `applyQualityLevel()` (après une reconstruction de Scene
+déclenchée par un changement de niveau de qualité) — **sans jamais reconstruire la Scene pour un
+simple changement de macro** : pool de particules et traînée de feedback intacts pendant qu'on
+bouge un curseur. 6 couches câblées : `ParticleField` (spawnCountMul, driftSpeed, glowAlphaMul,
+chaosMul, drag), `PerspectiveGrid` (rows, perspective), `PulseRings` (maxActiveRings, lifetimeSec,
+chaosJitter), `CentralGlow` (intensityMul, diameter), `ScreenShake` (decaySec), `SpectrumBars` (gap,
+riseTau, fallTau, reflectionAlpha, glowAlphaMul, peakChaosJitter). `AdvancedPanel.ts` :
+`WIRED_MACROS` étend désormais les 8 macros (retrait de l'icône ⚠ et du tooltip « sans effet »).
+`index.html` : retrait des avertissements devenus faux (Simple : Densité/Glow ; Avancé : note
+générale, remplacée par la mention honnête que Profondeur n'a pas d'effet en Pulse). 25 nouveaux
+tests unitaires (dont `tests/unit/centralGlow.test.ts`, nouveau — cette couche n'avait aucun test
+dédié avant cette étape) répartis sur 6 fichiers — total **66 fichiers/414 tests**.
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **414/414** verts. `npm run test:arch` : 1/1.
+`npm run build` : succès, 162 modules, 307,40 ko (gzip 84,18 ko — toujours largement sous le budget
+de 400 ko de docs/00b).
+
+Deux bugs réels trouvés et corrigés avant/pendant l'implémentation, avant toute vérification
+navigateur : (1) Conflit de conception détecté PENDANT l'écriture de la table (avant tout code) :
+mon esquisse initiale proposait de faire piloter les MÊMES constantes (`riseTau`/`fallTau` de
+`SpectrumBars`) par deux macros différentes (Mouvement ET Douceur, en sens opposés) — `applyMacroCurves`
+écrase silencieusement une macro par l'autre selon l'ordre d'itération (`Object.entries`), ce qui
+aurait rendu l'une des deux invisible sans qu'aucun test ne le révèle nécessairement. Corrigé en
+séparant strictement : Mouvement → `riseTau` (attaque), Douceur → `fallTau` (retombée) — chemins
+disjoints, aucune collision possible, vérifié explicitement dans le commentaire en tête de
+`layerMacros.ts`. (2) Bug dans un test, pas dans le produit : le test de `driftSpeed` de
+`ParticleField` réutilisait le même `StepContextBuilder` (état interne : dernier `t` vu) entre deux
+exécutions indépendantes du champ de particules — la seconde exécution « reculait dans le temps »
+et l'événement HAT ne se déclenchait plus. Trouvé par l'échec du test lui-même (`lastDrawSprite`
+retournait `undefined`), corrigé en donnant un `stepper` frais à chaque exécution.
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron une fois le plan
+d'ensemble validé — coût d'erreur faible, chaque choix commenté dans `layerMacros.ts`) : (1)
+`Impulse`/`Continuous` (behaviour/signals) NE sont PLUS utilisées par `ScreenShake`/`SpectrumBars` —
+leurs `decay`/`riseTau`/`fallTau` sont `private readonly`, fixés au constructeur ; un macro doit
+pouvoir les faire varier à tout instant pendant la lecture, et recréer l'objet à chaque changement
+réinitialiserait sa valeur courante (tremblement coupé net, barres qui sautent à 0). Les deux
+couches recopient à la main les 2-3 lignes de calcul plutôt que de rendre `decay` mutable sur des
+primitives partagées par tout `behaviour/` (`Impulse` alimente aussi `impact`/`subImpact`/`accent`/
+`tick`/`sectionShift` via `BehaviourEngine`, hors périmètre de cette étape). (2) `chaos` ne consomme
+JAMAIS de nouveau tirage `step.rng.next()` par image sur les pools larges (particules) : il multiplie
+l'amplitude de tirages déjà existants aux points de déclenchement existants (spawn, apparition
+d'anneau, réinitialisation de pic) — jamais un tirage supplémentaire par particule vivante par image
+(qui aurait un coût réel sur un pool de plusieurs milliers et viderait le flux `rng` plus vite selon
+le niveau de qualité, cassant la cohérence entre niveaux). (3) `depth` (Profondeur) n'a aucune entrée
+pour `pulse` — style délibérément plat/2D (docs/07), inventer un effet aurait été malhonnête.
+
+Fait mais non vérifié : **vérification navigateur en attente** — les deux outils de navigateur
+disponibles cette session ont de nouveau refusé de charger `localhost:3000` (même limite qu'aux
+étapes précédentes). Checklist pour Aaron : pour chaque style (Pulse/Field/Spectrum Pro), ouvrir
+Avancé et faire varier chacun des 6 curseurs à fond (0 puis 1) pendant la lecture — confirmer un
+changement visuel perceptible et cohérent avec sa description (Densité = plus/moins d'éléments,
+Mouvement = plus/moins vite, Profondeur = plus/moins de relief SAUF en Pulse, Glow = halo plus/moins
+fort, Chaos = plus/moins irrégulier, Douceur = transitions plus/moins rondes) ; confirmer qu'aucun
+curseur ne fait planter ou geler l'app à ses extrêmes (0 et 1) ; confirmer que bouger un curseur
+PENDANT la lecture ne fait pas sauter/disparaître les particules déjà à l'écran (pas de
+reconstruction de Scene) ; changer de style puis revenir confirmer que les valeurs de macro restent
+cohérentes.
+Limites connues : une seule table de courbes par macro, partagée entre les styles qui l'utilisent
+(pas de courbe distincte par style au-delà des chemins déjà différents) — même limite déjà assumée
+pour `WIRED_MACRO_CURVES` depuis l'Étape 13/P11. Les plages numériques (at0/at1) sont auto-choisies,
+non calibrées par un retour utilisateur réel — à ajuster après usage si un effet semble trop
+faible/fort. `depth` sans effet en Pulse (assumé, voir décisions de conception).
+Dette introduite : aucune connue.
+Bloque la suite : vérification navigateur de cette étape à faire par Aaron avant de la considérer
+pleinement close. Restent ouverts, sans lien avec ce chantier : le corpus annoté (Étape 2), le banc
+`bench:render`/`bench:export`/`bench:memory`/`bench:leak` (nécessite `node-canvas`, décision de
+dépendance non prise), et les cinq décisions produit/business de l'Étape 18.

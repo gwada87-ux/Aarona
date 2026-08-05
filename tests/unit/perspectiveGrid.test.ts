@@ -77,3 +77,52 @@ describe('PerspectiveGrid — avancée continue', () => {
     expect(radiiOf(b)).toEqual(radiiOf(a));
   });
 });
+
+describe('PerspectiveGrid — params (Étape 20, macro densité/profondeur)', () => {
+  it('params.rows change le nombre d\'anneaux dessinés', () => {
+    const grid = new PerspectiveGrid();
+    grid.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    grid.params = { rows: 12 };
+    const stepper = makeStepBuilder();
+    grid.update(stepper.build(0.3), makeSignals());
+
+    const renderer = new FakeRenderer();
+    grid.draw(renderer, testViewport);
+    expect(radiiOf(renderer)).toHaveLength(12);
+  });
+
+  it('params absent → comportement inchangé (24 anneaux, comme sans params)', () => {
+    const grid = new PerspectiveGrid();
+    grid.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    const stepper = makeStepBuilder();
+    grid.update(stepper.build(0.3), makeSignals());
+
+    const renderer = new FakeRenderer();
+    grid.draw(renderer, testViewport);
+    expect(radiiOf(renderer)).toHaveLength(24);
+  });
+
+  it('params.perspective plus bas → falloff plus marqué (rayons plus resserrés vers le centre)', () => {
+    const stepper = makeStepBuilder();
+    const step = stepper.build(0.3);
+
+    const flat = new PerspectiveGrid();
+    flat.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    flat.params = { perspective: 1.2 };
+    flat.update(step, makeSignals());
+    const flatRenderer = new FakeRenderer();
+    flat.draw(flatRenderer, testViewport);
+
+    const deep = new PerspectiveGrid();
+    deep.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    deep.params = { perspective: 0.35 };
+    deep.update(step, makeSignals());
+    const deepRenderer = new FakeRenderer();
+    deep.draw(deepRenderer, testViewport);
+
+    // Même nombre d'anneaux, mais la moyenne des rayons est plus petite avec une perspective plus marquée
+    // (rayon = maxRayon·perspective/(perspective+profondeur), decroît avec perspective).
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    expect(avg(radiiOf(deepRenderer))).toBeLessThan(avg(radiiOf(flatRenderer)));
+  });
+});

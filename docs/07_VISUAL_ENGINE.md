@@ -319,6 +319,15 @@ précisées ci-dessus, choisies et documentées dans le code plutôt que dans ce
 - PostFx doit être dessinée EN PREMIER, pas en dernier : voir `render/Renderer.ts` (`applyShake`).
   Le tableau ci-dessus décrit des responsabilités, pas un ordre d'exécution.
 
+**Étendu à l'Étape 20** (macros densité/glow/chaos/douceur, docs/08_PRESETS.md) : `PulseRings`
+expose `params.maxActiveRings` (densité, plafonne le pool de 8), `params.lifetimeSec` (mouvement,
+vitesse d'expansion), `params.chaosJitter` (chaos, léger décalage de rayon tiré une fois par
+anneau) ; `CentralGlow` expose `params.intensityMul`/`params.diameter` (glow) ; `ScreenShake`
+expose `params.decaySec` (douceur — sa décroissance est désormais recopiée à la main plutôt que
+déléguée à `Impulse`, dont le `decay` est fixé au constructeur, incompatible avec un macro
+modifiable en cours de lecture). `depth` (Profondeur) n'a AUCUNE entrée pour ce style — délibérément
+plat/2D, voir `presets/layerMacros.ts`.
+
 ### 2. `Field` — champ de particules
 
 > Espace profond, mouvement continu, réaction en gerbes. Le style « impressionnant ».
@@ -359,6 +368,14 @@ explosion radiale. Cette anticipation est ce qui fait la valeur du style.
 - `SpriteTransform` (glow/particules) et `drawSprite` acceptent désormais un `count` — le pool de
   2500 particules pré-alloue son tableau de transformations une fois et le mute en place (zéro
   allocation par image, docs/10_PERFORMANCE.md).
+
+**Étendu à l'Étape 20** (macros densité/mouvement/profondeur/glow/chaos/douceur, docs/08_PRESETS.md) :
+`ParticleField` expose `params.spawnCountMul` (densité, multiplie les 4 comptes de spawn par
+événement), `params.driftSpeed` (mouvement), `params.glowAlphaMul` (glow), `params.chaosMul`
+(chaos — multiplie l'amplitude de tirages `step.rng` déjà existants au spawn, n'en ajoute aucun),
+`params.drag` (douceur, amortissement de vitesse) ; `PerspectiveGrid` expose `params.rows`
+(densité, 12 à 36 au lieu de 24 fixe) et `params.perspective` (profondeur, falloff plus ou moins
+dramatique).
 
 ### 3. `Spectrum Pro` — le spectre, mais bien fait
 
@@ -404,6 +421,16 @@ qualité/effort, et c'est le style que la plupart des utilisateurs choisiront po
 - Waveform « superposée » : comme `CircularWaveform` (Pulse), approximée depuis les 6 bandes
   (aucune forme d'onde réelle n'atteint `visual/`), dépliée horizontalement. `strokePath` accepte
   désormais un paramètre `closed` : `false` ici (ligne ouverte), `true` pour le cercle de Pulse.
+
+**Étendu à l'Étape 20** (macros densité/mouvement/profondeur/glow/chaos/douceur, docs/08_PRESETS.md) :
+`SpectrumBars` expose `params.gap` (densité, barres plus ou moins serrées), `params.riseTau`
+(mouvement, attaque des barres), `params.fallTau` (douceur, retombée — délibérément SÉPARÉE de
+`riseTau` pour que mouvement et douceur ne s'écrasent pas l'un l'autre), `params.reflectionAlpha`
+(profondeur, repère de « sol »), `params.glowAlphaMul` (glow), `params.peakChaosJitter` (chaos —
+petit à-coup de vitesse aléatoire, parfois un léger rebond, à la retombée d'un chapeau de pic).
+Le lissage par bande n'utilise plus `Continuous` (behaviour/signals) : sa décroissance est recopiée
+à la main, `Continuous.riseTau`/`fallTau` étant fixés au constructeur — même raison que `ScreenShake`
+en Pulse.
 
 ---
 

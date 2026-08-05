@@ -111,6 +111,119 @@ describe('SpectrumBars — pics à chute gravitaire', () => {
   });
 });
 
+describe('SpectrumBars — params (Étape 20, macros densité/mouvement/profondeur/glow/chaos/douceur)', () => {
+  it('params.gap plus petit → barres plus larges (densité)', () => {
+    const stepper = stepperWithConstantBands(0.5);
+
+    function firstBarWidth(gap: number | undefined): number {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      if (gap !== undefined) bars.params = { gap };
+      bars.update(stepper.build(0), makeSignals());
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      const xs = fillPathCalls(renderer)[0]!.xs;
+      return Math.max(...Array.from(xs)) - Math.min(...Array.from(xs));
+    }
+
+    expect(firstBarWidth(0.002)).toBeGreaterThan(firstBarWidth(0.014));
+  });
+
+  it('params absent → largeur inchangée par rapport au gap par défaut (0,006)', () => {
+    const stepper1 = stepperWithConstantBands(0.5);
+    const stepper2 = stepperWithConstantBands(0.5);
+
+    function firstBarWidth(withParams: boolean, stepper: StepContextBuilder): number {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      if (withParams) bars.params = { gap: 0.006 };
+      bars.update(stepper.build(0), makeSignals());
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      const xs = fillPathCalls(renderer)[0]!.xs;
+      return Math.max(...Array.from(xs)) - Math.min(...Array.from(xs));
+    }
+
+    expect(firstBarWidth(false, stepper1)).toBeCloseTo(firstBarWidth(true, stepper2), 9);
+  });
+
+  it('params.riseTau plus court → convergence plus rapide vers la cible (mouvement)', () => {
+    function heightAfter(riseTau: number): number {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      bars.params = { riseTau };
+      const stepper = stepperWithConstantBands(1.0);
+      let step = stepper.build(0);
+      for (let t = 1 / 120; t <= 0.05; t += 1 / 120) {
+        step = stepper.build(t);
+        bars.update(step, makeSignals());
+      }
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      return Math.max(...Array.from(fillPathCalls(renderer)[0]!.ys)) - -0.05;
+    }
+
+    expect(heightAfter(0.02)).toBeGreaterThan(heightAfter(0.09));
+  });
+
+  it('params.reflectionAlpha plus élevé → reflet plus opaque', () => {
+    const stepper = stepperWithConstantBands(0.5);
+
+    function reflectionAlphaOf(reflectionAlpha: number): number {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      bars.params = { reflectionAlpha };
+      bars.update(stepper.build(0), makeSignals());
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      return fillPathCalls(renderer)[1]!.color.a; // 2e fillPath par bande = le reflet
+    }
+
+    expect(reflectionAlphaOf(0.4)).toBeGreaterThan(reflectionAlphaOf(0.1));
+  });
+
+  it('params.glowAlphaMul réduit proportionnellement l\'alpha du halo par bande', () => {
+    const stepper1 = stepperWithConstantBands(0.5);
+    const stepper2 = stepperWithConstantBands(0.5);
+
+    function glowAlpha(glowAlphaMul: number | undefined, stepper: StepContextBuilder): number {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      if (glowAlphaMul !== undefined) bars.params = { glowAlphaMul };
+      let step = stepper.build(0);
+      for (let t = 1 / 120; t <= 2.0; t += 1 / 120) {
+        step = stepper.build(t);
+        bars.update(step, makeSignals());
+      }
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      const sprite = renderer.calls.find((c): c is Extract<typeof c, { type: 'drawSprite' }> => c.type === 'drawSprite')!;
+      return sprite.transforms[0]!.alpha;
+    }
+
+    const base = glowAlpha(undefined, stepper1);
+    const scaled = glowAlpha(0.2, stepper2);
+    expect(scaled).toBeCloseTo(base * 0.2, 3);
+  });
+
+  it('params.peakChaosJitter=0 (défaut) : deux exécutions identiques (même graine) donnent le même résultat', () => {
+    function run(): number {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      const stepper = stepperWithDroppingBands();
+      let step = stepper.build(0);
+      for (let t = 1 / 120; t <= 5.35; t += 1 / 120) {
+        step = stepper.build(t);
+        bars.update(step, makeSignals());
+      }
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      return fillPathCalls(renderer)[2]!.ys[2]!;
+    }
+    expect(run()).toBe(run());
+  });
+});
+
 describe('SpectrumBars — reset', () => {
   it('reset() ramène toutes les barres et pics à 0', () => {
     const bars = new SpectrumBars();

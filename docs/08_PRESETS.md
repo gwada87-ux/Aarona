@@ -186,18 +186,21 @@ comportement attendu par un utilisateur créatif.
 le code, `easeOut` nommée par l'exemple ci-dessus mais sans formule donnée — ease quadratique
 standard retenue, symétrique de `easeInQuad`).
 
-**Limite assumée — seules `energy` et `reactivity` ont un effet câblé aujourd'hui**, sur les gains
-et décroissances/lissages de `behaviour/mapping` (réellement consommés par `BehaviourEngine`). Les 6
-autres macros (densité, mouvement, profondeur, glow, chaos, douceur) ciblent, par leur propre
-description dans le tableau ci-dessus, des paramètres de **couches visuelles** (`layers.*`, bloom,
-dispersion de bruit) — et AUCUNE couche du MVP (`ParticleField`, `PerspectiveGrid`, `FrameFeedback`,
-`ScreenShake`, `SpectrumBars`, livrées en P7/P9) n'accepte de paramètres de construction : chacune
-fixe ses constantes en interne. Câbler ces 6 macros sur des chemins qu'aucun code ne lit aurait
-prétendu un effet qui n'existe pas. Leur valeur brute (0..1) reste disponible dans
-`ResolvedPreset.macros` pour quand les couches deviendront configurables — hors périmètre de cette
-étape (voir docs/JOURNAL.md, Étape 13/P11). Aussi non implémenté : « chaque style déclare ses
-propres courbes » — une seule table `WIRED_MACRO_CURVES`, partagée par les 3 styles, faute de
-valeurs distinctes données par style ailleurs que dans l'exemple `reactivity` ci-dessus.
+**Levé à l'Étape 20** : les 6 macros restantes (densité, mouvement, profondeur, glow, chaos,
+douceur) ont désormais un effet câblé, via une SECONDE table de courbes (`src/presets/
+layerMacros.ts::LAYER_MACRO_CURVES`, même mécanique `applyMacroCurves`/`MacroCurveTable` que
+`WIRED_MACRO_CURVES`, chemins `<styleId>.<layerId>.<paramKey>` plutôt que `mapping.*`), résolue par
+`ui/App.ts::applyLayerMacros()` et assignée à `Layer.params` de chaque couche de la Scene active —
+sans jamais reconstruire la Scene (contrairement à un changement de style). Chaque couche
+(`ParticleField`, `PerspectiveGrid`, `PulseRings`, `CentralGlow`, `ScreenShake`, `SpectrumBars`) lit
+ses `params` à chaque `update()`/`draw()` avec un repli sur sa constante d'origine si absent —
+comportement byte-identique tant qu'aucune macro n'est câblée dessus. Écart assumé et documenté :
+`depth` (Profondeur) n'a AUCUN effet sur le style `pulse`, volontairement — délibérément plat/2D,
+rien à quoi l'accrocher sans l'inventer (voir le commentaire en tête de `layerMacros.ts`). Toujours
+non implémenté : « chaque style déclare ses propres courbes » — une seule table par macro, partagée
+par les styles concernés (comme `WIRED_MACRO_CURVES`), faute de valeurs distinctes par style dans ce
+document au-delà des choix déjà faits pour `reactivity`. `energy`/`reactivity` restent inchangées
+(`WIRED_MACRO_CURVES` → `mapping.*` → `BehaviourEngine`).
 
 ---
 

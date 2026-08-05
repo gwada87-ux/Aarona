@@ -7,8 +7,10 @@ import type { Color } from '../../../render/Renderer';
 import type { Palette } from '../../palette/Palette';
 
 // docs/08_PRESETS.md, exemple "Trap Dark" : layers.field = { rows: 24, perspective: 0.65 }.
-const ROW_COUNT = 24;
-const PERSPECTIVE = 0.65;
+// Valeurs par défaut — reprises telles quelles si `params` ne fournit rien (Étape 20 : densité/
+// profondeur pilotent `rows`/`perspective` via `presets/layerMacros.ts`).
+const DEFAULT_ROW_COUNT = 24;
+const DEFAULT_PERSPECTIVE = 0.65;
 const MAX_RADIUS = 0.75;
 const LINE_WIDTH = 0.0025;
 
@@ -47,11 +49,16 @@ export class PerspectiveGrid implements Layer {
   }
 
   draw(renderer: Renderer, _viewport: Viewport): void {
+    const rowsRaw = this.params.rows;
+    const rowCount = typeof rowsRaw === 'number' ? Math.max(1, Math.round(rowsRaw)) : DEFAULT_ROW_COUNT;
+    const perspectiveRaw = this.params.perspective;
+    const perspective = typeof perspectiveRaw === 'number' ? perspectiveRaw : DEFAULT_PERSPECTIVE;
+
     const base = this.palette.secondary;
-    for (let i = 0; i < ROW_COUNT; i++) {
-      const depth = mod(i - this.scrollDistance, ROW_COUNT);
-      const radius = (MAX_RADIUS * PERSPECTIVE) / (PERSPECTIVE + depth);
-      const alpha = (1 - depth / ROW_COUNT) * 0.35 * base.a;
+    for (let i = 0; i < rowCount; i++) {
+      const depth = mod(i - this.scrollDistance, rowCount);
+      const radius = (MAX_RADIUS * perspective) / (perspective + depth);
+      const alpha = (1 - depth / rowCount) * 0.35 * base.a;
       const color: Color = { r: base.r, g: base.g, b: base.b, a: alpha };
       renderer.strokeCircle(0, 0, radius, LINE_WIDTH, color);
     }

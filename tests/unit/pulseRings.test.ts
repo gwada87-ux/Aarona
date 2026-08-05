@@ -90,3 +90,46 @@ describe('PulseRings — anneaux secondaires sur DOWNBEAT', () => {
     expect(strokeCircleCalls(renderer)).toHaveLength(1); // uniquement l'anneau principal
   });
 });
+
+describe('PulseRings — params (Étape 20, macros densité/mouvement/chaos)', () => {
+  it('params.maxActiveRings borne le nombre d\'anneaux actifs en dessous de 8', () => {
+    const events = Array.from({ length: 20 }, (_, i) => ({ t: i * 0.05, type: 'DOWNBEAT', intensity: 1, confidence: 1 }));
+    const stepper = makeStepBuilder(events, 5);
+    const rings = new PulseRings();
+    rings.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    rings.params = { maxActiveRings: 3 };
+
+    for (let t = 1 / 120; t <= 1.0; t += 1 / 120) rings.update(stepper.build(t), makeSignals());
+
+    const renderer = new FakeRenderer();
+    rings.draw(renderer, testViewport);
+    expect(strokeCircleCalls(renderer).length).toBeLessThanOrEqual(1 + 3); // principal + au plus 3 secondaires
+  });
+
+  it('params.lifetimeSec plus court fait disparaître un anneau plus tôt', () => {
+    const stepper = makeStepBuilder([{ t: 0.5, type: 'DOWNBEAT', intensity: 1, confidence: 1 }]);
+    const rings = new PulseRings();
+    rings.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    rings.params = { lifetimeSec: 0.3 };
+
+    rings.update(stepper.build(0.5), makeSignals());
+    for (let t = 0.5 + 1 / 120; t <= 0.9; t += 1 / 120) rings.update(stepper.build(t), makeSignals());
+
+    const renderer = new FakeRenderer();
+    rings.draw(renderer, testViewport);
+    // À 0,4s après le DOWNBEAT, un anneau de durée de vie 0,3s a déjà disparu (contrairement au défaut de 1,2s).
+    expect(strokeCircleCalls(renderer)).toHaveLength(1);
+  });
+
+  it('params.chaosJitter=0 (défaut) → rayon exact BASE_RADIUS+progress·expansion, sans décalage', () => {
+    const stepper = makeStepBuilder([{ t: 0.5, type: 'DOWNBEAT', intensity: 1, confidence: 1 }]);
+    const rings = new PulseRings();
+    rings.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    rings.update(stepper.build(0.5), makeSignals());
+
+    const renderer = new FakeRenderer();
+    rings.draw(renderer, testViewport);
+    const secondary = strokeCircleCalls(renderer)[1];
+    expect(secondary?.radius).toBeCloseTo(0.28, 10); // progress ≈ 0 juste après spawn, jitter nul par défaut
+  });
+});
