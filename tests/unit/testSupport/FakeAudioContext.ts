@@ -7,6 +7,10 @@
  * `FakeAudioBufferSourceNode.start()` reproduit fidèlement le comportement natif
  * observé au navigateur (Étape 24) : `RangeError` si l'offset est négatif — c'est
  * exactement ce piège que le test de régression de l'Étape 27 vérifie.
+ *
+ * Étendu à l'Étape 33 (`createAnalyser`/`FakeAnalyserNode`) pour `RealtimeProbe.ts`,
+ * même principe : un double MINIMAL de la seule surface réellement utilisée, pas
+ * une réimplémentation de Web Audio.
  */
 export class FakeAudioBufferSourceNode {
   buffer: unknown = null;
@@ -39,6 +43,30 @@ export class FakeGainNode {
   disconnect(): void {}
 }
 
+/**
+ * `frequencyBinCount` DÉRIVÉ de `fftSize` (comme le vrai `AnalyserNode`, jamais un champ
+ * indépendant) : `RealtimeProbe` lit `frequencyBinCount` juste après avoir écrit `fftSize`
+ * dans son constructeur — un champ figé à la construction du double masquerait ce lien.
+ * `getByteTimeDomainData` renvoie par défaut le silence (128 partout, valeur de repos réelle
+ * de l'API) — `timeDomainPattern` overridable par test pour simuler un signal.
+ */
+export class FakeAnalyserNode {
+  fftSize = 2048;
+  smoothingTimeConstant = 0;
+  timeDomainPattern: (index: number, length: number) => number = () => 128;
+
+  get frequencyBinCount(): number {
+    return this.fftSize / 2;
+  }
+
+  connect(_dest: unknown): void {}
+  disconnect(): void {}
+
+  getByteTimeDomainData(array: Uint8Array): void {
+    for (let i = 0; i < array.length; i++) array[i] = this.timeDomainPattern(i, array.length);
+  }
+}
+
 export class FakeAudioContext {
   currentTime = 0;
   state: 'suspended' | 'running' = 'suspended';
@@ -54,6 +82,10 @@ export class FakeAudioContext {
 
   createGain(): FakeGainNode {
     return new FakeGainNode();
+  }
+
+  createAnalyser(): FakeAnalyserNode {
+    return new FakeAnalyserNode();
   }
 
   async resume(): Promise<void> {

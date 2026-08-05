@@ -1817,3 +1817,40 @@ fichiers avec logique propre : `MediaRecorderFallback.ts`, `MediabunnyEncoder.ts
 .ts` — `FrameEncoder.ts` reste une interface pure, rien à tester).
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 33 — hors roadmap : premiers tests de RealtimeProbe.ts
+
+**Hors de docs/00a.** `audio/RealtimeProbe.ts` (sonde décorative `AnalyserNode`, ADR-003) restait
+sans test. Contrairement à `PresetEditorDialog.ts`/autres modules DOM (nécessitent `jsdom`, option
+explicitement NON choisie par Aaron à l'Étape 31 face à `fake-indexeddb`) : `RealtimeProbe` ne
+touche AUCUN DOM, seulement Web Audio (`AudioContext.createAnalyser()`/`AnalyserNode`) — même
+famille qu'`AudioEngine.ts` (Étape 27), donc testable en étendant `FakeAudioContext` existant, sans
+nouvelle dépendance ni décision d'infrastructure.
+
+`tests/unit/testSupport/FakeAudioContext.ts` étendu : `FakeAnalyserNode` (nouveau) —
+`frequencyBinCount` DÉRIVÉ de `fftSize` via un getter (pas un champ figé : `RealtimeProbe` lit
+`frequencyBinCount` juste après avoir écrit `fftSize`, un double qui casserait ce lien donnerait un
+résultat correct par accident plutôt que par construction) ; `getByteTimeDomainData` renvoie par
+défaut le silence (128 partout, la valeur de repos réelle de l'API), `timeDomainPattern`
+surchargeable par test pour simuler un signal. `createAnalyser()` ajouté à `FakeAudioContext`.
+
+`tests/unit/realtimeProbe.test.ts` (nouveau, 11 tests) : construction (`fftSize`/
+`smoothingTimeConstant` = 0,6 fixe transmis à l'analyser, valeur par défaut 1024 si omis, la source
+est bien connectée À CET analyser précis — pas un autre nœud), `sample()` (désactivée → 0 SANS lire
+l'analyser — vérifié par espionnage de `getByteTimeDomainData`, jamais appelée ; silence → 0 ;
+signal saturé haut/bas → proche de 1 dans les deux sens ; un signal moitié-silence moitié-saturé
+vérifie que le calcul est une vraie MOYENNE des écarts absolus, pas un échantillon isolé ; le
+tableau interne est bien dimensionné sur `frequencyBinCount`, pas `fftSize`), `dispose()`
+(déconnecte l'analyser).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **511/511** verts (500 + 11 nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — identique aux
+Étapes 31/32, `RealtimeProbe.ts` lui-même non modifié, uniquement des tests ajoutés autour. Pas de
+vérification navigateur : même raison qu'aux Étapes 31/32.
+
+Limites connues : `RealtimeProbe` n'est câblée nulle part dans `ui/App.ts` aujourd'hui (recherché :
+aucune référence) — une sonde décorative prévue par l'ADR-003 mais jamais branchée à la preview
+réelle ; hors périmètre de cette étape (ajout de tests sur le code existant, pas nouveau câblage),
+signalé pour transparence plutôt que découvert en silence.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
