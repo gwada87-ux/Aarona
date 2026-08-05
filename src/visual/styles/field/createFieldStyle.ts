@@ -16,17 +16,25 @@ import { FrameFeedback } from '../../layers/postfx/FrameFeedback';
  * dupliqué le même rendu pour un second passage sur 2500 sprites, sans rien
  * ajouter visuellement.
  *
- * `usesFeedback = true` (second argument de `Scene`) : seul style du MVP à
- * avoir besoin du buffer de trainée (docs/JOURNAL.md, Étape 11).
+ * `usesFeedback` (second argument de `Scene`) : seul style du MVP à avoir
+ * besoin du buffer de trainée (docs/JOURNAL.md, Étape 11) — `true` par
+ * défaut si omis (comportement inchangé depuis P9).
  *
- * `maxParticles` (Étape 16/P14) : transmis tel quel à `ParticleField` — voir
- * son constructeur pour la valeur par défaut. Permet au `QualityGovernor`
- * (câblé dans `ui/App.ts`) de plafonner le pool par niveau de qualité sans
- * que ce fichier ait besoin de connaître `perf/qualityLevels.ts`.
+ * `maxParticles`/`feedbackEnabled` (Étape 16/P14, Étape 22) : transmis tels
+ * quels — voir le constructeur de `ParticleField` pour la valeur par défaut
+ * du premier. Permettent au niveau de qualité courant (câblé dans
+ * `ui/App.ts`) de plafonner le pool et d'activer/désactiver la traînée sans
+ * que ce fichier ait besoin de connaître `perf/qualityLevels.ts`. La couche
+ * `FrameFeedback` reste toujours présente dans la liste : quand
+ * `usesFeedback` est faux, `Scene.draw()` n'appelle jamais
+ * `captureFeedback()`, donc `feedbackBuffer` (`Canvas2DRenderer`) reste
+ * `null` et `drawFeedback()` — appelé par `FrameFeedback.draw()` à chaque
+ * image — reste un no-op permanent (voir son commentaire). Retirer la
+ * couche serait donc redondant, pas nécessaire pour désactiver l'effet.
  */
-export function createFieldStyle(maxParticles?: number): Scene {
+export function createFieldStyle(maxParticles?: number, feedbackEnabled = true): Scene {
   return new Scene(
     [new FrameFeedback(), new DeepVignette(), new PerspectiveGrid(), new ParticleField(maxParticles)],
-    true,
+    feedbackEnabled,
   );
 }

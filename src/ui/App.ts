@@ -69,7 +69,7 @@ import { QUALITY_LEVEL_CONFIGS, EXPORT_QUALITY_LEVEL, type QualityLevel } from '
  * surnuméraires), donc les appeler tous via cette même signature est sans
  * risque et évite un branchement par style à chaque appel.
  */
-const STYLE_FACTORIES: Readonly<Record<StyleId, (maxParticles?: number) => Scene>> = {
+const STYLE_FACTORIES: Readonly<Record<StyleId, (maxParticles?: number, feedbackEnabled?: boolean) => Scene>> = {
   pulse: createPulseStyle,
   field: createFieldStyle,
   'spectrum-pro': createSpectrumProStyle,
@@ -216,7 +216,10 @@ function applyActiveConfiguration(): void {
   if (styleChanged) {
     // Le plafond du niveau de qualité courant s'applique dès la construction (voir `applyQualityLevel`
     // pour le cas où le niveau change alors que le style `field` est DÉJÀ actif).
-    scene = STYLE_FACTORIES[currentStyleId](QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles);
+    scene = STYLE_FACTORIES[currentStyleId](
+      QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
+      QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
+    );
     sceneStyleId = currentStyleId;
     scene.init({ renderer, palette: currentPalette });
     if (currentTimeline) scene.reset(simT);
@@ -258,7 +261,7 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
   renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[level].bloom);
 
   if (currentStyleId === 'field' && sceneStyleId === 'field' && currentPalette) {
-    scene = STYLE_FACTORIES.field(QUALITY_LEVEL_CONFIGS[level].maxParticles);
+    scene = STYLE_FACTORIES.field(QUALITY_LEVEL_CONFIGS[level].maxParticles, QUALITY_LEVEL_CONFIGS[level].feedback);
     scene.init({ renderer, palette: currentPalette });
     if (currentTimeline) scene.reset(simT);
     applyLayerMacros(); // la Scene vient d'être reconstruite : ses couches ont des `params` vides tant qu'on ne les réapplique pas
@@ -375,7 +378,11 @@ const exportDialog = new ExportDialog({
   getPalette: () => currentPalette!,
   // docs/10 règle non négociable #2 : l'export fige TOUJOURS le niveau à `EXPORT_QUALITY_LEVEL`
   // (HIGH), quel que soit le niveau courant de la preview — jamais `currentQualityLevel` ici.
-  getStyleFactory: () => () => STYLE_FACTORIES[currentStyleId](QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles),
+  getStyleFactory: () => () =>
+    STYLE_FACTORIES[currentStyleId](
+      QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
+      QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+    ),
   getAudioBuffer: () => currentAudioBuffer,
   getProjectSeed: () => projectSeed,
   seekToStart: () => handleSeek(0, 'release'),

@@ -1266,3 +1266,39 @@ Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu. Restent ouverts, sans lien avec ce chantier : le
 corpus annoté (Étape 2), les quatre dimensions de qualité encore inertes ci-dessus, et les cinq
 décisions produit/business de l'Étape 18.
+
+## Étape 22 — hors roadmap : câblage de feedback sur le niveau de qualité
+
+**Hors de docs/00a.** Le seul des 4 derniers paramètres de qualité inertes qui était un vrai
+branchement plutôt qu'une fonctionnalité neuve (voir Étape 21) : l'effet de traînée du style Field
+existait déjà (`FrameFeedback`/`drawFeedback`/`captureFeedback`, depuis P9), seul son activation
+selon le niveau de qualité manquait.
+
+Fait et vérifié : `createFieldStyle(maxParticles?, feedbackEnabled = true)` — second paramètre
+optionnel, transmis à `Scene` comme `usesFeedback` ; défaut `true` = comportement inchangé si omis.
+Pas besoin de retirer `FrameFeedback` de la liste des couches quand `feedbackEnabled` est faux : sans
+`captureFeedback()` appelé par `Scene.draw()`, `feedbackBuffer` (`Canvas2DRenderer`) reste `null`, et
+`drawFeedback()` — appelé par `FrameFeedback.draw()` à chaque image malgré tout — reste un no-op
+permanent, déjà vrai par construction depuis P9 (voir son commentaire). `ui/App.ts` : les 3 points
+d'appel de `STYLE_FACTORIES` (`applyActiveConfiguration`, `applyQualityLevel`, `getStyleFactory` de
+l'export) passent désormais `QUALITY_LEVEL_CONFIGS[niveau].feedback` en second argument — LOW/MEDIUM
+= désactivé, HIGH/ULTRA = activé (table de docs/10), export toujours figé à HIGH comme pour le bloom
+et les particules. `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **426/426** verts (inchangé —
+branchement pur, aucune nouvelle logique testable ajoutée). `npm run test:arch` : 1/1. `npm run
+build` : succès, 163 modules, 309,23 ko (gzip 84,72 ko).
+
+Vérifié au navigateur : LOW puis HIGH comparés (style Field, démo, ~7s de simulation pilotée par
+`__pulsarDebug.step()`), captures à l'appui — particules nettes dans les deux cas, aucune corruption
+visuelle. Balayage de robustesse déjà couvert par l'Étape 21 (3 styles × 4 niveaux, la bascule
+`usesFeedback` y était déjà exercée à chaque changement de niveau, zéro erreur).
+**Limite honnête** : la différence de traînée elle-même (LOW sans vs HIGH avec) n'est pas
+concluante sur des captures statiques — l'effet s'accumule sur plusieurs images consécutives avec un
+alpha de 0,88, une différence subtile à l'œil sur une image isolée plutôt qu'une vidéo. La
+correction du branchement repose sur la relecture de code (mécanique déjà vérifiée en P9/P11, seule
+la condition d'activation est neuve) et l'absence d'erreur, pas sur une confirmation visuelle directe
+de la traînée elle-même — signalé explicitement plutôt que de prétendre une vérification plus forte
+qu'elle ne l'est.
+Limites connues : `chromaticAberration`/`internalResolutionScale`/`spectrumBands` restent inertes,
+chacun exigeant une fonctionnalité de rendu ou d'analyse nouvelle (voir Étape 21).
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
