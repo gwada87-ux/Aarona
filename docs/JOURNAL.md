@@ -1699,3 +1699,39 @@ le chemin DOM/IndexedDB complet. Cohérent avec le reste de cette étape et des 
 App.ts` reste la seule couche jamais couverte par des tests unitaires directs.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 30 — hors roadmap : câble PerfMonitor.snapshot() dans le panneau debug
+
+**Hors de docs/00a.** Reprend une limite documentée depuis l'Étape 16/P14, jamais reprise depuis
+(vérifié : aucune mention dans les Étapes 17-29 de ce journal, confirmé par le HTML actuel du
+panneau) : `perf/PerfMonitor.ts` collecte déjà `p50Ms`/`p95Ms`/`p99Ms`/`updateMs`/`renderMs` à
+chaque image (`perfMonitor.recordFrame(...)`, déjà appelé dans la boucle `loop()`), mais
+`snapshot()` — qui calcule ces statistiques — n'était jamais invoqué nulle part : les données
+existaient, rien ne les affichait. Choisi après une revue des candidats restants (tests pour
+`project/storage/db.ts`/`MediabunnyEncoder.ts`/`Canvas2DRenderer.ts` écartés comme plus gros que ce
+gap-ci, purement additif et à risque quasi nul).
+
+**Correctif** : 3 nouvelles lignes dans `#debug-state` (`index.html`) — percentiles p50/p95/p99,
+rendu médian, update médian — juste après la ligne fps existante, laissée INCHANGÉE. `ui/App.ts` :
+`perfMonitor.snapshot()` appelé dans `loop()` juste après `recordFrame(...)`, mais GATÉ par
+`debugStateEl.open` (`#debug-state` est un `<details>`) — respecte l'avertissement du commentaire
+d'en-tête de `PerfMonitor.snapshot()` (« coût non négligeable (tri), à appeler seulement à
+l'affichage ») plutôt que de l'appeler inconditionnellement à chaque image comme
+`recordFrame(...)`.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **466/466** verts (inchangé — câblage
+d'affichage pur, `PerfMonitor.snapshot()` déjà testé depuis l'Étape 14/P14, aucune nouvelle
+logique testable ajoutée). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules,
+314,92 ko (gzip 86,02 ko).
+
+Vérifié au navigateur : panneau FERMÉ, 60 sous-pas simulés (`__pulsarDebug.step()`) en lecture —
+les 3 nouvelles lignes restent à `—` (confirme le gate, aucun calcul gaspillé) ; panneau OUVERT
+(`details.open = true`), 60 sous-pas de plus — les 3 lignes se remplissent avec des valeurs
+plausibles (`8.3 / 8.3 / 8.3 ms`, `3.2 ms`, `0.1 ms` — percentiles identiques attendus dans ce
+scénario synthétique piloté par `step()`, sans la variance d'un vrai rAF). Aucune erreur console.
+Limites connues : les lignes « Couches »/« Mémoire » mentionnées par docs/10 restent absentes —
+`PerfMonitor.ts` ne les a jamais calculées (son propre commentaire d'en-tête les attribue à un
+câblage direct dans `ui/App.ts`, jamais fait) ; hors périmètre ici, volontairement limité à ce que
+`PerfSnapshot` fournit déjà.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

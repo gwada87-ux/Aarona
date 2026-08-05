@@ -978,6 +978,10 @@ const btnPause = document.querySelector<HTMLButtonElement>('#btn-pause')!;
 const volumeInput = document.querySelector<HTMLInputElement>('#volume')!;
 const outTime = document.querySelector<HTMLElement>('#out-time')!;
 const outFps = document.querySelector<HTMLElement>('#out-fps')!;
+const outPerfPercentiles = document.querySelector<HTMLElement>('#out-perf-percentiles')!;
+const outPerfRender = document.querySelector<HTMLElement>('#out-perf-render')!;
+const outPerfUpdate = document.querySelector<HTMLElement>('#out-perf-update')!;
+const debugStateEl = document.querySelector<HTMLDetailsElement>('#debug-state')!;
 const outRegime = document.querySelector<HTMLElement>('#out-regime')!;
 const outClamped = document.querySelector<HTMLElement>('#out-clamped')!;
 const outGridConfidence = document.querySelector<HTMLElement>('#out-grid-confidence')!;
@@ -1065,6 +1069,19 @@ function loop(nowMs: number): void {
   // Toujours collecté (docs/10 §"Le moniteur de performance"), même sans image "utile" (pas
   // de morceau chargé, en pause…) : `updateMs`/`renderMs` restent significatifs dans tous les cas.
   perfMonitor.recordFrame({ frameTimeMs, updateMs, renderMs });
+
+  // `snapshot()` trie (coût non négligeable pour ce module, voir son commentaire d'en-tête) —
+  // calculé seulement si le panneau debug est OUVERT, pas à chaque image inconditionnellement
+  // (Étape 30, corrige la limite connue depuis l'Étape 16/P14 : les données étaient déjà
+  // collectées via `recordFrame` ci-dessus, mais `snapshot()` n'était jamais appelé nulle part).
+  if (debugStateEl.open) {
+    const perf = perfMonitor.snapshot();
+    if (perf.sampleCount > 0) {
+      outPerfPercentiles.textContent = `${perf.p50Ms.toFixed(1)} / ${perf.p95Ms.toFixed(1)} / ${perf.p99Ms.toFixed(1)} ms`;
+      outPerfRender.textContent = `${perf.renderMs.toFixed(1)} ms`;
+      outPerfUpdate.textContent = `${perf.updateMs.toFixed(1)} ms`;
+    }
+  }
 
   if (!exportInProgress && frameTimeMs > 0) {
     const govResult = qualityGovernor.recordFrame(frameTimeMs);
