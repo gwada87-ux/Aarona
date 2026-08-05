@@ -179,6 +179,33 @@ un fichier additif (`downmix.ts`) et `analysis/` un bootstrap de Worker (`analyz
 deux nécessaires à l'intégration mais absents de l'arborescence aspirationnelle d'origine, même
 pragmatisme que les étapes précédentes.
 
+### État réel — Étape 15/P13
+
+`project/` existe désormais, assez proche de l'arborescence aspirationnelle (§ haut de ce document) :
+
+```
+├── project/
+│   ├── Project.ts        types du modèle + validateProject()
+│   ├── migrate.ts         migrate() — MIGRATIONS vide (v1 est la première version)
+│   ├── zip.ts             lecteur/écrivain ZIP maison (méthode STORE, non listé dans l'arborescence d'origine)
+│   ├── pvproj.ts           writePvproj()/readPvproj(), extraction/réinjection de music.pmdi.json
+│   ├── cacheKey.ts         hash audio SHA-256 (Web Crypto) + clé de cache d'analyse
+│   ├── diff.ts             computePresetDiff()/applyPresetDiff() (chemins pointés génériques)
+│   ├── lru.ts              selectEvictions() — pur, testé (non listé dans l'arborescence d'origine)
+│   └── storage/
+│       └── db.ts            IndexedDB : 4 magasins, éviction LRU, navigator.storage.persist()
+```
+
+Deux fichiers en plus de l'arborescence d'origine (`zip.ts`, `lru.ts`) — même pragmatisme que les
+étapes précédentes : `zip.ts` isole le format binaire générique de sa spécialisation `.pvproj`
+(`pvproj.ts`), `lru.ts` isole la décision d'éviction (pure, testable) du magasin IndexedDB
+lui-même (`storage/db.ts`, non testable en environnement Node — même limite que `AudioEngine`/le
+Worker d'analyse). `ProjectFile.ts` de l'arborescence d'origine devient `Project.ts` (même
+pragmatisme de nommage que `presets/schema.ts` à l'Étape 13/P11 : types + validation dans un seul
+fichier plutôt que deux). `tests/unit/architecture.test.ts` contraint désormais la couche `project`
+(uniquement `music`, pour les types `PmdiDocument`/`AudioRef` — volontairement PAS `presets/`, voir
+le commentaire en tête de ce fichier de test).
+
 ### Vérification automatique des règles de dépendance
 
 `tests/unit/architecture.test.ts` parcourt les imports de `src/` et échoue si une règle du tableau de

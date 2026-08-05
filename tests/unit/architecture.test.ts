@@ -19,6 +19,16 @@ import ts from 'typescript';
  * pour `resolve.ts`), `analysis` (type `ClassificationThresholds`, import de
  * TYPE uniquement — cohérent avec le sens unique déjà interdit dans l'autre
  * direction), `visual` (type `Palette`, pour `resolve.ts`/`palette.ts`).
+ *
+ * `project` ajoutée à l'Étape 15/P13 (docs/13_PROJECT_FORMAT.md) : même
+ * situation, déjà anticipée dans les lignes `export`/`ui` existantes.
+ * N'importe que `music` (types `PmdiDocument`/`AudioRef`, pour `Project.ts`/
+ * `pvproj.ts`/`storage/db.ts`) — délibérément PAS `presets/` : le format de
+ * sauvegarde stocke un diff de chemins pointés générique (`PresetDiff`,
+ * chaînes "macros.glow" → valeur), pas des types du preset lui-même ;
+ * `setByPath` y est dupliqué depuis `presets/resolve.ts` plutôt qu'importé
+ * (même raisonnement que `music/StepContext.ts` dupliquant `BAND_IDS` depuis
+ * `analysis/bands.ts` — la fonction ne fait qu'une dizaine de lignes).
  */
 const SRC_ROOT = join(process.cwd(), 'src');
 
@@ -31,6 +41,7 @@ const ALLOWED_LAYERS: Readonly<Record<string, readonly string[]>> = {
   visual: ['core', 'behaviour', 'music', 'render'],
   render: ['core'],
   presets: ['core', 'music', 'behaviour', 'analysis', 'visual'],
+  project: ['music'],
   export: [
     'core', 'audio', 'analysis', 'music', 'behaviour', 'visual', 'render',
     'presets', 'project', 'perf', 'debug', 'integration',

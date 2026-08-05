@@ -739,3 +739,74 @@ suggestion de preset, inchangé depuis l'Étape 2. La configurabilité des couch
 inertes) reste un choix à trancher un jour, reporté une seconde fois — candidate pour une étape
 dédiée future plutôt que pour continuer à être repoussée en fin d'étape. Prochaine étape (00a) :
 Étape 15 (P13, projet et persistance).
+
+## Étape 15 — P13 : projet et persistance
+
+Fait et vérifié : `project/Project.ts` (modèle + `validateProject()`, tolérant à l'inconnu — même
+principe que `validatePmdi.ts`/`presets/schema.ts`), `project/migrate.ts` (`migrate()`, refus
+explicite d'une version future, `MIGRATIONS` vide — v1 est la première), `project/zip.ts` (lecteur/
+écrivain ZIP maison, méthode STORE, CRC-32 maison — table + calcul, vérifiés au format binaire réel
+avec octets arbitraires 0..255), `project/pvproj.ts` (`writePvproj`/`readPvproj`, extrait/réinjecte
+`music.pmdi.json` séparément de `project.json`), `project/cacheKey.ts` (SHA-256 via Web Crypto —
+littéralement l'algorithme nommé par docs/13, pas un hash maison), `project/diff.ts`
+(`computePresetDiff`/`applyPresetDiff`, chemins pointés génériques), `project/lru.ts`
+(`selectEvictions`, pur), `project/storage/db.ts` (IndexedDB : 4 magasins, éviction LRU,
+`navigator.storage.persist()`). UI : bouton « Projets » (liste avec vignettes, ouvrir/supprimer),
+« Nouvelle variante » (régénère la graine), sauvegarde automatique par diff toutes les 5 s, export/
+import `.pvproj`, dialogue de ré-association audio par empreinte. `tests/unit/architecture.test.ts`
+étendu : couche `project` autorisée à importer `music` uniquement. 50 nouveaux tests répartis sur 7
+fichiers (`project` 8, `migrate` 6, `zip` 9, `pvproj` 7, `cacheKey` 6, `diff` 10, `lru` 5 — total
+**62 fichiers/354 tests**). `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **354/354** verts.
+`npm run test:arch` : 1/1. `npm run build` : succès, 158 modules, 299,45 ko (gzip 81,77 ko).
+
+Trois bugs réels trouvés et corrigés en cours de route, avant toute vérification navigateur :
+(1) `computePresetDiff` perdait silencieusement un sous-arbre entier quand la base n'avait pas
+encore la clé correspondante (`base={}`, `modified={macros:{glow:0.85}}` → diff vide au lieu de
+`{"macros.glow":0.85}`) — la récursion exigeait que les DEUX côtés soient déjà des objets, alors
+qu'un champ absent doit être traité comme `{}` pour continuer la récursion et rapporter chaque
+feuille comme nouvelle. Trouvé par un test unitaire, pas au navigateur. (2) `startNewProjectIdentity`
+utilisait le même nom (débarrassé de son extension, pour le TITRE du projet) à la fois pour
+`projectName` ET `audioFileName` — la référence audio stockée dans `AudioRef.name` aurait donc perdu
+son extension, cassant la ré-association par nom+hash (docs/13) en silence. Trouvé en relisant le
+code, pas testé automatiquement (dépend de l'UI). (3) `readPvproj` : la première version exigeait
+`music.pmdi` présent quand `music.mode === "pmdi"` même en lisant `project.json` juste après l'avoir
+extrait vers sa propre entrée à l'écriture — `validateProject` rejetait alors son propre format de
+fichier. Corrigé en ré-injectant le PMDI lu dans `project.music.pmdi` avant validation.
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur <1 jour) :
+(1) ZIP en méthode STORE uniquement, aucun DEFLATE — l'audio embarqué est déjà compressé par son
+propre codec, `project.json`/`thumbnail.jpg` sont petits ; implémenter un compresseur à la main pour
+ce gain marginal aurait été disproportionné (même logique qu'ADR-003/ADR-007). Reste un `.zip`
+valide, ouvrable par n'importe quel outil standard — vérifié par aller-retour complet en test, pas
+seulement par inspection du format. (2) `PresetDiff` (docs/13) ne type ses valeurs qu'en primitives
+(number|string|boolean) — `computePresetDiff` IGNORE délibérément les différences de type tableau
+(`palette.bg`, `layers.*.lifetime`) plutôt que de les encoder en JSON dans un champ censé être une
+primitive : une fausse représentation qui ne se recharge pas correctement est pire qu'une absence.
+(3) `visual.overrides` ne couvre que macros/style/`prefs.reducedFlashing`, pas les presets édités
+via l'éditeur JSON (Étape 14/P12) — un tel preset personnalisé ne survit pas à une fermeture/
+réouverture. Documenté en détail dans docs/13_PROJECT_FORMAT.md. (4) L'UI de sauvegarde ne propose
+que le mode « Léger » (audio référencé par hash) — le mode « Complet » (audio embarqué) est
+implémenté côté format/lecture (`writePvproj`/`readPvproj`/`restoreProject` le gèrent tous) mais
+aucun bouton ne le déclenche à l'écriture. (5) Vignette = image actuellement affichée au moment de la
+sauvegarde, pas « à 25 % de la durée » comme suggéré par docs/13 — chercher à 25 % pour la seule
+capture aurait perturbé une écoute en cours ; simplification délibérée.
+
+Fait mais non vérifié : **vérification navigateur en attente** — IndexedDB, sélection/téléchargement
+de fichiers et `crypto.subtle` en conditions réelles n'ont pas encore été testés à l'œil par Aaron
+(contrairement à `computeAudioHash`/`computePresetDiff`/le format ZIP lui-même, tous vérifiés par
+test unitaire réel, pas seulement lus). Checklist fournie à Aaron : importer un morceau, attendre la
+sauvegarde automatique (badge "Enregistré HH:MM:SS"), recharger la page, ouvrir "Projets", charger le
+projet, confirmer que le rendu redémarre identique (même style/palette/macros) ; renommer le fichier
+audio source sur le disque et reconstruire pour vérifier que la ré-association par empreinte
+fonctionne ; "Nouvelle variante" puis vérifier que le rendu change perceptiblement sans que le son
+saute ; exporter en `.pvproj` puis le réimporter dans un nouvel onglet.
+Limites connues : aucune UI pour vider les caches ni afficher l'espace occupé (`getCacheUsage`/
+`clearCaches` existent, non appelés). `cacheAudio` réécrit parfois un blob déjà en cache (après un
+`getCachedAudio` qui l'a déjà "touché") — redondant, pas incorrect, non optimisé faute d'enjeu réel
+(un seul appel par chargement de projet, pas un chemin chaud). Mode "pmdi" (Mode B, PULSAR) codé et
+testé au niveau format (`pvproj.test.ts`) mais jamais exercé par l'UI — aucune intégration PULSAR
+n'existe encore dans ce projet.
+Dette introduite : aucune connue.
+Bloque la suite : vérification navigateur de cette étape à faire par Aaron avant de la considérer
+pleinement close. Le corpus annoté reste le seul bloqueur pour la F-mesure, inchangé depuis
+l'Étape 2. Prochaine étape (00a) : Étape 16 (P14, performance).

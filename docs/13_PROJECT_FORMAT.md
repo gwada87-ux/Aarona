@@ -126,6 +126,16 @@ ce qui compte dès qu'on réexporte en plusieurs formats, ou qu'on retouche un p
 Un bouton « Nouvelle variante » régénère simplement la graine : un seul entier, et la même
 configuration produit une composition différente. Effet fort, coût nul.
 
+**Implémenté à l'Étape 15/P13** (`src/project/Project.ts`, `src/project/diff.ts`,
+`src/ui/App.ts`). Écart assumé sur `visual.overrides` : le diff calculé par l'UI ne couvre que
+`macros`/`style`/`prefs.reducedFlashing` — pas les champs `mapping`/`palette`/`classification`
+qu'un preset édité via l'éditeur JSON (Étape 14/P12) peut modifier. Un tel preset personnalisé
+reste actif pendant la session mais n'est PAS restauré fidèlement après fermeture/réouverture :
+seuls macros/style/sécurité survivent. Documenté, pas corrigé — `computePresetDiff`/
+`applyPresetDiff` (génériques, testés) le permettraient, mais calculer le diff correct contre la
+bonne base (le preset édité lui-même, pas le preset catalogue d'origine) demande une refonte de
+`ui/App.ts` hors budget de cette étape.
+
 ---
 
 ## Fichier `.pvproj`
@@ -152,6 +162,16 @@ Le mode léger avec vérification par hash évite le piège classique : l'utilis
 projet ne le retrouve plus. Ici, on redemande le fichier avec son nom d'origine, et on vérifie que
 c'est bien le bon.
 
+**Implémenté à l'Étape 15/P13** (`src/project/zip.ts`, `src/project/pvproj.ts`). ZIP maison, méthode
+STORE uniquement (aucune compression — voir l'en-tête de `zip.ts` pour le raisonnement, même logique
+qu'ADR-003/ADR-007 : pas de dépendance tierce pour un gain marginal). `music.pmdi.json` est bien une
+entrée séparée de `project.json` (`writePvproj` extrait `project.music.pmdi`, `readPvproj` le
+réinjecte avant validation) — jamais dupliqué. Seul le mode « Léger » a une UI complète (référence
+par hash, redemande à l'ouverture) ; le mode « Complet » (audio embarqué) est géré par le format et
+`readPvproj`/`restoreProject`, mais l'UI de sauvegarde (`btn-project-save-pvproj`) ne propose que le
+mode Léger — pas de case à cocher pour embarquer l'audio. Écart assumé, documenté ci-dessous
+(docs/JOURNAL.md, Étape 15/P13).
+
 ---
 
 ## Persistance IndexedDB
@@ -174,6 +194,16 @@ l'indication de l'espace occupé.
 `navigator.storage.persist()` est demandé au premier enregistrement, et l'interface indique clairement
 que les projets vivent dans le navigateur. Un utilisateur qui perd un mois de travail parce qu'il a
 vidé son cache n'accusera pas son navigateur.
+
+**Implémenté à l'Étape 15/P13** (`src/project/storage/db.ts`, `src/project/lru.ts`). Les 4 magasins,
+l'éviction LRU (logique de sélection pure et testée, isolée de l'accès IndexedDB lui-même —
+`indexedDB` n'existe pas en environnement Node/Vitest, même limite que `AudioEngine`/le Worker
+d'analyse) et `navigator.storage.persist()` sont en place. Écart : « demandé au premier
+enregistrement » est simplifié en « demandé une fois au démarrage de l'app » (`App.ts`) plutôt que
+déclenché par le tout premier `saveProject()` — plus simple, sans conséquence pratique (l'utilisateur
+voit la même invite navigateur, juste un peu plus tôt). Pas d'UI pour vider les caches ni afficher
+l'espace occupé (`getCacheUsage`/`clearCaches` existent dans `db.ts` mais ne sont appelés par
+aucun bouton) — reporté, hors du strict nécessaire pour les deux critères d'acceptation de docs/14.
 
 ---
 
@@ -200,6 +230,11 @@ Règles :
 - chaque migration a un test unitaire avec un projet réel de la version précédente ;
 - un fichier issu d'une version plus récente est **refusé explicitement**, jamais lu partiellement —
   lire à moitié un format inconnu produit des bugs bien pires qu'un refus clair.
+
+**Implémenté à l'Étape 15/P13** (`src/project/migrate.ts`) : le pseudocode ci-dessus presque mot
+pour mot. `MIGRATIONS` est vide aujourd'hui — `CURRENT_PROJECT_VERSION` vaut 1, la toute première
+version du format, rien à migrer depuis. La première vraie entrée (et son test avec un projet réel)
+attendra que le format évolue.
 
 ---
 

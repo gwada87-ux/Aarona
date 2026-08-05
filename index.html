@@ -119,6 +119,12 @@
 
     #debug-state { font-size: 0.72rem; opacity: 0.5; }
     #debug-state dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 0.6rem; margin: 0; }
+
+    .project-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem; border: 1px solid #2c2e38; border-radius: 6px; }
+    .project-row img { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; background: #000; }
+    .project-row .project-info { flex: 1; min-width: 0; }
+    .project-row .project-name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-row .project-date { font-size: 0.72rem; opacity: 0.6; }
   </style>
 </head>
 <body>
@@ -126,8 +132,11 @@
     <h1>PULSAR VISUALIZER</h1>
     <span class="spacer"></span>
     <button id="btn-demo">Charger une démo</button>
+    <button id="btn-projects-open">Projets…</button>
+    <button id="btn-variant">Nouvelle variante</button>
     <button id="btn-fullscreen">Plein écran</button>
     <button id="btn-export-open">Exporter…</button>
+    <span id="autosave-status" style="opacity: 0.6; font-size: 0.75rem;"></span>
   </header>
 
   <main>
@@ -288,6 +297,31 @@
       <button id="btn-preset-editor-close">Fermer</button>
       <button id="btn-preset-editor-validate">Valider</button>
       <button id="btn-preset-editor-apply">Appliquer</button>
+    </div>
+  </dialog>
+
+  <dialog id="projects-dialog">
+    <h2>Projets</h2>
+    <div class="dialog-actions" style="justify-content: flex-start; margin-top: 0;">
+      <button id="btn-project-save-pvproj">Enregistrer sous .pvproj…</button>
+      <button id="btn-project-import-pvproj">Importer un .pvproj…</button>
+      <input type="file" id="pvproj-file-input" accept=".pvproj" hidden />
+    </div>
+    <p id="projects-status" style="opacity: 0.8; font-size: 0.85rem;"></p>
+    <ul id="projects-list" style="list-style: none; padding: 0; margin: 0.75rem 0; display: flex; flex-direction: column; gap: 0.5rem; max-height: 50vh; overflow-y: auto;"></ul>
+    <div class="dialog-actions">
+      <button id="btn-projects-close">Fermer</button>
+    </div>
+  </dialog>
+
+  <dialog id="relink-audio-dialog">
+    <h2>Fichier audio introuvable</h2>
+    <p id="relink-audio-message" style="font-size: 0.9rem;"></p>
+    <button id="btn-relink-pick">Choisir le fichier</button>
+    <input type="file" id="relink-file-input" accept="audio/*" hidden />
+    <p id="relink-audio-error" style="color: #ff6b6b; font-size: 0.85rem;"></p>
+    <div class="dialog-actions">
+      <button id="btn-relink-cancel">Annuler</button>
     </div>
   </dialog>
 

@@ -31,7 +31,7 @@ import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
 import type { MacroName } from '../presets/schema';
-import { importTrack } from './pipeline';
+import { importTrack, type ImportedTrack } from './pipeline';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
 import { computeWaveformPeaks } from '../analysis/waveformPeaks';
@@ -41,6 +41,21 @@ import { SimplePanel } from './panels/SimplePanel';
 import { AdvancedPanel } from './panels/AdvancedPanel';
 import { PresetEditorDialog } from './dialogs/PresetEditorDialog';
 import { ExportDialog } from './dialogs/ExportDialog';
+import {
+  openDatabase,
+  saveProject,
+  listProjects,
+  deleteProject,
+  cacheAudio,
+  getCachedAudio,
+  cacheAnalysis,
+  getCachedAnalysis,
+  requestPersistentStorage,
+} from '../project/storage/db';
+import { CURRENT_PROJECT_VERSION, ProjectError, type Project } from '../project/Project';
+import { computePresetDiff, applyPresetDiff } from '../project/diff';
+import { computeAudioHash, computeCacheKey } from '../project/cacheKey';
+import { writePvprojBlob, readPvprojBlob, PvprojFormatError } from '../project/pvproj';
 
 const STYLE_FACTORIES: Readonly<Record<StyleId, () => Scene>> = {
   pulse: createPulseStyle,
@@ -107,6 +122,24 @@ let fpsSmoothed = 0;
 let lastRegime = '—';
 let importAbortController: AbortController | null = null;
 
+// --- Persistance (Étape 15/P13, docs/13_PROJECT_FORMAT.md) --------------------
+
+function randomSeed(): number {
+  return Math.floor(Math.random() * 0xffffffff);
+}
+
+let db: IDBDatabase | null = null;
+let projectId: string = crypto.randomUUID();
+let projectName = 'Projet sans titre';
+let projectCreatedAt = new Date().toISOString();
+/** Graine du PRNG — sauvegardée (docs/13 §"La graine est sauvegardée") : sans elle, deux ouvertures du même projet produiraient deux rendus différents. */
+let projectSeed = randomSeed();
+let audioFileName: string | null = null;
+let audioFileSize = 0;
+let audioHash: string | null = null;
+let analysisCacheKeyValue: string | null = null;
+let autosaveTimer: number | null = null;
+
 // ---------------------------------------------------------------------------
 // Résolution de la configuration active (preset choisi + macros + surcharges)
 // ---------------------------------------------------------------------------
@@ -168,6 +201,7 @@ function applyActiveConfiguration(): void {
   advancedPanel.setMacros(currentMacros);
   advancedPanel.selectStyle(currentStyleId);
   advancedPanel.setReducedFlashing(resolved.safety.reducedFlashing);
+  scheduleAutosave();
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +267,7 @@ const exportDialog = new ExportDialog({
   getPalette: () => currentPalette!,
   getStyleFactory: () => STYLE_FACTORIES[currentStyleId],
   getAudioBuffer: () => currentAudioBuffer,
+  getProjectSeed: () => projectSeed,
   seekToStart: () => handleSeek(0, 'release'),
   play: () => audioEngine.play(),
   pause: () => audioEngine.pause(),
@@ -325,6 +360,26 @@ dropzone.addEventListener('drop', (event) => {
 
 document.querySelector<HTMLButtonElement>('#btn-demo')!.addEventListener('click', () => void loadDemo());
 
+/**
+ * Nouveau projet à partir d'un fichier fraîchement importé : identité,
+ * graine et hash tout neufs. `displayName` (titre du projet, sans
+ * extension) et `file.name` (référence audio EXACTE, avec extension —
+ * doit rester le vrai nom pour que la ré-association par nom+hash, docs/13,
+ * ait un sens) sont deux choses distinctes — un bug réel de cette étape,
+ * corrigé avant toute vérification navigateur : les deux partageaient le
+ * même nom tronqué.
+ */
+async function startNewProjectIdentity(displayName: string, file: File): Promise<void> {
+  projectId = crypto.randomUUID();
+  projectName = displayName;
+  projectCreatedAt = new Date().toISOString();
+  projectSeed = randomSeed();
+  audioFileName = file.name;
+  audioFileSize = file.size;
+  audioHash = await computeAudioHash(await file.arrayBuffer());
+  if (db && audioHash) void cacheAudio(db, audioHash, file);
+}
+
 async function loadFile(file: File): Promise<void> {
   importErrorEl.textContent = '';
   importAbortController?.abort();
@@ -341,14 +396,25 @@ async function loadFile(file: File): Promise<void> {
 
   const audioBuffer = audioEngine.decodedBuffer;
   if (!audioBuffer) return;
-  await runImportPipeline(audioBuffer, controller.signal);
+  await startNewProjectIdentity(file.name.replace(/\.[^.]+$/, ''), file);
+
+  const imported = await runAnalysisWithProgress(audioBuffer, controller.signal);
+  if (!imported) return;
+  currentAudioBuffer = audioBuffer;
+  if (audioHash) {
+    analysisCacheKeyValue = await computeCacheKey(audioHash, 'balanced');
+    if (db) void cacheAnalysis(db, analysisCacheKeyValue, imported.doc);
+  }
+  applyImportedDoc(imported.doc, imported.suggestion?.preset.id ?? null, imported.waveformPeaks);
+  simplePanel.setSuggestion(imported.suggestion);
 }
 
 /**
  * Passe par le VRAI `AudioEngine.load()` (un ton WAV synthétique tient lieu
  * de fichier, voir `demoDoc.ts`) — sans ça, `audioEngine.play()` ne ferait
  * rien (aucun `AudioBuffer` décodé) et le bouton Lecture resterait inerte en
- * mode démo.
+ * mode démo. Le hash/cache s'appliquent aussi à la démo, pour rester
+ * cohérent avec le chemin réel — sans conséquence pratique (contenu déterministe).
  */
 async function loadDemo(): Promise<void> {
   importErrorEl.textContent = '';
@@ -359,13 +425,15 @@ async function loadDemo(): Promise<void> {
   const audioBuffer = audioEngine.decodedBuffer;
   if (!audioBuffer) return;
   currentAudioBuffer = audioBuffer;
+  await startNewProjectIdentity('Démo synthétique', file);
 
   const doc = buildDemoDoc(audioBuffer.duration);
   const waveformPeaks = computeWaveformPeaks(downmixToMono(audioBuffer));
   applyImportedDoc(doc, null, waveformPeaks);
 }
 
-async function runImportPipeline(audioBuffer: AudioBuffer, abortSignal: AbortSignal): Promise<void> {
+/** Affiche/masque la progression d'analyse autour de `importTrack` — partagé entre import direct et restauration de projet (cache d'analyse manquant). */
+async function runAnalysisWithProgress(audioBuffer: AudioBuffer, abortSignal: AbortSignal): Promise<ImportedTrack | null> {
   dropzone.classList.add('hidden');
   analysisStatus.classList.remove('hidden');
   analysisProgress.value = 0;
@@ -380,33 +448,26 @@ async function runImportPipeline(audioBuffer: AudioBuffer, abortSignal: AbortSig
         analysisStage.textContent = `Analyse — ${stage}`;
       },
     });
-    if (abortSignal.aborted) return;
-    currentAudioBuffer = audioBuffer;
-    applyImportedDoc(imported.doc, imported.suggestion?.preset.id ?? null, imported.waveformPeaks);
-    simplePanel.setSuggestion(imported.suggestion);
+    return abortSignal.aborted ? null : imported;
   } catch (err) {
-    if (abortSignal.aborted) return;
-    importErrorEl.textContent = `Échec de l'analyse : ${err instanceof Error ? err.message : String(err)}`;
-    dropzone.classList.remove('hidden');
+    if (!abortSignal.aborted) {
+      importErrorEl.textContent = `Échec de l'analyse : ${err instanceof Error ? err.message : String(err)}`;
+      dropzone.classList.remove('hidden');
+    }
+    return null;
   } finally {
     analysisStatus.classList.add('hidden');
   }
 }
 
-function applyImportedDoc(doc: PmdiDocument, suggestedPresetId: string | null, waveformPeaks: WaveformPeaks | null): void {
+/** Construit la timeline/scène pour un document déjà décidé, SANS toucher au preset actif — partagé par `applyImportedDoc` (suggestion) et `restoreProject` (préset restauré). */
+function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null): void {
   currentDoc = doc;
   currentTimeline = buildMusicTimeline(doc);
-  stepper = new StepContextBuilder(currentTimeline, 1);
+  stepper = new StepContextBuilder(currentTimeline, projectSeed);
   simT = 0;
   lastAudioT = 0;
   fixedStep.reset();
-
-  selectedPresetId = suggestedPresetId;
-  customPreset = null;
-  const preset = PRESET_CATALOG.find((p) => p.id === suggestedPresetId);
-  currentMacros = preset?.macros ?? neutralMacros();
-  currentStyleId = preset?.style ?? currentStyleId;
-  simplePanel.selectPreset(selectedPresetId);
 
   applyActiveConfiguration();
 
@@ -421,6 +482,311 @@ function applyImportedDoc(doc: PmdiDocument, suggestedPresetId: string | null, w
   outGridConfidence.textContent = doc.confidence.grid.toFixed(2);
   dropzone.classList.add('hidden');
 }
+
+function applyImportedDoc(doc: PmdiDocument, suggestedPresetId: string | null, waveformPeaks: WaveformPeaks | null): void {
+  selectedPresetId = suggestedPresetId;
+  customPreset = null;
+  const preset = PRESET_CATALOG.find((p) => p.id === suggestedPresetId);
+  currentMacros = preset?.macros ?? neutralMacros();
+  currentStyleId = preset?.style ?? currentStyleId;
+  simplePanel.selectPreset(selectedPresetId);
+  applyDocCore(doc, waveformPeaks);
+}
+
+// ---------------------------------------------------------------------------
+// Persistance — projet (Étape 15/P13, docs/13_PROJECT_FORMAT.md)
+// ---------------------------------------------------------------------------
+
+interface PersistedVisualState {
+  readonly macros: PresetMacros;
+  readonly style: StyleId;
+  readonly reducedFlashing: boolean;
+}
+
+/** Valeurs par défaut d'un preset (ou de "Aucun") — base du diff `visual.overrides` (docs/13 §"Les surcharges sont un diff"). */
+function visualStateBase(presetId: string | null): PersistedVisualState {
+  const preset = PRESET_CATALOG.find((p) => p.id === presetId);
+  return { macros: preset?.macros ?? neutralMacros(), style: preset?.style ?? 'pulse', reducedFlashing: false };
+}
+
+/**
+ * Limite connue : ne capture que macros/style/sécurité dans le diff, pas les
+ * champs propres à un preset édité via l'éditeur JSON (mapping/palette/
+ * classification) — `customPreset` n'est pas restauré fidèlement par cette
+ * voie. Voir docs/JOURNAL.md, Étape 15/P13.
+ */
+function buildCurrentProject(): Project | null {
+  if (!currentDoc || !audioHash || !audioFileName) return null;
+  const base = visualStateBase(selectedPresetId);
+  const current: PersistedVisualState = { macros: currentMacros, style: currentStyleId, reducedFlashing };
+  const overrides = computePresetDiff(base as unknown as Record<string, unknown>, current as unknown as Record<string, unknown>);
+  const catalogPreset = PRESET_CATALOG.find((p) => p.id === selectedPresetId);
+
+  return {
+    format: 'pvproj',
+    version: CURRENT_PROJECT_VERSION,
+    meta: { id: projectId, name: projectName, createdAt: projectCreatedAt, modifiedAt: new Date().toISOString(), app: 'pulsar-visualizer@0.0.0-p0' },
+    audio: { ref: { kind: 'file', name: audioFileName, size: audioFileSize, hash: audioHash }, duration: currentDoc.audio.duration },
+    music: { mode: 'analysis', analysisProfile: 'balanced', cacheKey: analysisCacheKeyValue ?? undefined },
+    visual: { presetId: selectedPresetId ?? 'none', presetVersion: catalogPreset?.version ?? 1, overrides },
+    export: { format: '16:9', resolution: [1920, 1080], fps: 30, bitrateMbps: 12, codec: 'h264' },
+    prefs: { reducedFlashing, quality: 'auto', debugOverlay: false },
+    seed: projectSeed,
+  };
+}
+
+/**
+ * Vignette = image actuellement affichée, pas "à 25 % de la durée"
+ * (docs/13) — chercher/dessiner à 25 % exigerait de déplacer la tête de
+ * lecture rien que pour la capture, perturbant l'écoute en cours. Simplifié
+ * délibérément ; voir docs/JOURNAL.md, Étape 15/P13.
+ */
+function captureThumbnail(): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('capture de vignette impossible'))), 'image/jpeg', 0.8);
+  });
+}
+
+const autosaveStatusEl = document.querySelector<HTMLElement>('#autosave-status')!;
+
+async function saveCurrentProject(): Promise<void> {
+  if (!db) return;
+  const project = buildCurrentProject();
+  if (!project) return;
+  try {
+    const thumbnail = await captureThumbnail();
+    await saveProject(db, project, thumbnail);
+    autosaveStatusEl.textContent = `Enregistré ${new Date().toLocaleTimeString()}`;
+  } catch (err) {
+    autosaveStatusEl.textContent = 'Échec de la sauvegarde automatique';
+    console.error(err);
+  }
+}
+
+/** Sauvegarde automatique par diff toutes les 5s après une modification (docs/13 §"Persistance IndexedDB"). */
+function scheduleAutosave(): void {
+  if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(() => void saveCurrentProject(), 5000);
+}
+
+// --- Ré-association de l'audio par empreinte (docs/13 : "redemandé proprement, vérifié par hash") ---
+
+const relinkDialog = document.querySelector<HTMLDialogElement>('#relink-audio-dialog')!;
+const relinkMessage = document.querySelector<HTMLElement>('#relink-audio-message')!;
+const relinkError = document.querySelector<HTMLElement>('#relink-audio-error')!;
+const relinkFileInput = document.querySelector<HTMLInputElement>('#relink-file-input')!;
+let relinkResolve: ((blob: Blob | null) => void) | null = null;
+let expectedRelinkHash: string | undefined;
+
+document.querySelector<HTMLButtonElement>('#btn-relink-pick')!.addEventListener('click', () => relinkFileInput.click());
+document.querySelector<HTMLButtonElement>('#btn-relink-cancel')!.addEventListener('click', () => {
+  relinkDialog.close();
+  relinkResolve?.(null);
+  relinkResolve = null;
+});
+relinkFileInput.addEventListener('change', () => {
+  const file = relinkFileInput.files?.[0];
+  if (file) void handleRelinkFile(file);
+});
+
+async function handleRelinkFile(file: File): Promise<void> {
+  if (expectedRelinkHash) {
+    const hash = await computeAudioHash(await file.arrayBuffer());
+    if (hash !== expectedRelinkHash) {
+      relinkError.textContent = 'Ce fichier ne correspond pas (empreinte différente) — sélectionne le bon fichier.';
+      return;
+    }
+  }
+  relinkDialog.close();
+  relinkResolve?.(file);
+  relinkResolve = null;
+}
+
+function promptRelinkAudio(filename: string, expectedHash: string | undefined): Promise<Blob | null> {
+  expectedRelinkHash = expectedHash;
+  relinkMessage.textContent = `Fichier « ${filename} » introuvable dans le cache local. Sélectionne-le à nouveau — son nom peut avoir changé, il sera vérifié par empreinte.`;
+  relinkError.textContent = '';
+  relinkDialog.showModal();
+  return new Promise((resolve) => {
+    relinkResolve = resolve;
+  });
+}
+
+// --- Restauration d'un projet (magasin IndexedDB ou fichier .pvproj importé) ---
+
+async function restoreProject(stored: { id: string; project: Project }, providedAudioBlob?: Blob): Promise<void> {
+  const { project } = stored;
+  const ref = project.audio.ref;
+  if (ref.kind !== 'file') {
+    projectsStatus.textContent = "Ce projet ne référence pas de fichier audio local — non pris en charge par cette version.";
+    return;
+  }
+
+  let audioBlob: Blob | null = providedAudioBlob ?? null;
+  if (!audioBlob && ref.hash && db) audioBlob = await getCachedAudio(db, ref.hash);
+  if (!audioBlob) {
+    audioBlob = await promptRelinkAudio(ref.name, ref.hash);
+    if (!audioBlob) return; // annulé par l'utilisateur
+  }
+
+  importAbortController?.abort();
+  const controller = new AbortController();
+  importAbortController = controller;
+
+  const file = new File([audioBlob], ref.name, { type: audioBlob.type || 'audio/mpeg' });
+  try {
+    await audioEngine.load(file);
+  } catch (err) {
+    projectsStatus.textContent = `Impossible de charger l'audio : ${err instanceof Error ? err.message : String(err)}`;
+    return;
+  }
+  const audioBuffer = audioEngine.decodedBuffer;
+  if (!audioBuffer) return;
+
+  projectId = project.meta.id;
+  projectName = project.meta.name;
+  projectCreatedAt = project.meta.createdAt;
+  projectSeed = project.seed;
+  currentAudioBuffer = audioBuffer;
+  audioFileName = ref.name;
+  audioFileSize = audioBlob.size; // taille RÉELLE du blob chargé, plus fiable qu'un ref.size potentiellement obsolète
+  audioHash = ref.hash ?? (await computeAudioHash(await file.arrayBuffer()));
+  if (db && audioHash) void cacheAudio(db, audioHash, audioBlob);
+
+  let doc: PmdiDocument | null = project.music.cacheKey && db ? await getCachedAnalysis(db, project.music.cacheKey) : null;
+  let waveformPeaks: WaveformPeaks | null = null;
+  if (doc) {
+    analysisCacheKeyValue = project.music.cacheKey ?? null;
+    waveformPeaks = computeWaveformPeaks(downmixToMono(audioBuffer));
+  } else {
+    const imported = await runAnalysisWithProgress(audioBuffer, controller.signal);
+    if (!imported) return;
+    doc = imported.doc;
+    waveformPeaks = imported.waveformPeaks;
+    if (audioHash) {
+      analysisCacheKeyValue = await computeCacheKey(audioHash, 'balanced');
+      if (db) void cacheAnalysis(db, analysisCacheKeyValue, doc);
+    }
+  }
+
+  selectedPresetId = project.visual.presetId === 'none' ? null : project.visual.presetId;
+  customPreset = null;
+  const base = visualStateBase(selectedPresetId);
+  const restored = applyPresetDiff(base as unknown as Record<string, unknown>, project.visual.overrides) as unknown as PersistedVisualState;
+  currentMacros = restored.macros;
+  currentStyleId = restored.style;
+  reducedFlashing = restored.reducedFlashing;
+  simplePanel.selectPreset(selectedPresetId);
+
+  applyDocCore(doc, waveformPeaks);
+}
+
+// --- Panneau "Projets" : liste IndexedDB, .pvproj export/import ---
+
+const projectsDialog = document.querySelector<HTMLDialogElement>('#projects-dialog')!;
+const projectsList = document.querySelector<HTMLElement>('#projects-list')!;
+const projectsStatus = document.querySelector<HTMLElement>('#projects-status')!;
+
+document.querySelector<HTMLButtonElement>('#btn-projects-open')!.addEventListener('click', () => {
+  projectsDialog.showModal();
+  void refreshProjectsList();
+});
+document.querySelector<HTMLButtonElement>('#btn-projects-close')!.addEventListener('click', () => projectsDialog.close());
+
+async function refreshProjectsList(): Promise<void> {
+  if (!db) return;
+  const projects = await listProjects(db);
+  projectsList.replaceChildren();
+  const sorted = [...projects].sort((a, b) => b.project.meta.modifiedAt.localeCompare(a.project.meta.modifiedAt));
+  for (const stored of sorted) {
+    const li = document.createElement('li');
+    li.className = 'project-row';
+
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(stored.thumbnail);
+    li.appendChild(img);
+
+    const info = document.createElement('div');
+    info.className = 'project-info';
+    const name = document.createElement('div');
+    name.className = 'project-name';
+    name.textContent = stored.project.meta.name;
+    const date = document.createElement('div');
+    date.className = 'project-date';
+    date.textContent = new Date(stored.project.meta.modifiedAt).toLocaleString();
+    info.append(name, date);
+    li.appendChild(info);
+
+    const btnLoad = document.createElement('button');
+    btnLoad.textContent = 'Ouvrir';
+    btnLoad.addEventListener('click', () => {
+      projectsDialog.close();
+      void restoreProject(stored);
+    });
+    li.appendChild(btnLoad);
+
+    const btnDelete = document.createElement('button');
+    btnDelete.textContent = 'Supprimer';
+    btnDelete.addEventListener('click', () => {
+      void (async () => {
+        if (db) await deleteProject(db, stored.id);
+        void refreshProjectsList();
+      })();
+    });
+    li.appendChild(btnDelete);
+
+    projectsList.appendChild(li);
+  }
+  projectsStatus.textContent = sorted.length === 0 ? 'Aucun projet enregistré.' : '';
+}
+
+document.querySelector<HTMLButtonElement>('#btn-project-save-pvproj')!.addEventListener('click', () => void exportPvproj());
+
+async function exportPvproj(): Promise<void> {
+  const project = buildCurrentProject();
+  if (!project) {
+    projectsStatus.textContent = "Aucun projet à exporter — importe un morceau d'abord.";
+    return;
+  }
+  const thumbnailBlob = await captureThumbnail();
+  const thumbnail = new Uint8Array(await thumbnailBlob.arrayBuffer());
+  const blob = await writePvprojBlob({ project, thumbnail });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${project.meta.name || 'projet'}.pvproj`;
+  link.click();
+  projectsStatus.textContent = 'Fichier .pvproj téléchargé.';
+}
+
+const pvprojFileInput = document.querySelector<HTMLInputElement>('#pvproj-file-input')!;
+document.querySelector<HTMLButtonElement>('#btn-project-import-pvproj')!.addEventListener('click', () => pvprojFileInput.click());
+pvprojFileInput.addEventListener('change', () => {
+  const file = pvprojFileInput.files?.[0];
+  if (file) void importPvproj(file);
+});
+
+async function importPvproj(file: File): Promise<void> {
+  try {
+    const result = await readPvprojBlob(file);
+    projectsDialog.close();
+    const embeddedAudio = result.audio ? new Blob([result.audio.data as BlobPart]) : undefined;
+    await restoreProject({ id: result.project.meta.id, project: result.project }, embeddedAudio);
+  } catch (err) {
+    projectsStatus.textContent =
+      err instanceof PvprojFormatError || err instanceof ProjectError ? err.message : `Erreur : ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+// --- "Nouvelle variante" (docs/13 : régénère la graine, effet fort, coût nul) ---
+
+document.querySelector<HTMLButtonElement>('#btn-variant')!.addEventListener('click', () => {
+  if (!currentTimeline || !stepper) return;
+  projectSeed = randomSeed();
+  stepper = new StepContextBuilder(currentTimeline, projectSeed);
+  handleSeek(simT, 'release');
+  scheduleAutosave();
+});
 
 // ---------------------------------------------------------------------------
 // Transport (lecture réelle)
@@ -522,6 +888,15 @@ requestAnimationFrame(raf);
 // Configuration initiale ("Aucun" preset, style Pulse par défaut)
 // ---------------------------------------------------------------------------
 applyActiveConfiguration();
+
+void (async () => {
+  try {
+    db = await openDatabase();
+    void requestPersistentStorage();
+  } catch (err) {
+    console.error('IndexedDB indisponible — la persistance de projet restera désactivée cette session :', err);
+  }
+})();
 
 /** Console de développement — dev uniquement (import.meta.env.DEV), même convention que main.ts (P7-P11). */
 if (import.meta.env.DEV) {

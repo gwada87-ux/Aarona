@@ -23,6 +23,8 @@ export interface ExportDialogOptions {
   readonly getPalette: () => Palette;
   readonly getStyleFactory: () => () => Scene;
   readonly getAudioBuffer: () => AudioBuffer | null;
+  /** Graine du projet (docs/13_PROJECT_FORMAT.md) — DOIT être la même qu'en preview pour un export reproductible au pixel près. */
+  readonly getProjectSeed: () => number;
   /** Repli `MediaRecorder` : capture le canvas de preview EN TEMPS RÉEL — il doit donc jouer pendant l'export. */
   readonly seekToStart: () => void;
   readonly play: () => void;
@@ -79,7 +81,7 @@ export class ExportDialog {
         result = await runExport(
           {
             timeline,
-            projectSeed: 1,
+            projectSeed: this.options.getProjectSeed(),
             mapping: this.options.getMapping(),
             createScene: this.options.getStyleFactory(),
             palette: this.options.getPalette(),
