@@ -140,5 +140,17 @@ export interface Renderer {
    */
   setBloomConfig(config: BloomConfig): void;
 
+  /**
+   * Décalage chromatique (docs/07 §"Le décalage chromatique", Étape 23) :
+   * frange rouge/bleue discrète appliquée en post-traitement dans
+   * `endFrame()`, sur l'image COMPOSITE finale (après le bloom), même
+   * principe d'un simple booléen que `perf/qualityLevels.ts::QualityLevelConfig
+   * .chromaticAberration` — pas besoin d'un type dédié dupliqué comme
+   * `BloomConfig`, aucun autre paramètre à faire voyager à travers la
+   * frontière `render/`/`perf/`. `false` par défaut restaure exactement le
+   * comportement d'avant cette étape.
+   */
+  setChromaticAberration(enabled: boolean): void;
+
   endFrame(): void;
 }

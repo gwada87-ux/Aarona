@@ -1,6 +1,7 @@
 import type { BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../Renderer';
 import type { Viewport } from '../Viewport';
 import { BLOOM_COMPOSITE_ALPHA, computeBlurRadiusPx, computeSmallDimensions, extractHighlights } from './bloomMath';
+import { ABERRATION_TINT_ALPHA, computeAberrationOffsetPx } from './chromaticMath';
 
 /**
  * Backend Canvas 2D de `Renderer`. Convertit l'espace normalisé (Loi 4) en
@@ -43,6 +44,12 @@ export class Canvas2DRenderer implements Renderer {
   private bloomExtractCtx: OffscreenCanvasRenderingContext2D | null = null;
   private bloomBlurBuffer: OffscreenCanvas | null = null;
   private bloomBlurCtx: OffscreenCanvasRenderingContext2D | null = null;
+  /** `false` par défaut — un `Canvas2DRenderer` jamais configuré via `setChromaticAberration` rend exactement comme avant l'Étape 23. */
+  private chromaticAberrationEnabled = false;
+  private aberrationSnapshotBuffer: OffscreenCanvas | null = null;
+  private aberrationSnapshotCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private aberrationScratchBuffer: OffscreenCanvas | null = null;
+  private aberrationScratchCtx: OffscreenCanvasRenderingContext2D | null = null;
 
   constructor(private readonly canvas: Canvas2DLike) {
     // `getContext('2d')` sur l'union HTMLCanvasElement|OffscreenCanvas perd la
@@ -204,11 +211,18 @@ export class Canvas2DRenderer implements Renderer {
     this.bloomConfig = config;
   }
 
+  setChromaticAberration(enabled: boolean): void {
+    this.chromaticAberrationEnabled = enabled;
+  }
+
   endFrame(): void {
     // `restore()` D'ABORD : annule le décalage de `applyShake()` avant que le bloom ne lise les
     // pixels du canvas — le bloom travaille en espace écran, pas dans l'espace transformé de la frame.
     this.ctx.restore();
     if (this.bloomConfig.enabled) this.applyBloom();
+    // Après le bloom, jamais avant : la frange doit porter sur l'image DÉJÀ étendue par le halo,
+    // pas l'inverse (docs/07 §"Le décalage chromatique" — ordre des post-traitements).
+    if (this.chromaticAberrationEnabled) this.applyChromaticAberration();
   }
 
   /**
@@ -266,6 +280,61 @@ export class Canvas2DRenderer implements Renderer {
     this.ctx.globalCompositeOperation = 'lighter';
     this.ctx.globalAlpha = BLOOM_COMPOSITE_ALPHA;
     this.ctx.drawImage(this.bloomBlurBuffer!, 0, 0, smallW, smallH, 0, 0, fullW, fullH);
+    this.ctx.globalCompositeOperation = prevComposite;
+    this.ctx.globalAlpha = prevAlpha;
+  }
+
+  /**
+   * Décalage chromatique (docs/07 §"Le décalage chromatique", Étape 23) :
+   * frange rouge/bleue discrète, sur l'image composite finale (bloom
+   * inclus). Purement ADDITIVE par-dessus l'image d'origine, jamais de
+   * `clear`/reconstruction — au pire l'effet est trop discret ou trop
+   * marqué, jamais une image cassée.
+   *
+   * Isolation de canal SANS `getImageData` (contrairement au bloom, qui
+   * doit lire des pixels — mais seulement sur son petit buffer réduit) :
+   * `globalCompositeOperation = 'multiply'` avec un aplat de couleur pure
+   * met les deux autres canaux à zéro (produit par canal, 0×x = 0) —
+   * uniquement des opérations natives accélérées (`drawImage`/`fillRect`).
+   */
+  private applyChromaticAberration(): void {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    if (!this.aberrationSnapshotBuffer || this.aberrationSnapshotBuffer.width !== w || this.aberrationSnapshotBuffer.height !== h) {
+      this.aberrationSnapshotBuffer = new OffscreenCanvas(w, h);
+      this.aberrationSnapshotCtx = this.aberrationSnapshotBuffer.getContext('2d');
+      this.aberrationScratchBuffer = new OffscreenCanvas(w, h);
+      this.aberrationScratchCtx = this.aberrationScratchBuffer.getContext('2d');
+    }
+
+    // Capture de l'image finale (déjà composée, bloom inclus) — base commune aux deux passes teintées.
+    this.aberrationSnapshotCtx!.clearRect(0, 0, w, h);
+    this.aberrationSnapshotCtx!.drawImage(this.canvas, 0, 0);
+
+    const offsetPx = computeAberrationOffsetPx(w, h);
+    this.compositeTintedChannel('#ff0000', -offsetPx);
+    this.compositeTintedChannel('#0000ff', offsetPx);
+  }
+
+  /** Isole un canal (aplat `tint` en `'multiply'` sur la capture) puis le composite en `'lighter'` sur le canvas principal, décalé de `offsetXPx`. */
+  private compositeTintedChannel(tint: string, offsetXPx: number): void {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const scratchCtx = this.aberrationScratchCtx!;
+
+    scratchCtx.clearRect(0, 0, w, h);
+    scratchCtx.drawImage(this.aberrationSnapshotBuffer!, 0, 0);
+    scratchCtx.globalCompositeOperation = 'multiply';
+    scratchCtx.fillStyle = tint;
+    scratchCtx.fillRect(0, 0, w, h);
+    scratchCtx.globalCompositeOperation = 'source-over';
+
+    const prevComposite = this.ctx.globalCompositeOperation;
+    const prevAlpha = this.ctx.globalAlpha;
+    this.ctx.globalCompositeOperation = 'lighter';
+    this.ctx.globalAlpha = ABERRATION_TINT_ALPHA;
+    this.ctx.drawImage(this.aberrationScratchBuffer!, offsetXPx, 0);
     this.ctx.globalCompositeOperation = prevComposite;
     this.ctx.globalAlpha = prevAlpha;
   }

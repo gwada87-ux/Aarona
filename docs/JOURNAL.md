@@ -1302,3 +1302,50 @@ Limites connues : `chromaticAberration`/`internalResolutionScale`/`spectrumBands
 chacun exigeant une fonctionnalité de rendu ou d'analyse nouvelle (voir Étape 21).
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 23 — hors roadmap : le décalage chromatique
+
+**Hors de docs/00a.** Choisi par Aaron parmi les 3 dimensions de qualité encore inertes après
+l'Étape 22 (`chromaticAberration`/`internalResolutionScale`/`spectrumBands`), comme meilleur rapport
+valeur/risque des trois : effet visuellement nouveau, purement additif (ne peut pas casser l'image
+existante), reste entièrement dans `render/`, aucune dépendance en amont — contrairement à
+`spectrumBands` (toucherait le pipeline d'analyse) ou `internalResolutionScale` (gain de perf
+seulement, aucun signal actuel qu'il soit nécessaire).
+
+Fait et vérifié : `src/render/canvas2d/chromaticMath.ts` (nouveau, fonctions pures — même séparation
+que `bloomMath.ts`) : `computeAberrationOffsetPx()`, décalage en fraction du petit côté du canvas
+(`ABERRATION_OFFSET_FRACTION`), plancher à 1px. `Renderer.ts::setChromaticAberration(enabled:
+boolean)` — booléen simple, pas de type dupliqué comme `BloomConfig` (aucun autre paramètre à faire
+voyager à travers la frontière `render/`/`perf/`).
+`Canvas2DRenderer.ts::applyChromaticAberration()`/`compositeTintedChannel()` : capture de l'image
+composite finale (après le bloom, dans `endFrame()`) dans un buffer persistant, puis pour le rouge et
+pour le bleu — isolation du canal par `globalCompositeOperation = 'multiply'` avec un aplat de
+couleur pure SUR LE BUFFER SCRATCH (pas `getImageData` : uniquement des opérations natives
+accélérées, `drawImage`/`fillRect`), composée en `'lighter'` sur le canvas principal avec un léger
+décalage horizontal opposé par canal. Purement additif par-dessus l'image d'origine — jamais de
+`clear`/reconstruction, donc aucun risque de casser l'image existante même si l'effet s'avère mal
+calibré. `false` par défaut : sortie inchangée tant que jamais appelé.
+Câblage : `ui/App.ts` (`applyActiveConfiguration`, `applyQualityLevel`) et
+`ExportPipeline.ts::runExport()`, mêmes points d'appel que `setBloomConfig` — LOW/MEDIUM désactivé,
+HIGH/ULTRA activé (table de docs/10), export figé à HIGH. `FakeRenderer.ts` enregistre l'appel.
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **430/430** verts (426 + 4 nouveaux tests
+`chromaticMath.test.ts`). `npm run test:arch` : 1/1. `npm run build` : succès, 164 modules, 310,98 ko
+(gzip 85,02 ko).
+
+Vérifié au navigateur par un test ISOLÉ plutôt que via l'appli complète : `Canvas2DRenderer`
+instancié directement (import dynamique du module compilé par Vite) sur un canvas de test 200×200,
+un disque blanc dessiné, comparaison pixel par pixel entre `chromaticAberration` désactivé et activé.
+Résultat : 620 pixels sur 40 000 diffèrent (≈1,5 %), tous concentrés dans une fine bande autour du
+bord du disque (confirmé point par point : centre du disque identique dans les deux cas, zone
+éloignée du bord identique, léger décalage de canal détecté exactement à la frontière) — confirme le
+comportement additif localisé annoncé, et l'absence de régression ailleurs dans l'image. Aucune
+erreur console. Test additionnel via l'appli complète (démo, style Field, MEDIUM vs HIGH,
+`__pulsarDebug.step()`) : rendu sans erreur aux deux niveaux, mais non concluant pour isoler
+spécifiquement l'effet du décalage chromatique — MEDIUM et HIGH diffèrent aussi par `maxParticles`
+(1200 vs 2500) et les passes de bloom (1 vs 2), et aucune paire de niveaux de la table de docs/10 ne
+fait varier `chromaticAberration` seul ; voir le test isolé ci-dessus pour la vérification propre.
+Limites connues : `internalResolutionScale`/`spectrumBands` restent inertes, chacun exigeant une
+fonctionnalité de rendu ou d'analyse nouvelle (voir Étape 21). Coût réel en millisecondes non mesuré
+au navigateur (comme le bloom à l'Étape 21) — à confirmer par Aaron.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

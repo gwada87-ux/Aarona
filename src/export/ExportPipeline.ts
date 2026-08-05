@@ -85,6 +85,7 @@ export async function runExport(
   // gèle déjà `getStyleFactory` de la même façon, mais un second point d'application indépendant,
   // dans le pipeline lui-même, ne dépend pas de ce qu'un futur appelant pourrait oublier de faire).
   target.renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom);
+  target.renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].chromaticAberration);
 
   const totalFrames = Math.max(0, Math.round(config.durationSec * config.fps));
   const startedAt = performance.now();

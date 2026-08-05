@@ -68,9 +68,12 @@ règle #1). Écart assumé à l'origine : seul `maxParticles` avait un consommat
 `spectrumBands` étaient déclarés sans effet. **`bloom` câblé à l'Étape 21** (`render/Renderer.ts::
 setBloomConfig()`, voir §"Techniques Canvas 2D" de docs/07). **`feedback` câblé à l'Étape 22**
 (`createFieldStyle(maxParticles?, feedbackEnabled)`, réutilise l'effet déjà existant depuis P9 —
-seule la condition d'activation par niveau était neuve). Restent `chromaticAberration`/
-`internalResolutionScale`/`spectrumBands`, toujours sans consommateur — chacun exigerait de
-construire une fonctionnalité de rendu ou d'analyse entièrement nouvelle, comme le bloom. L'étage
+seule la condition d'activation par niveau était neuve). **`chromaticAberration` câblé à l'Étape 23**
+(`render/Renderer.ts::setChromaticAberration()`, voir §"Le décalage chromatique" de docs/07) — post-
+traitement neuf, contrairement à `bloom`/`feedback` qui réutilisaient une mécanique déjà en place.
+Restent `internalResolutionScale`/`spectrumBands`, toujours sans consommateur — chacun exigerait de
+construire une fonctionnalité de rendu ou d'analyse entièrement nouvelle, comme le bloom et le
+décalage chromatique. L'étage
 « modulé par la macro `density` » (résolution du nombre de particules ci-dessus) n'existe toujours
 pas : `density` agit bien sur les couches visuelles depuis l'Étape 20 (`presets/layerMacros.ts`,
 `spawnCountMul` de `ParticleField`), mais PAS sur `preset.layers.particles.count` selon l'ordre de

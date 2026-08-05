@@ -271,6 +271,33 @@ de l'appelant). Coût réel en millisecondes non mesuré (pas de `<canvas>` en N
 Aaron au navigateur ; vérifié visuellement : halo net et attendu autour des particules/anneaux en
 HIGH/ULTRA, absent en LOW, aucune erreur sur 3 styles × 4 niveaux de qualité.
 
+### 2bis. Le décalage chromatique : frange additive rouge/bleue
+
+```
+1. capture de l'image composite finale (après le bloom), pleine résolution
+2. isolation du canal rouge (multiply par un aplat rouge pur, sans getImageData)
+   → composée en additif, décalée de quelques px vers la gauche
+3. isolation du canal bleu, même principe → décalée vers la droite
+```
+
+**Implémenté à l'Étape 23** (`src/render/Renderer.ts` — `setChromaticAberration()`,
+`src/render/canvas2d/Canvas2DRenderer.ts::applyChromaticAberration()`/`compositeTintedChannel()`,
+`src/render/canvas2d/chromaticMath.ts` pour la partie testable en Node). Après le bloom dans
+`endFrame()`, jamais avant : la frange doit porter sur l'image DÉJÀ étendue par le halo. Purement
+ADDITIF par-dessus l'image d'origine (jamais de `clear`/reconstruction) — au pire l'effet est trop
+discret ou trop marqué, jamais une image cassée. Isolation de canal SANS `getImageData` :
+`globalCompositeOperation = 'multiply'` avec un aplat de couleur pure met les deux autres canaux à zéro
+(produit par canal, 0×x = 0) — uniquement des opérations natives accélérées (`drawImage`/`fillRect`),
+contrairement au bloom qui doit lire des pixels (mais seulement sur son petit buffer réduit). Câblé
+sur le niveau de qualité courant (`ui/App.ts`) et figé à HIGH pendant tout export
+(`ExportPipeline.ts::runExport()`). Coût réel en millisecondes non mesuré (pas de `<canvas>` en
+Node), comme pour le bloom — à confirmer par Aaron au navigateur. Vérifié au navigateur par un test
+isolé (`Canvas2DRenderer` instancié directement sur un cercle de test, image identique entre
+`chromaticAberration` off/on partout SAUF une fine bande autour du bord du cercle) : confirme le
+comportement additif localisé et l'absence de régression ailleurs dans l'image — pas de comparaison
+en conditions réelles (particules + bloom simultanés) faute d'un moyen de figer les deux autres
+dimensions (particules, passes de bloom) qui changent aussi avec le niveau de qualité.
+
 ### 3. Les particules : atlas et tableau typé
 
 ```
