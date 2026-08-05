@@ -2039,3 +2039,35 @@ modifié.
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 39 — hors roadmap : premiers tests des fabriques de style Field/Spectrum Pro
+
+**Hors de docs/00a.** `createFieldStyle()` et `createSpectrumProStyle()` restaient sans test direct
+(seul `createPulseStyle` est exercé, indirectement, par `exportPipeline.test.ts`). La mécanique
+GÉNÉRIQUE de `Scene` (délégation init/update/draw/reset/dispose dans l'ordre, `usesFeedback` ->
+`captureFeedback`) est déjà couverte par `scene.test.ts`/`frameFeedback.test.ts` — ce lot cible donc
+UNIQUEMENT ce qui est propre à chaque fabrique : la composition exacte (quelles couches, dans quel
+ordre) et le câblage de ses paramètres propres. Dernier lot de couverture visuelle du 3e audit ;
+reste seulement `ui/demoDoc.ts`.
+
+`tests/unit/createFieldStyle.test.ts` (nouveau, 6 tests) : composition exacte — 4 couches dans
+l'ordre `frameFeedback, deepVignette, perspectiveGrid, particleField`, vérifiée à la fois par `id`
+ET par `instanceof` (pour écarter une coïncidence d'id sans être la vraie classe) ; `feedbackEnabled`
+correctement câblé vers le 2e argument de `Scene` — omis (défaut) → `captureFeedback()` appelé,
+`false` explicite → jamais appelé ; `maxParticles` correctement câblé vers `ParticleField` — omis →
+capacité par défaut (2500), fourni → capacité = la valeur transmise, retrouvée via `particleStats()`
+sur la couche `particleField` extraite de `scene.layers`.
+
+`tests/unit/createSpectrumProStyle.test.ts` (nouveau, 3 tests) : composition exacte — 3 couches dans
+l'ordre `animatedDuotone, spectrumBars, flatWaveform`, id + instanceof ; confirmation qu'aucun 2e
+argument n'est transmis à `Scene` (`captureFeedback()` jamais appelé), la plus simple des trois
+fabriques de style (aucun paramètre à câbler).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **580/580** verts (571 + 9 nouveaux, 9/9 du
+premier coup). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip
+86,02 ko) — ni `createFieldStyle.ts` ni `createSpectrumProStyle.ts` modifiés. `git status --short` :
+2 fichiers, tous des tests, aucun fichier de production. Pas de vérification navigateur : zéro code
+de production modifié.
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
