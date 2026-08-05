@@ -2507,3 +2507,48 @@ nouveau chargement) restent ouverts, non corrigés — portée exclue par choix 
 l'utilisateur.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 49 — hors roadmap : le scrub de la frise pendant une analyse en cours n'applique plus le seek au mauvais audio
+
+**Hors de docs/00a.** Reprise du bug 2 laissé ouvert à l'Étape 48, sur choix explicite de
+l'utilisateur (le plus sévère des deux restants).
+
+**Le bug :** `audioEngine.load()` bascule sur le nouveau fichier dès que son décodage résout, mais
+`currentTimeline`/`scene`/`currentAudioBuffer` ne rattrapent l'ancien document qu'après l'analyse
+complète (Worker, peut prendre plusieurs secondes pour un vrai morceau) — pas seulement en cas
+d'imports qui se chevauchent (piège #11, Étape 48) : un import simple et seul suffit à ouvrir cette
+fenêtre. `handleSeek()` (`App.ts:461-462`) ne vérifiait que la NULLITÉ de `currentTimeline`/
+`stepper`/`behaviourEngine`/`scene`, jamais leur fraîcheur — ils restent non-nuls (juste périmés)
+pendant toute la fenêtre. `#timeline-canvas` est un élément FRÈRE de `#preview-wrap`
+(`index.html:173-186`), donc jamais couvert par l'overlay « Analyse… » : rien n'empêche
+visuellement ni logiquement l'interaction. Scruber pendant cette fenêtre appliquait le seek au
+NOUVEL audio (déjà chargé dans le moteur) avec l'ANCIENNE grille de battements/sections encore
+affichée.
+
+**Correctif :** un seul ajout à `handleSeek()` — `if (currentAudioBuffer !== audioEngine.
+decodedBuffer) return;`. Choix délibéré de réutiliser un état déjà existant plutôt que d'introduire
+un nouveau drapeau à réarmer/réinitialiser sur les 3 points d'appel (`loadFile`/`loadDemo`/
+`restoreProject`, chacun avec ses propres chemins d'erreur/annulation) : `currentAudioBuffer` n'est
+mis à jour qu'une fois l'analyse terminée — c'est EXACTEMENT la variable qui reste en retard sur le
+moteur pendant la fenêtre dangereuse, et qui rattrape automatiquement dès que `applyDocCore()`
+s'exécute. Protège uniformément les 3 points d'entrée du seek (`Timeline.onSeek`, `seekToStart`
+pour l'export, « Nouvelle variante ») puisque tous passent par `handleSeek()`.
+
+**Vérification au navigateur** (seule vérification possible : `App.ts` hors périmètre des tests
+unitaires par conception, docs/16) : un fichier synthétique de 10 minutes (`buildDemoAudioFile()`)
+déposé via un vrai événement `drop` (`DataTransfer`), pour déclencher le VRAI chemin `loadFile()` →
+analyse Worker (contrairement à `loadDemo()`, qui saute cette étape). Scrub tenté ~400 ms après le
+dépôt, `#analysis-status` confirmé visible (`analysisInProgress: true`) : `t` AVANT et APRÈS la
+tentative de scrub strictement identiques (`15.400399218229762` des deux côtés) — le seek a bien
+été bloqué. Sur un second essai (fichier de 10 s, analyse rapide, `#analysis-status` de nouveau
+caché) : scrub à 50 % → `t` passe correctement de `0` à `5.5` — confirme que le correctif ne
+bloque PAS le scrub en dehors de la fenêtre dangereuse.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` (suite complète) : **656/656** verts, inchangé
+(`App.ts` sans test dédié par conception). `npm run test:arch` : 1/1. `npm run build` : succès, 165
+modules, 315,69 ko (gzip 86,26 ko). `git status --short` : 1 fichier (`App.ts`).
+Limites connues : le bug 3 (vignette d'auto-sauvegarde potentiellement désynchronisée) reste
+ouvert, non corrigé — fenêtre de déclenchement non garantie à tracer, confiance plus faible,
+impact mineur (juste une image de prévisualisation, pas les données du projet).
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

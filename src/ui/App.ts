@@ -460,6 +460,14 @@ function resizeTimelineCanvas(): void {
 
 function handleSeek(t: number, kind: 'scrub' | 'release'): void {
   if (!currentTimeline || !stepper || !behaviourEngine || !scene) return;
+  // `audioEngine.load()` bascule sur le nouveau fichier dès sa résolution, mais `currentTimeline`/
+  // `scene`/`currentAudioBuffer` ne rattrapent l'ancien qu'après l'analyse (peut prendre plusieurs
+  // secondes, Worker) — pas seulement en cas d'imports qui se chevauchent (piège #11) : un import
+  // simple, seul, suffit à ouvrir cette fenêtre. Scruber pendant cette fenêtre appliquerait le seek
+  // au NOUVEL audio avec l'ANCIENNE grille de battements/sections encore affichée. `currentAudioBuffer`
+  // n'est mis à jour qu'une fois l'analyse terminée (voir loadFile/loadDemo/restoreProject) : tant
+  // qu'il diffère de ce que le moteur a réellement chargé, la timeline affichée est encore périmée.
+  if (currentAudioBuffer !== audioEngine.decodedBuffer) return;
   audioEngine.seek(t);
   simT = t;
   lastAudioT = t;
