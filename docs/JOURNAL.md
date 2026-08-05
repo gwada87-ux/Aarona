@@ -2071,3 +2071,42 @@ de production modifié.
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 40 — hors roadmap : premiers tests de ui/demoDoc.ts
+
+**Hors de docs/00a.** `buildDemoDoc()`/`buildDemoAudioFile()` restaient sans test — deux fonctions
+PURES malgré leur emplacement dans `ui/` (aucun DOM), repérées comme telles par le 3e audit de
+couverture précisément parce qu'un grep par dossier les aurait ignorées à tort. Dernier fichier du
+lot ouvert par ce même audit (après `background/` à l'Étape 37, `waveform/` à l'Étape 38, les
+fabriques de style à l'Étape 39) — ce lot est maintenant épuisé.
+
+`tests/unit/demoDoc.test.ts` (nouveau, 24 tests). `buildDemoDoc()` : passe `validatePmdi()` de bout
+en bout ; `buildDemoDoc(2)` (durée courte) sert de cas d'ÉNUMÉRATION EXACTE — comptes vérifiés à la
+main pour KICK (4), DOWNBEAT (1, le second à beat=4 tombe hors bornes), SNARE (2), HAT (8), DROP/
+BUILDUP (0, `dropTimes=[8,20,36]` tous ≥ 2s) ; `grid.beats`/`grid.downbeats` cohérents avec ces
+comptes ; événements triés par `t` croissant ; `features` (energy/centroid/6 bandes) toutes à la
+bonne longueur (`sampleCount = ceil(2×10)+1 = 21`) ; `sections` A/B/A contiguës couvrant exactement
+`[0, durationSec]` sans trou ni chevauchement. Filtre `dropTimes` vérifié aux deux régimes :
+`durationSec=60` (défaut) garde les 3 temps, `durationSec=10` n'en garde qu'un seul (borne stricte
+`<`, pas `<=`). Déterminisme (Loi 1) : deux appels au même `durationSec` produisent un document
+`toEqual` bit pour bit ; `source.createdAt` figé à `new Date(0)`, jamais l'horloge réelle.
+
+`buildDemoAudioFile()` : nom/type MIME, taille totale (`44 + numSamples×2`) ; en-tête WAV complet
+décodé au navigateur (marqueurs RIFF/WAVE/fmt /data, PCM mono 16 bits, `sampleRate`/`byteRate`/
+`blockAlign` corrects, tailles de sous-chunks cohérentes) ; contenu PCM du ton 220 Hz — échantillon
+0 exactement 0 (`sin(0)=0`, aucune ambiguïté), un échantillon interne comparé au MÊME calcul ET au
+MÊME passage par `Int16` que la source (plutôt que de supposer un résultat "propre", pour ne pas
+présumer d'un comportement d'arrondi/troncature non vérifié) ; déterminisme — deux appels aux mêmes
+paramètres produisent des octets identiques.
+
+`npx tsc --noEmit` : 0 erreur (une erreur de type initiale — `doc.features` possiblement
+`undefined`, `FeatureTrack[]` étant optionnel dans `PmdiDocument` — corrigée par un `!` avant le
+premier run). `npx vitest run` : **604/604** verts (580 + 24 nouveaux, 24/24 du premier coup après
+la correction de type). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko
+(gzip 86,02 ko) — `demoDoc.ts` non modifié. `git status --short` : 1 fichier, un test, aucun fichier
+de production. Pas de vérification navigateur : zéro code de production modifié.
+Limites connues : aucune nouvelle. Le lot de couverture visuelle/harnais ouvert par le 3e audit
+(Étapes 37-40) est maintenant épuisé — un nouvel audit sera nécessaire pour identifier la prochaine
+cible.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
