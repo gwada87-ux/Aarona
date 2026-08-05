@@ -7,6 +7,7 @@
  * ouvert depuis ce panneau plutôt que dupliqué en contrôles.
  */
 import { MACRO_NAMES, STYLE_IDS, type MacroName, type PresetMacros, type StyleId } from '../../presets/schema';
+import { QUALITY_LEVELS, type QualityLevel } from '../../perf/qualityLevels';
 
 const MACRO_LABELS: Readonly<Record<MacroName, string>> = {
   energy: 'Énergie',
@@ -26,17 +27,21 @@ export interface AdvancedPanelCallbacks {
   readonly onStyleSelect: (styleId: StyleId) => void;
   readonly onMacroChange: (name: MacroName, value: number) => void;
   readonly onReducedFlashingChange: (reduced: boolean) => void;
+  /** Choix manuel d'un niveau de qualité (docs/10_PERFORMANCE.md) — devient le nouveau plafond du `QualityGovernor`. */
+  readonly onQualitySelect: (level: QualityLevel) => void;
 }
 
 export class AdvancedPanel {
   private readonly styleSelect = document.querySelector<HTMLSelectElement>('#style-select')!;
   private readonly macroGrid = document.querySelector<HTMLElement>('#macro-grid-advanced')!;
   private readonly reducedFlashingCheckbox = document.querySelector<HTMLInputElement>('#reduced-flashing')!;
+  private readonly qualitySelect = document.querySelector<HTMLSelectElement>('#quality-select')!;
   private readonly macroInputs = new Map<MacroName, HTMLInputElement>();
 
   constructor(callbacks: AdvancedPanelCallbacks) {
     this.styleSelect.addEventListener('change', () => callbacks.onStyleSelect(this.styleSelect.value as StyleId));
     this.reducedFlashingCheckbox.addEventListener('change', () => callbacks.onReducedFlashingChange(this.reducedFlashingCheckbox.checked));
+    this.qualitySelect.addEventListener('change', () => callbacks.onQualitySelect(this.qualitySelect.value as QualityLevel));
 
     for (const name of MACRO_NAMES) {
       const label = document.createElement('label');
@@ -73,5 +78,10 @@ export class AdvancedPanel {
 
   setReducedFlashing(reduced: boolean): void {
     this.reducedFlashingCheckbox.checked = reduced;
+  }
+
+  /** Reflète dans le sélecteur un niveau atteint automatiquement (`QualityGovernor`) ou restauré depuis un projet. */
+  selectQuality(level: QualityLevel): void {
+    if (QUALITY_LEVELS.includes(level)) this.qualitySelect.value = level;
   }
 }

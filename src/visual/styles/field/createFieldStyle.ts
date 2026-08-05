@@ -18,7 +18,15 @@ import { FrameFeedback } from '../../layers/postfx/FrameFeedback';
  *
  * `usesFeedback = true` (second argument de `Scene`) : seul style du MVP à
  * avoir besoin du buffer de trainée (docs/JOURNAL.md, Étape 11).
+ *
+ * `maxParticles` (Étape 16/P14) : transmis tel quel à `ParticleField` — voir
+ * son constructeur pour la valeur par défaut. Permet au `QualityGovernor`
+ * (câblé dans `ui/App.ts`) de plafonner le pool par niveau de qualité sans
+ * que ce fichier ait besoin de connaître `perf/qualityLevels.ts`.
  */
-export function createFieldStyle(): Scene {
-  return new Scene([new FrameFeedback(), new DeepVignette(), new PerspectiveGrid(), new ParticleField()], true);
+export function createFieldStyle(maxParticles?: number): Scene {
+  return new Scene(
+    [new FrameFeedback(), new DeepVignette(), new PerspectiveGrid(), new ParticleField(maxParticles)],
+    true,
+  );
 }

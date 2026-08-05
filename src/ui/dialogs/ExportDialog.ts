@@ -29,6 +29,13 @@ export interface ExportDialogOptions {
   readonly seekToStart: () => void;
   readonly play: () => void;
   readonly pause: () => void;
+  /**
+   * Étape 16/P14 (docs/10_PERFORMANCE.md règle non négociable #2 : « l'export
+   * … désactive le QualityGovernor pour toute sa durée »). Optionnels : sans
+   * eux, le comportement d'avant cette étape est inchangé.
+   */
+  readonly onExportStart?: () => void;
+  readonly onExportEnd?: () => void;
 }
 
 export class ExportDialog {
@@ -63,6 +70,7 @@ export class ExportDialog {
     const durationSec = timeline.duration;
     const watermarked = this.watermarkCheckbox.checked;
 
+    this.options.onExportStart?.();
     this.exportBtn.disabled = true;
     this.cancelBtn.disabled = false;
     this.controller = new AbortController();
@@ -135,6 +143,7 @@ export class ExportDialog {
       this.exportBtn.disabled = false;
       this.cancelBtn.disabled = true;
       this.controller = null;
+      this.options.onExportEnd?.();
     }
   }
 }

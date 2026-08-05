@@ -42,4 +42,13 @@ export interface Layer {
   draw(renderer: Renderer, viewport: Viewport): void;
   reset(t: number): void;
   dispose(): void;
+
+  /**
+   * Statistiques du pool de particules, pour le panneau debug
+   * (docs/10_PERFORMANCE.md §"Le moniteur de performance", ligne
+   * "Particules"). Optionnelle : seules les couches à pool de particules
+   * l'implémentent (`ParticleField`, Étape 16/P14) — laissée `undefined`
+   * ailleurs plutôt que forcée à un `{ live: 0, capacity: 0 }` trompeur.
+   */
+  particleStats?(): { readonly live: number; readonly capacity: number };
 }

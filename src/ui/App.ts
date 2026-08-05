@@ -56,8 +56,18 @@ import { CURRENT_PROJECT_VERSION, ProjectError, type Project } from '../project/
 import { computePresetDiff, applyPresetDiff } from '../project/diff';
 import { computeAudioHash, computeCacheKey } from '../project/cacheKey';
 import { writePvprojBlob, readPvprojBlob, PvprojFormatError } from '../project/pvproj';
+import { QualityGovernor } from '../perf/QualityGovernor';
+import { PerfMonitor } from '../perf/PerfMonitor';
+import { QUALITY_LEVEL_CONFIGS, EXPORT_QUALITY_LEVEL, type QualityLevel } from '../perf/qualityLevels';
 
-const STYLE_FACTORIES: Readonly<Record<StyleId, () => Scene>> = {
+/**
+ * `field` est le seul style avec un consommateur réel du plafond de
+ * particules (`ParticleField`, Étape 16/P14) — `pulse`/`spectrum-pro`
+ * ignorent l'argument optionnel sans erreur (JS ignore les arguments
+ * surnuméraires), donc les appeler tous via cette même signature est sans
+ * risque et évite un branchement par style à chaque appel.
+ */
+const STYLE_FACTORIES: Readonly<Record<StyleId, (maxParticles?: number) => Scene>> = {
   pulse: createPulseStyle,
   field: createFieldStyle,
   'spectrum-pro': createSpectrumProStyle,
@@ -122,6 +132,24 @@ let fpsSmoothed = 0;
 let lastRegime = '—';
 let importAbortController: AbortController | null = null;
 
+// --- Performance (Étape 16/P14, docs/10_PERFORMANCE.md) -----------------------
+
+const qualityGovernor = new QualityGovernor({ initialLevel: 'high' });
+const perfMonitor = new PerfMonitor();
+let currentQualityLevel: QualityLevel = 'high';
+let qualityChangeReason: 'auto' | 'manual' = 'auto';
+/**
+ * Vrai pendant tout export (`ExportDialog.onExportStart`/`onExportEnd`) :
+ * le `QualityGovernor` cesse d'être nourri par `loop()` pour toute la durée
+ * (docs/10 règle non négociable #2 : « désactive le QualityGovernor pour
+ * toute sa durée »). Le rendu d'export lui-même est de toute façon toujours
+ * figé à `EXPORT_QUALITY_LEVEL` via `getStyleFactory` ci-dessous, indépendamment
+ * de ce booléen — celui-ci sert seulement à éviter qu'un export qui monopolise
+ * le thread principal (docs/10 : rendu d'export en V1 = thread principal) ne
+ * fasse chuter à tort le niveau de la PREVIEW pendant que l'export tourne.
+ */
+let exportInProgress = false;
+
 // --- Persistance (Étape 15/P13, docs/13_PROJECT_FORMAT.md) --------------------
 
 function randomSeed(): number {
@@ -184,7 +212,9 @@ function applyActiveConfiguration(): void {
   const styleChanged = currentStyleId !== sceneStyleId;
 
   if (styleChanged) {
-    scene = STYLE_FACTORIES[currentStyleId]();
+    // Le plafond du niveau de qualité courant s'applique dès la construction (voir `applyQualityLevel`
+    // pour le cas où le niveau change alors que le style `field` est DÉJÀ actif).
+    scene = STYLE_FACTORIES[currentStyleId](QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles);
     sceneStyleId = currentStyleId;
     scene.init({ renderer, palette: currentPalette });
     if (currentTimeline) scene.reset(simT);
@@ -203,6 +233,50 @@ function applyActiveConfiguration(): void {
   advancedPanel.setReducedFlashing(resolved.safety.reducedFlashing);
   scheduleAutosave();
 }
+
+/**
+ * Réagit à un changement de niveau de qualité (`QualityGovernor` automatique
+ * ou choix manuel via le sélecteur) : seul le style `field` a aujourd'hui un
+ * consommateur réel du plafond de particules (`ParticleField` — voir
+ * docs/JOURNAL.md, Étape 16/P14 : bloom/feedback/décalage chromatique/
+ * résolution interne/bandes de spectre restent déclarés mais inertes). Le
+ * pool étant un `Float32Array` de taille fixe, le seul moyen de le
+ * redimensionner est de reconstruire la Scene — les particules vivantes sont
+ * perdues à cette occasion, comme à tout changement de style
+ * (`applyActiveConfiguration`). Effet accepté : rare par construction (le
+ * `QualityGovernor` ne change de niveau qu'après 2 à 8 s de tenue, et au plus
+ * 1×/minute en remontée).
+ */
+function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void {
+  currentQualityLevel = level;
+  qualityChangeReason = reason;
+  advancedPanel.selectQuality(level);
+
+  if (currentStyleId === 'field' && sceneStyleId === 'field' && currentPalette) {
+    scene = STYLE_FACTORIES.field(QUALITY_LEVEL_CONFIGS[level].maxParticles);
+    scene.init({ renderer, palette: currentPalette });
+    if (currentTimeline) scene.reset(simT);
+  }
+}
+
+/** Première couche de la Scene active à exposer `particleStats()` (au plus une, aujourd'hui : `ParticleField`). */
+function findParticleStats(): { readonly live: number; readonly capacity: number } | null {
+  if (!scene) return null;
+  for (const layer of scene.layers) {
+    if (layer.particleStats) return layer.particleStats();
+  }
+  return null;
+}
+
+/**
+ * Tolérance "Sync" — pas documentée en valeur exacte par docs/10 (juste
+ * l'exemple « +4,2 ms ✅ »), donc choisie ici : un sous-pas de simulation
+ * (`FIXED_DT`, 1/120 s ≈ 8,33 ms). Au-delà, l'écart entre `simT` et la
+ * position audio réelle dépasse ce que le pas fixe peut rattraper en une
+ * seule image — signal honnête plutôt qu'un seuil arbitraire sans rapport
+ * avec la mécanique réelle de la boucle.
+ */
+const SYNC_TOLERANCE_MS = FIXED_DT * 1000;
 
 // ---------------------------------------------------------------------------
 // Panneaux
@@ -241,6 +315,10 @@ const advancedPanel = new AdvancedPanel({
     reducedFlashing = reduced;
     applyActiveConfiguration();
   },
+  onQualitySelect: (level) => {
+    qualityGovernor.setManualLevel(level);
+    applyQualityLevel(level, 'manual');
+  },
 });
 
 const presetEditorDialog = new PresetEditorDialog({
@@ -265,12 +343,20 @@ const exportDialog = new ExportDialog({
   getTimeline: () => currentTimeline,
   getMapping: () => currentMapping ?? ({} as MappingSchema),
   getPalette: () => currentPalette!,
-  getStyleFactory: () => STYLE_FACTORIES[currentStyleId],
+  // docs/10 règle non négociable #2 : l'export fige TOUJOURS le niveau à `EXPORT_QUALITY_LEVEL`
+  // (HIGH), quel que soit le niveau courant de la preview — jamais `currentQualityLevel` ici.
+  getStyleFactory: () => () => STYLE_FACTORIES[currentStyleId](QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles),
   getAudioBuffer: () => currentAudioBuffer,
   getProjectSeed: () => projectSeed,
   seekToStart: () => handleSeek(0, 'release'),
   play: () => audioEngine.play(),
   pause: () => audioEngine.pause(),
+  onExportStart: () => {
+    exportInProgress = true;
+  },
+  onExportEnd: () => {
+    exportInProgress = false;
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -530,7 +616,10 @@ function buildCurrentProject(): Project | null {
     music: { mode: 'analysis', analysisProfile: 'balanced', cacheKey: analysisCacheKeyValue ?? undefined },
     visual: { presetId: selectedPresetId ?? 'none', presetVersion: catalogPreset?.version ?? 1, overrides },
     export: { format: '16:9', resolution: [1920, 1080], fps: 30, bitrateMbps: 12, codec: 'h264' },
-    prefs: { reducedFlashing, quality: 'auto', debugOverlay: false },
+    // `prefs.quality` (type déjà anticipé en P13, câblé au vrai `QualityGovernor` en P14/Étape 16) :
+    // 'auto' si le niveau courant vient du gouverneur, sinon le niveau choisi manuellement — restauré
+    // par `restoreProject` (voir plus bas).
+    prefs: { reducedFlashing, quality: qualityChangeReason === 'manual' ? currentQualityLevel : 'auto', debugOverlay: false },
     seed: projectSeed,
   };
 }
@@ -679,6 +768,16 @@ async function restoreProject(stored: { id: string; project: Project }, provided
   simplePanel.selectPreset(selectedPresetId);
 
   applyDocCore(doc, waveformPeaks);
+
+  // Restaure `prefs.quality` (voir `buildCurrentProject`) APRÈS `applyDocCore` : la Scene existe déjà,
+  // donc `applyQualityLevel` peut la reconstruire si nécessaire plutôt que de dupliquer sa logique.
+  if (project.prefs.quality === 'auto') {
+    qualityGovernor.resetAuto('high');
+    applyQualityLevel('high', 'auto');
+  } else {
+    qualityGovernor.setManualLevel(project.prefs.quality);
+    applyQualityLevel(project.prefs.quality, 'manual');
+  }
 }
 
 // --- Panneau "Projets" : liste IndexedDB, .pvproj export/import ---
@@ -800,6 +899,9 @@ const outFps = document.querySelector<HTMLElement>('#out-fps')!;
 const outRegime = document.querySelector<HTMLElement>('#out-regime')!;
 const outClamped = document.querySelector<HTMLElement>('#out-clamped')!;
 const outGridConfidence = document.querySelector<HTMLElement>('#out-grid-confidence')!;
+const outQuality = document.querySelector<HTMLElement>('#out-quality')!;
+const outParticles = document.querySelector<HTMLElement>('#out-particles')!;
+const outSync = document.querySelector<HTMLElement>('#out-sync')!;
 
 btnPlay.addEventListener('click', () => audioEngine.play());
 btnPause.addEventListener('click', () => audioEngine.pause());
@@ -838,12 +940,15 @@ resizeTimelineCanvas();
 function loop(nowMs: number): void {
   audioEngine.tick(nowMs);
 
+  let frameTimeMs = 0;
   if (lastFrameMs !== null) {
-    const frameDt = (nowMs - lastFrameMs) / 1000;
+    frameTimeMs = nowMs - lastFrameMs;
+    const frameDt = frameTimeMs / 1000;
     if (frameDt > 0) fpsSmoothed = fpsSmoothed === 0 ? 1 / frameDt : fpsSmoothed * 0.9 + (1 / frameDt) * 0.1;
   }
   lastFrameMs = nowMs;
 
+  const updateStartMs = performance.now();
   if (audioEngine.playing && stepper && behaviourEngine && scene && currentTimeline) {
     // `audioEngine.dt` est le delta BRUT (non corrigé) — `audioEngine.t`, lui, intègre la
     // correction de dérive de `correctDrift()` (±2ms/image, convergence douce vers l'horloge
@@ -863,7 +968,9 @@ function loop(nowMs: number): void {
     }
     timelineComponent.setPlayhead(simT);
   }
+  const updateMs = performance.now() - updateStartMs;
 
+  const renderStartMs = performance.now();
   if (scene && currentPalette) {
     renderer.beginFrame(viewport);
     renderer.clear(currentPalette.bg[1]);
@@ -871,11 +978,30 @@ function loop(nowMs: number): void {
     renderer.endFrame();
     flashLimiter.apply(simT);
   }
+  const renderMs = performance.now() - renderStartMs;
+
+  // Toujours collecté (docs/10 §"Le moniteur de performance"), même sans image "utile" (pas
+  // de morceau chargé, en pause…) : `updateMs`/`renderMs` restent significatifs dans tous les cas.
+  perfMonitor.recordFrame({ frameTimeMs, updateMs, renderMs });
+
+  if (!exportInProgress && frameTimeMs > 0) {
+    const govResult = qualityGovernor.recordFrame(frameTimeMs);
+    if (govResult.changed) applyQualityLevel(govResult.level, 'auto');
+  }
 
   outTime.textContent = `${formatTime(simT)} / ${formatTime(currentTimeline?.duration ?? 0)}`;
   outFps.textContent = fpsSmoothed.toFixed(1);
   outRegime.textContent = lastRegime;
   outClamped.textContent = String(flashLimiter.clampedCount);
+
+  outQuality.textContent = `${currentQualityLevel.toUpperCase()} (${qualityChangeReason === 'auto' ? 'auto' : 'manuel'})`;
+
+  const particleStats = findParticleStats();
+  outParticles.textContent = particleStats ? `${particleStats.live} / ${particleStats.capacity}` : '—';
+
+  const syncMs = (lastAudioT - simT) * 1000;
+  const syncOk = Math.abs(syncMs) <= SYNC_TOLERANCE_MS;
+  outSync.textContent = audioEngine.playing ? `${syncMs >= 0 ? '+' : ''}${syncMs.toFixed(1)} ms ${syncOk ? '✅' : '⚠️'}` : '—';
 }
 
 function raf(nowMs: number): void {

@@ -29,6 +29,10 @@ import ts from 'typescript';
  * `setByPath` y est dupliqué depuis `presets/resolve.ts` plutôt qu'importé
  * (même raisonnement que `music/StepContext.ts` dupliquant `BAND_IDS` depuis
  * `analysis/bands.ts` — la fonction ne fait qu'une dizaine de lignes).
+ *
+ * `perf` ajoutée à l'Étape 16/P14 (docs/10_PERFORMANCE.md), déjà anticipée
+ * dans les lignes `export`/`ui`. N'importe que `core` (`QualityGovernor.ts`
+ * consomme `core/math/percentile`) ; `qualityLevels.ts` n'importe rien.
  */
 const SRC_ROOT = join(process.cwd(), 'src');
 
@@ -42,6 +46,7 @@ const ALLOWED_LAYERS: Readonly<Record<string, readonly string[]>> = {
   render: ['core'],
   presets: ['core', 'music', 'behaviour', 'analysis', 'visual'],
   project: ['music'],
+  perf: ['core'],
   export: [
     'core', 'audio', 'analysis', 'music', 'behaviour', 'visual', 'render',
     'presets', 'project', 'perf', 'debug', 'integration',

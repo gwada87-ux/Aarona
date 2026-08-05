@@ -61,6 +61,14 @@ d'équivalence preview/export échoue de plusieurs dizaines de pour cent.
 `preset.layers.particles.count` → modulé par la macro `density` → **plafonné** par le niveau de
 qualité. Le plafond est le seul étage autorisé à varier en preview.
 
+**Implémenté à l'Étape 16/P14** (`src/perf/qualityLevels.ts`) : la table ci-dessus est reprise
+intégralement (`QUALITY_LEVEL_CONFIGS`, `FIXED_SIMULATION_DT` séparé — jamais par niveau, voir la
+règle #1). Écart assumé : seul `maxParticles` a un consommateur réel aujourd'hui
+(`ParticleField`/`ui/App.ts`) — `bloom`/`feedback`/`chromaticAberration`/`internalResolutionScale`/
+`spectrumBands` sont déclarés mais sans effet (pas de consommateur dans `visual/`/`render/`). L'étage
+« modulé par la macro `density` » n'existe pas non plus : `density` reste une macro inerte depuis
+l'Étape 13/P11 (docs/JOURNAL.md). Voir docs/16_STRUCTURE_ET_RISQUES.md, §"État réel — Étape 16/P14".
+
 ---
 
 ## QualityGovernor
@@ -84,6 +92,16 @@ Choix des seuils :
 
 Chaque changement automatique est annoncé discrètement dans l'UI. Un utilisateur qui voit son rendu
 se simplifier sans explication conclut à un bug.
+
+**Implémenté à l'Étape 16/P14** (`src/perf/QualityGovernor.ts`, `tests/unit/qualityGovernor.test.ts`,
+14 tests) : l'algorithme exact ci-dessus (fenêtre de 90 images, seuils 20 ms/2 s et 12 ms/8 s, cooldown
+de remontée 1×/minute), horloge injectable pour des tests déterministes. `setManualLevel()` fixe le
+niveau ET le plafond (« jamais remonté automatiquement au-delà d'un choix manuel ») ;
+`resetAuto()` — ajout non prévu par le pseudocode ci-dessus — lève ce plafond, nécessaire pour
+restaurer un projet marqué qualité "auto" après qu'un AUTRE projet, dans la même session, ait posé un
+plafond manuel (`ui/App.ts` § restauration). « Annoncé discrètement dans l'UI » : le panneau debug
+affiche `HIGH (auto)`/`HIGH (manuel)`, pas de notification transitoire séparée — écart mineur, non
+soumis à Aaron (coût d'erreur faible, réversible).
 
 ---
 
@@ -149,6 +167,15 @@ Sync      +4,2 ms   ✅
 
 La ligne **Sync** est la plus importante du panneau et devrait rester visible même hors mode debug,
 au moins pendant le développement : c'est la mesure directe de la promesse du produit.
+
+**Implémenté à l'Étape 16/P14** (`src/perf/PerfMonitor.ts`, `tests/unit/perfMonitor.test.ts`, 6
+tests ; câblage `ui/App.ts`) : tampon circulaire sans allocation par image, FPS = moyenne sur la
+fenêtre (délibérément distinct de p50, voir le commentaire de `PerfSnapshot.fps`). Panneau debug
+(`#debug-state`) étendu avec Qualité/Particules/Sync uniquement — Rendu/Update (barres), p50/p95/p99
+et Couches/Mémoire restent NON affichés bien que `PerfMonitor.snapshot()` calcule déjà Rendu/Update/
+p50/p95/p99 (`sampleCount`/`fps`/`p50Ms`/`p95Ms`/`p99Ms`/`updateMs`/`renderMs` tous disponibles, non
+lus par `ui/App.ts`). Seuil "Sync" (✅ si écart ≤ un sous-pas fixe, 1/120 s ≈ 8,33 ms) : choisi ici,
+non chiffré par ce document au-delà de l'exemple « +4,2 ms ✅ ».
 
 ---
 

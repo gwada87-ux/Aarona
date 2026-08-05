@@ -206,6 +206,37 @@ fichier plutôt que deux). `tests/unit/architecture.test.ts` contraint désormai
 (uniquement `music`, pour les types `PmdiDocument`/`AudioRef` — volontairement PAS `presets/`, voir
 le commentaire en tête de ce fichier de test).
 
+### État réel — Étape 16/P14
+
+`perf/` existe désormais, différent de l'arborescence aspirationnelle (§ haut de ce document, qui
+prévoyait `FrameBudget · QualityGovernor · Stats`) :
+
+```
+├── perf/
+│   ├── qualityLevels.ts    table des 4 niveaux (docs/10) + FIXED_SIMULATION_DT + EXPORT_QUALITY_LEVEL
+│   ├── QualityGovernor.ts  algorithme d'ajustement automatique (fenêtre p95, horloge injectable)
+│   └── PerfMonitor.ts      collecteur FPS/p50/p95/p99 + Update/Rendu, tampon circulaire sans allocation
+```
+
+Pas de `FrameBudget.ts` séparé : le budget par étape de docs/10 (§"Budget par image") est une donnée
+de CONCEPTION (a servi à fixer les seuils de `QualityGovernor`, 20 ms/12 ms), pas un module vérifié à
+l'exécution — aucune couche ne mesure aujourd'hui le budget `Transport`/`StepContext`/`BehaviourEngine`
+individuellement, seulement le temps total `update`/`render`/image (`PerfMonitor`). `Stats` devient
+`PerfMonitor.ts` (nommage aligné sur sa responsabilité réelle, même pragmatisme que `Project.ts`/
+`schema.ts` aux étapes précédentes).
+
+**Écart assumé avec docs/10 §"Le moniteur de performance" et §"Les quatre niveaux de qualité"** :
+seul `maxParticles` a un consommateur réel (`ParticleField`, via `Layer.particleStats()` et le
+plafonnement câblé dans `ui/App.ts`). `bloom`/`feedback`/`chromaticAberration`/
+`internalResolutionScale`/`spectrumBands` sont déclarés dans `QUALITY_LEVEL_CONFIGS` (la table du
+document existe intégralement, rien n'est omis côté données) mais SANS EFFET : aucun consommateur
+dans `visual/`/`render/` (retoucher `FrameFeedback`, `Canvas2DRenderer` pour la résolution interne, et
+`SpectrumBars` est hors budget de cette étape). Le panneau debug n'affiche que Qualité/Particules/
+Sync — Rendu/Update (barres), p50/p95/p99, Couches et Mémoire, bien que `PerfMonitor.snapshot()` les
+calcule déjà pour Rendu/Update/p50/p95/p99, restent à câbler dans l'affichage. Voir docs/JOURNAL.md,
+Étape 16/P14, pour le détail des tests de charge de docs/10 §"Cas de charge à tester explicitement"
+non exercés (aucun ne l'a été : morceau de 10 min, flot hyperpop, redimensionnement continu, etc.).
+
 ### Vérification automatique des règles de dépendance
 
 `tests/unit/architecture.test.ts` parcourt les imports de `src/` et échoue si une règle du tableau de

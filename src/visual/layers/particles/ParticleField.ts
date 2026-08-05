@@ -6,8 +6,9 @@ import type { Rng } from '../../../core/rng/mulberry32';
 import type { Layer, LayerInitContext, LayerKind, LayerParams } from '../../scene/Layer';
 import type { Color } from '../../../render/Renderer';
 
-// docs/10_PERFORMANCE.md, niveau HIGH (pas de QualityGovernor avant P14 : valeur fixe pour l'instant).
-const POOL_SIZE = 2500;
+// docs/10_PERFORMANCE.md, niveau HIGH — valeur par défaut si le constructeur ne reçoit rien
+// (Étape 16/P14 : le pool devient configurable, plafonné par le `QualityGovernor` côté appelant).
+const DEFAULT_POOL_SIZE = 2500;
 const SPRITE_SIZE = 48;
 
 const DRIFT_Y = 0.012; // dérive constante — choix : lente, vers le haut (poussière/braises), non spécifié par docs/07
@@ -39,24 +40,33 @@ export class ParticleField implements Layer {
   private sprite!: SpriteHandle;
   private accentColor: Color = { r: 255, g: 255, b: 255, a: 1 };
 
-  private readonly x = new Float32Array(POOL_SIZE);
-  private readonly y = new Float32Array(POOL_SIZE);
-  private readonly vx = new Float32Array(POOL_SIZE);
-  private readonly vy = new Float32Array(POOL_SIZE);
-  private readonly life = new Float32Array(POOL_SIZE); // <= 0 : emplacement mort/libre
-  private readonly maxLife = new Float32Array(POOL_SIZE);
-  private readonly size = new Float32Array(POOL_SIZE);
+  private readonly poolSize: number;
+  private readonly x: Float32Array;
+  private readonly y: Float32Array;
+  private readonly vx: Float32Array;
+  private readonly vy: Float32Array;
+  private readonly life: Float32Array; // <= 0 : emplacement mort/libre
+  private readonly maxLife: Float32Array;
+  private readonly size: Float32Array;
   private cursor = 0;
   private liveCount = 0;
 
-  private readonly transforms: SpriteTransform[] = Array.from({ length: POOL_SIZE }, () => ({
-    x: 0,
-    y: 0,
-    scale: 0,
-    alpha: 0,
-  }));
+  private readonly transforms: SpriteTransform[];
 
   private convergeUntil = 0;
+
+  /** `maxParticles` — taille du pool ; omis ou non fourni = `DEFAULT_POOL_SIZE` (comportement inchangé). */
+  constructor(maxParticles: number = DEFAULT_POOL_SIZE) {
+    this.poolSize = maxParticles;
+    this.x = new Float32Array(this.poolSize);
+    this.y = new Float32Array(this.poolSize);
+    this.vx = new Float32Array(this.poolSize);
+    this.vy = new Float32Array(this.poolSize);
+    this.life = new Float32Array(this.poolSize);
+    this.maxLife = new Float32Array(this.poolSize);
+    this.size = new Float32Array(this.poolSize);
+    this.transforms = Array.from({ length: this.poolSize }, () => ({ x: 0, y: 0, scale: 0, alpha: 0 }));
+  }
 
   init(ctx: LayerInitContext): void {
     this.accentColor = ctx.palette.accent;
@@ -79,7 +89,7 @@ export class ParticleField implements Layer {
 
   private spawn(px: number, py: number, pvx: number, pvy: number, lifeSec: number, particleSize: number): void {
     const i = this.cursor;
-    this.cursor = (this.cursor + 1) % POOL_SIZE;
+    this.cursor = (this.cursor + 1) % this.poolSize;
     this.x[i] = px;
     this.y[i] = py;
     this.vx[i] = pvx;
@@ -149,7 +159,7 @@ export class ParticleField implements Layer {
     const drag = Math.max(0, 1 - DRAG_PER_SEC * dt);
 
     let live = 0;
-    for (let i = 0; i < POOL_SIZE; i++) {
+    for (let i = 0; i < this.poolSize; i++) {
       if (this.life[i]! <= 0) continue;
       this.life[i]! -= dt;
       if (this.life[i]! <= 0) continue;
@@ -170,7 +180,7 @@ export class ParticleField implements Layer {
 
   draw(renderer: Renderer, _viewport: Viewport): void {
     let written = 0;
-    for (let i = 0; i < POOL_SIZE && written < this.liveCount; i++) {
+    for (let i = 0; i < this.poolSize && written < this.liveCount; i++) {
       if (this.life[i]! <= 0) continue;
       const lifeFrac = this.life[i]! / this.maxLife[i]!;
       const speed = Math.hypot(this.vx[i]!, this.vy[i]!);
@@ -182,6 +192,10 @@ export class ParticleField implements Layer {
       written++;
     }
     if (written > 0) renderer.drawSprite(this.sprite, this.transforms, written);
+  }
+
+  particleStats(): { readonly live: number; readonly capacity: number } {
+    return { live: this.liveCount, capacity: this.poolSize };
   }
 
   reset(_t: number): void {

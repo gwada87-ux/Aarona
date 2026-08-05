@@ -810,3 +810,94 @@ Dette introduite : aucune connue.
 Bloque la suite : vérification navigateur de cette étape à faire par Aaron avant de la considérer
 pleinement close. Le corpus annoté reste le seul bloqueur pour la F-mesure, inchangé depuis
 l'Étape 2. Prochaine étape (00a) : Étape 16 (P14, performance).
+
+## Étape 16 — P14 : performance
+
+Fait et vérifié : `perf/qualityLevels.ts` (table des 4 niveaux de docs/10, `FIXED_SIMULATION_DT`
+séparé — jamais par niveau — et `EXPORT_QUALITY_LEVEL`), `perf/QualityGovernor.ts` (fenêtre p95 de
+90 images, seuils 20 ms/2 s et 12 ms/8 s, cooldown de remontée 1×/minute, horloge injectable,
+`setManualLevel`/`resetAuto`), `perf/PerfMonitor.ts` (tampon circulaire `Float32Array` sans
+allocation par image, FPS/p50/p95/p99 + Update/Rendu). `ParticleField` rendu configurable
+(constructeur `maxParticles`, défaut 2500 = comportement byte-identique — les 8 tests existants
+passent sans modification) ; `createFieldStyle(maxParticles?)` transmet le plafond. `ui/App.ts` :
+`STYLE_FACTORIES` retypé pour accepter le plafond (`pulse`/`spectrum-pro` l'ignorent silencieusement,
+seul `field` le consomme) ; `applyQualityLevel()` reconstruit la Scene du style `field` quand le
+niveau change (auto ou manuel) ; boucle de rendu mesurant `updateMs`/`renderMs` par image et nourrissant
+`perfMonitor`/`qualityGovernor` ; export TOUJOURS figé à `EXPORT_QUALITY_LEVEL` (HIGH) via
+`getStyleFactory`, indépendamment du niveau de preview (règle non négociable #2) ; `exportInProgress`
+(callbacks `onExportStart`/`onExportEnd` ajoutés à `ExportDialog`) coupe l'alimentation du gouverneur
+pendant un export pour ne pas dégrader la preview à tort. `AdvancedPanel` : sélecteur de qualité
+manuel (`#quality-select`, callback `onQualitySelect`, méthode `selectQuality()`). Persistance :
+`project.prefs.quality` (type `Quality` déjà anticipé en P13, resté un stub `'auto'` jusqu'ici)
+réellement câblé en écriture (`buildCurrentProject`) et en lecture (`restoreProject`,
+`resetAuto`/`setManualLevel` selon le cas). `Layer.particleStats?()` (optionnel, implémenté par
+`ParticleField`) et panneau debug (`#debug-state`) étendu avec Qualité/Particules/Sync
+(`out-quality`/`out-particles`/`out-sync`). `tests/unit/architecture.test.ts` : couche `perf` ajoutée
+(`['core']`). 17 nouveaux tests répartis sur 2 fichiers (`qualityGovernor` 11 dont `resetAuto`,
+`perfMonitor` 6 — total **64 fichiers/371 tests**). `npx tsc --noEmit` : 0 erreur. `npx vitest run` :
+**371/371** verts. `npm run test:arch` : 1/1. `npm run build` : succès, 161 modules, 304,76 ko (gzip
+83,42 ko).
+
+Trois bugs réels trouvés et corrigés en cours de route, avant toute vérification navigateur :
+(1) `QualityGovernor` initialisait `manualCeiling = initialLevel` dans le constructeur — un
+gouverneur fraîchement construit ne pouvait donc JAMAIS remonter automatiquement, sauf à démarrer
+déjà à "ultra". Trouvé par inspection en écrivant le test de cooldown (pas par un test qui échoue),
+avant tout run. Corrigé : le plafond par défaut est "ultra" (libre), seul `setManualLevel` le
+restreint. (2) Premier jet du test de "reprise durable" conceptuellement faux : une seule image
+rapide au milieu d'une série lente ne fait PAS repasser le p95 (statistique d'ordre, index ≈84,55 sur
+90) sous le seuil — c'est exactement pourquoi docs/10 préfère p95 à la moyenne, propriété qui vaut
+aussi dans l'autre sens. Réécrit en récupération soutenue (~90 images) + vérification différentielle
+de continuité (une reprise de mauvaises performances de courte durée après la récupération ne
+redéclenche pas immédiatement — preuve que le chrono interne a bien été remis à zéro). (3) Lors du
+câblage de `restoreProject`, gap réel identifié : `setManualLevel` seul ne permet pas de revenir en
+mode "auto" après qu'un plafond manuel a été posé PAR UN AUTRE PROJET dans la même session — le
+plafond resterait verrouillé à tort. Ajout de `QualityGovernor.resetAuto()` (lève le plafond, purge
+l'historique), avec son propre test.
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron — coût d'erreur faible) :
+(1) `PerfMonitor.fps` = moyenne sur la fenêtre, délibérément DISTINCT de `p50Ms` (médiane) — reproduit
+l'écart visible dans l'exemple chiffré de docs/10 (« FPS 58,2 (p50 16,1 ms …) », où 1000/58,2 ≠ 16,1)
+et donne à voir la différence entre un chiffre "vécu" (sensible aux images lentes) et un chiffre
+"typique" (robuste). (2) Fenêtre de `PerfMonitor` = 90 images, alignée sur celle de `QualityGovernor`
+bien que non imposée par docs/10 pour ce module — les deux décrivent alors la même période d'environ
+1,5 s à l'écran. (3) Seuil "Sync" ✅ = un sous-pas de simulation (`FIXED_DT`, 1/120 s ≈ 8,33 ms) — non
+chiffré par docs/10 au-delà de l'exemple, choisi comme le plus petit écart que la boucle à pas fixe
+ne peut pas rattraper en une seule image. (4) Un changement de niveau de qualité en style `field`
+reconstruit la Scene (perte des particules vivantes) faute d'autre moyen de redimensionner un
+`Float32Array` de taille fixe — accepté car rare par construction (2 à 8 s de tenue, 1×/minute en
+remontée). (5) Sélecteur de qualité manuel placé dans le panneau Avancé (contrôle utilisateur
+normal, à la façon d'un réglage graphique de jeu vidéo), pas dans le panneau debug — la ligne
+"Qualité" du panneau debug reste un AFFICHAGE, pas un contrôle. (6) `pulse`/`spectrum-pro` acceptent
+silencieusement un `maxParticles` ignoré (signature commune `(maxParticles?: number) => Scene` aux
+trois usines de style) plutôt qu'un branchement par style à chaque appel — JS ignore les arguments
+surnuméraires, sans risque.
+
+Fait mais non vérifié : **vérification navigateur en attente**. Les deux outils de navigateur
+disponibles cette session ont refusé de charger `http://localhost:3000` (pane interne : « denied or
+failed » ; Chrome connecté : « blocked by your site permissions ») — problème déjà rencontré sur ce
+projet, pas spécifique à cette étape. Checklist fournie à Aaron : charger la démo, ouvrir Avancé →
+Qualité, passer manuellement par les 4 niveaux et confirmer à l'œil que la densité de particules
+change en style Field (les autres styles ne doivent visuellement RIEN changer) ; ouvrir le panneau
+debug et vérifier que "particules" affiche bien `n / plafond` cohérent avec le niveau choisi, que
+"qualité" affiche `(manuel)` après un choix explicite ; laisser tourner plusieurs minutes avec
+beaucoup d'onglets/fenêtres ouverts pour tenter de provoquer une vraie descente automatique (`p95 >
+20 ms` pendant 2 s) et confirmer le passage à `(auto)` ; lancer un export et vérifier que le niveau de
+preview affiché ne change pas de façon disruptive pendant que l'export tourne ; sauvegarder un projet
+avec un niveau manuel, recharger la page, rouvrir "Projets" et confirmer que le niveau restauré est le
+bon (pas "auto").
+Limites connues : `bloom`/`feedback`/`chromaticAberration`/`internalResolutionScale`/`spectrumBands`
+déclarés dans `QUALITY_LEVEL_CONFIGS`, sans consommateur réel — seul `maxParticles` a un effet.
+L'étage « modulé par la macro `density` » du nombre de particules (docs/10) n'existe pas : `density`
+reste une macro inerte depuis l'Étape 13/P11. Le panneau debug n'affiche que Qualité/Particules/Sync
+— Rendu/Update (barres), p50/p95/p99 et Couches/Mémoire restent NON affichés bien que
+`PerfMonitor.snapshot()` calcule déjà Rendu/Update/p50/p95/p99 (pas Couches/Mémoire, jamais
+implémentés). Pas de bouton "revenir en auto" dans le sélecteur UI — `resetAuto()` n'est câblé qu'à
+la restauration de projet, docs/10 ne demande pas explicitement un tel bouton. Les cas de charge de
+docs/10 §"Cas de charge à tester explicitement" (morceau 10 min, flot hyperpop, redimensionnement
+continu, scrub rapide, onglet en arrière-plan, export pendant lecture externe, 2 h continues) restent
+tous non exercés — inchangé depuis les étapes précédentes, pas spécifique à celle-ci.
+Dette introduite : aucune connue.
+Bloque la suite : vérification navigateur de cette étape à faire par Aaron avant de la considérer
+pleinement close (même situation qu'aux étapes 14/15). Le corpus annoté reste le seul bloqueur pour
+la F-mesure, inchangé depuis l'Étape 2. Prochaine étape (00a) : Étape 17 (P15, tests et
+durcissement).
