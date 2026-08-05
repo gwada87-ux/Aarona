@@ -1894,3 +1894,30 @@ détecte automatiquement une future violation ; envisageable comme test dédié 
 ultérieure si jugé utile.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 35 — hors roadmap : premiers tests de decode.ts
+
+**Hors de docs/00a.** `audio/decode.ts::decodeAudioFile()` restait sans test — testable en Node
+via `FakeAudioContext` (déjà construit à l'Étape 27, son `decodeAudioData()` était déjà stubbé mais
+jamais exercé). Choisi pour son risque réel documenté (« piège #3 » : `decodeAudioData` DÉTACHE
+l'`ArrayBuffer` qu'on lui passe — donner `originalBytes` directement au lieu d'une copie le
+rendrait inutilisable pour le remux/hash après coup).
+
+`tests/unit/decode.test.ts` (nouveau, 9 tests) : rejet taille (> 150 Mo) AVANT tout décodage —
+vérifié en espionnant `decodeAudioData` pour confirmer qu'il n'est JAMAIS appelé dans ce cas (pas
+de décodage gaspillé sur un fichier déjà refusable) ; borne exclusive (`>` pas `>=`) vérifiée aux
+deux limites (taille et durée) ; rejet durée (> 12 min) APRÈS un décodage qui a bien eu lieu ;
+chemin nominal (buffer + octets d'origine renvoyés) ; et le test central — `decodeAudioData` reçoit
+une COPIE dont la référence est DISTINCTE d'`originalBytes` (`.not.toBe`), et `originalBytes`
+reste intégralement lisible après l'appel, contenu byte-à-byte vérifié contre l'original. Fichiers
+de taille limite (150 Mo) construits avec un contenu à ZÉRO (rapide, l'allocation seule suffit à
+tester la borne) — un contenu varié n'est utilisé que pour le test d'intégrité byte-à-byte, sur un
+fichier de 256 octets seulement (pas la peine de remplir 150 Mo pour vérifier une copie fidèle).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **531/531** verts (522 + 9 nouveaux, exécutés en
+moins de 300 ms malgré les fichiers de 150 Mo). `npm run test:arch` : 1/1. `npm run build` :
+succès, 165 modules, 314,92 ko (gzip 86,02 ko) — `decode.ts` lui-même non modifié. Pas de
+vérification navigateur : même raison qu'aux étapes précédentes de cette série.
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
