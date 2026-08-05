@@ -901,3 +901,61 @@ Bloque la suite : vérification navigateur de cette étape à faire par Aaron av
 pleinement close (même situation qu'aux étapes 14/15). Le corpus annoté reste le seul bloqueur pour
 la F-mesure, inchangé depuis l'Étape 2. Prochaine étape (00a) : Étape 17 (P15, tests et
 durcissement).
+
+## Étape 17 — P15 : tests et durcissement
+
+Fait et vérifié : `tests/bench/scoring.ts` (`scoreEvents` — F-mesure MIREX à tolérance fixe,
+appariement glouton par plus proche voisin non apparié ; `isTempoAccurate` — critère ± 2 %),
+`tests/unit/scoring.test.ts` (13 tests : cas parfait, FP/FN, non-double-appariement, ensembles
+vides, bornes de tolérance choisies pour être exactes en virgule flottante). `tests/bench/
+analysis.bench.test.ts` (docs/11 Niveau 4, `npm run bench:analysis`) : signal synthétique
+déterministe (PRNG seedé) de 4 min à 44100 Hz, `runAnalysisPipeline` + `finalizePmdi` appelés
+directement (fonctions pures, pas besoin de Worker/navigateur), chronométrage total ET par étape via
+`onProgress`. `vitest.bench.config.ts` : config séparée, `tests/bench/**/*.test.ts` exclu de
+`vitest.config.ts` — les bancs sont lents par nature, hors de la boucle rapide de `npm test`.
+15 nouveaux tests unitaires (`scoring` 13 ; `bench:analysis` a son propre test, hors du compte
+`vitest run` puisqu'une config séparée l'exclut — total suite rapide **65 fichiers/384 tests**).
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **384/384** verts. `npm run test:arch` : 1/1.
+`npm run build` : succès, 161 modules, 304,76 ko (gzip 83,42 ko) — inchangé, aucun code de `src/`
+livré à l'app cette étape (uniquement de l'outillage de test).
+
+**Découverte réelle de cette étape** (pas un bug du banc — une mesure honnête d'un critère jamais
+mesuré avant aujourd'hui) : `npm run bench:analysis` échoue. Pipeline complet sur un signal
+synthétique de 4 min : **19,5 s** au lieu du seuil documenté de 8 s (docs/11, docs/00b §6) — environ
+2,4× le budget. Répartition par étape : `resample` (6,6 s) et `bassContour` (9,4 s) représentent à
+eux deux ~82 % du total ; `stft` (1,7 s) loin derrière ; le reste (waveform/features/onsets/tempo/
+beats/downbeats/descriptors/finalize) est négligeable (< 1 s cumulé). Corriger ces deux fonctions est
+un travail d'optimisation à part entière, hors périmètre de cette étape (qui construit le banc, pas
+le correctif) — signalé pour une session dédiée (`spawn_task`, titre « Optimiser resample()/
+bassContour() »). Le test reste volontairement ROUGE dans le dépôt : documenter honnêtement un écart
+mesuré plutôt que masquer l'assertion (docs/00b §5, interdit formel : « passer à la phase suivante
+avec une erreur connue non documentée »). N'affecte pas `npm test`/`npm run build`
+(`vitest.bench.config.ts` isole `tests/bench/` de la suite rapide).
+
+Décision de conception (tranchée et documentée, non soumise à Aaron) : appariement glouton plutôt
+qu'optimal (hongrois) pour `scoreEvents` — les événements rythmiques visés sont peu denses (jamais
+deux détections à quelques ms l'une de l'autre en pratique), l'écart avec l'optimal est nul dans ce
+régime, et un algorithme glouton est bien plus simple à auditer à la main pour un projet de cette
+taille.
+
+Fait mais non tenté : les niveaux 2 (corpus annoté réel, 22 morceaux, F-mesure sur données réelles),
+3 (rendu golden — hachage SHA-256 d'images, équivalence preview/export au pixel, non-régression
+visuelle) et 4 restant (`bench:render`/`bench:export`/`bench:memory`/`bench:leak`) de docs/11 ne sont
+PAS implémentés cette étape. Raison commune aux trois derniers : `vitest.config.ts` tourne en
+`environment: 'node'`, sans Canvas ni `performance.memory` ni WebCodecs — les rendre testables sans
+navigateur exigerait une dépendance native (`node-canvas` ou assimilé), une décision d'ADR non prise
+ici plutôt qu'ajoutée en silence (docs/00b §5, interdit formel : « ajouter une dépendance sans
+ADR »). Le niveau 2 reste bloqué par l'absence de corpus réel, inchangée depuis l'Étape 2 — seule la
+MÉCANIQUE de notation (`scoring.ts`) a avancé cette étape, prête à consommer un corpus le jour où il
+existera. Niveau 5 (matrice navigateurs, scénarios manuels) : intrinsèquement non automatisable,
+liste déjà complète dans docs/11, à exécuter par Aaron.
+Limites connues : `bench:analysis` échoue (voir « Découverte réelle » ci-dessus) — c'est un résultat
+honnête, pas une régression de cette étape (le critère n'avait jamais été mesuré avant). `scoreEvents`
+utilise un appariement glouton, pas optimal (voir décision de conception). Aucun corpus audio réel
+dans `tests/fixtures/` — seulement deux fichiers `.pmdi.json` sans rapport (pont PMDI Beat Studio,
+Étape hors roadmap de ce document). `tools/annotate/` existe mais n'a annoté aucun morceau.
+Dette introduite : aucune connue (le test `bench:analysis` rouge est un signal, pas de la dette —
+documenté explicitement, pas caché).
+Bloque la suite : la correction de `resample()`/`bassContour()` (signalée en tâche séparée) et
+l'acquisition d'un corpus annoté restent les deux prérequis pour clore réellement docs/11. Prochaine
+étape (00a) : Étape 18 (P16, finition et mise en ligne).

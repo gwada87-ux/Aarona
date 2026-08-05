@@ -93,6 +93,16 @@ Le banc s'exécute en une commande et produit un tableau par genre. **Aucune mod
 d'analyse n'est fusionnée sans avoir fait tourner ce banc.** C'est ce qui empêche la régression
 classique : « j'ai amélioré la détection en Trap » qui détruit le Lofi.
 
+**Implémenté à l'Étape 17/P15** (`tests/bench/scoring.ts`, `tests/unit/scoring.test.ts`, 13 tests) :
+la MÉCANIQUE de notation (`scoreEvents` — F-mesure à tolérance fixe, `isTempoAccurate` — critère
+± 2 %), indépendante d'un corpus précis. Appariement GLOUTON par plus proche voisin non encore
+apparié, pas l'algorithme hongrois optimal qu'utilisent des bancs académiques comme mir_eval —
+simplification documentée dans le fichier, suffisante pour des événements rythmiques peu denses.
+Le banc lui-même (22 morceaux annotés → tableau par genre) reste **non implémenté** : aucun corpus
+audio réel n'existe dans `tests/fixtures/` — bloqueur inchangé depuis l'Étape 2 (docs/JOURNAL.md).
+`tools/annotate/` existe déjà (créé au spike initial) mais n'a servi à annoter aucun morceau à ce
+jour.
+
 ---
 
 ## Niveau 3 — Tests de rendu (golden)
@@ -146,6 +156,23 @@ bench:leak       30 cycles charger/décharger             → dérive ≤ 5 Mo
 
 Une régression de plus de 15 % sur un banc bloque la fusion. Le seuil est mis à 15 % et non 5 % pour
 absorber le bruit des machines de CI sans neutraliser l'alerte.
+
+**Implémenté à l'Étape 17/P15** (`tests/bench/analysis.bench.test.ts`, `npm run bench:analysis`,
+config séparée `vitest.bench.config.ts` — délibérément EXCLUE de `npm test` : trop lent pour la
+boucle de rétroaction rapide). Seul `bench:analysis` est réalisable sans navigateur :
+`runAnalysisPipeline`/`finalizePmdi` sont des fonctions pures, appelables directement en Node sur un
+signal synthétique. `bench:render` (Canvas 2D), `bench:export` (WebCodecs) et `bench:memory`/
+`bench:leak` (`performance.memory`, Chrome uniquement) restent HORS DE PORTÉE de l'environnement de
+test actuel (`environment: 'node'`, aucun Canvas — en ajouter un exigerait une dépendance native
+comme `node-canvas`, une décision d'ADR non prise ici) ; à faire au navigateur (docs/JOURNAL.md).
+
+**Résultat mesuré, une exécution, machine de développement** : le pipeline complet sur un signal
+synthétique de 4 min met **19,5 s**, soit environ 2,4× le seuil documenté de 8 s — le banc RÉVÈLE un
+écart réel, il ne le masque pas. Répartition par étape (`onProgress`) : `resample` (6,6 s) et
+`bassContour` (9,4 s) dominent très largement (~82 % du total) ; `stft` (1,7 s) loin derrière ; tout
+le reste (waveform/features/onsets/tempo/beats/downbeats/descriptors/finalize) est négligeable.
+Optimisation signalée pour une session dédiée (hors périmètre de cette étape, qui construit le banc,
+pas le correctif) — voir docs/JOURNAL.md, Étape 17/P15.
 
 ---
 
