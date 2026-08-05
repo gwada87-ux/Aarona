@@ -1989,3 +1989,53 @@ production modifié.
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 38 — hors roadmap : premiers tests des couches waveform/
+
+**Hors de docs/00a.** `CircularWaveform` (style Pulse) et `FlatWaveform` (style Spectrum Pro)
+restaient sans test, malgré une logique réelle de secteur/interpolation entre les 6 `step.bands` —
+et surtout une différence de comportement DOCUMENTÉE mais jamais vérifiée entre les deux : le
+dernier secteur BOUCLE (`% bandCount`) chez `CircularWaveform` (cohérent, c'est un cercle fermé)
+mais est CLAMPÉ (`Math.min`, pas de bouclage) chez `FlatWaveform` (cohérent, c'est une ligne
+ouverte). Un bug qui inverserait ces deux comportements ne casserait aucun test existant. Suite du
+lot des couches visuelles du 3e audit (après `background/` à l'Étape 37) ; reste : les fabriques de
+style et `ui/demoDoc.ts`.
+
+Comme `spectrumBars.test.ts`, un `PmdiDocument` avec des `features` explicites PAR BANDE
+(`stepperWithBands`) permet de fixer des valeurs différentes par bande — une seule valeur constante
+partout ne distinguerait pas ces couches d'un simple cercle/ligne statique.
+
+`tests/unit/circularWaveform.test.ts` (nouveau, 6 tests) : un seul `strokePath` FERMÉ, 64 segments,
+`lineWidth=0.004`, couleur = `palette.secondary` ; toutes bandes à 0,5 → rayon constant = `BASE_
+RADIUS` (0,4) sur tout le cercle ; aux limites de secteur EXACTES (64/6 segments par bande, deux
+points où `64×n/6` tombe pile sur un entier) : segment 0 (secteur pur "sub") → rayon maximal,
+segment 32 (secteur pur "mid") → rayon minimal ; segment 63 (dernier) : vérifie le BOUCLAGE vers le
+secteur "sub" (`(i0+1) % bandCount`), valeur attendue calculée analytiquement (`frac=0,90625`) ;
+`reset()`/`dispose()` ne lèvent pas.
+
+`tests/unit/flatWaveform.test.ts` (nouveau, 6 tests) : un seul `strokePath` OUVERT, 96 segments,
+`lineWidth=0.0018` ; couleur = RGB de `palette.secondary` mais alpha FORCÉE à 0,4, vérifié distinct
+de `palette.secondary.a` (=1) ; abscisses suivant `-0,5 + frac×1,0` vérifiées aux bornes et à un
+point interne ; segment 0 (secteur pur "sub") reflète `bands.sub` ; dernier segment : vérifie le
+CLAMP (pas de bouclage) — construit pour que bouclage et clamp donnent des SIGNES OPPOSÉS
+(`sub=0, high=1`), éliminant toute ambiguïté entre les deux hypothèses ; `reset()`/`dispose()` ne
+lèvent pas.
+
+Piège rencontré et corrigé AVANT tout run complet : `xs`/`ys` sont des `Float32Array` (docs/10 —
+zéro allocation en boucle de rendu) — `toBeCloseTo(x, 10)` est trop strict pour une valeur qui a
+transité par une précision 32 bits (~7 chiffres significatifs) ; ramené à `toBeCloseTo(x, 6)`
+partout où une valeur lue depuis `xs`/`ys` est comparée. Un test initial supposait à tort que le
+segment "du milieu" de `FlatWaveform` (index 47 sur 96) tombait à `xs=0` par symétrie — faux car
+`frac = i/(SEGMENTS-1)` et `(SEGMENTS-1)` est impair (95), aucun index entier ne donne `frac=0,5`
+exactement ; corrigé en comparant à la formule exacte plutôt qu'à une valeur supposée. Les deux
+corrections faites avant le premier `vitest run` propre (7/12 échouaient au premier essai, tous
+dus à ces deux causes, aucune ne révélant un bug du code source).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **571/571** verts (559 + 12 nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — ni
+`CircularWaveform.ts` ni `FlatWaveform.ts` modifiés. `git status --short` : 2 fichiers, tous des
+tests, aucun fichier de production. Pas de vérification navigateur : zéro code de production
+modifié.
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
