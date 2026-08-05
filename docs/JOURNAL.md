@@ -1921,3 +1921,31 @@ vérification navigateur : même raison qu'aux étapes précédentes de cette s�
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 36 — hors roadmap : premiers tests de buildPalette()
+
+**Hors de docs/00a.** `presets/palette.ts::buildPalette()` restait sans test direct.
+`tests/unit/presetResolve.test.ts` le couvre déjà INDIRECTEMENT via `resolvePreset()` de bout en
+bout (`primary` et `temperature()` seulement), mais jamais `bg`/`secondary`/`accent`/`glow`/
+`contrast`, jamais le gel (`Object.freeze`) du résultat, et jamais le `clamp01` interne à ce
+fichier — distinct de celui, déjà testé, de `visual/palette/Palette.ts` (`defaultPalette` dans
+`palette.test.ts`). `TypedEmitter.ts` (`core/bus/`) a été écarté après vérification : jamais
+importé nulle part hors de son propre fichier (grep), code mort — priorité donnée à `buildPalette`,
+activement utilisé par `presets/resolve.ts` et donc réellement exercé par l'app.
+
+`tests/unit/buildPalette.test.ts` (nouveau, 11 tests) : champs directs (`id` repris tel quel,
+`bg[0]`/`bg[1]` convertis en `Color` dans le même ordre, `primary`/`secondary`/`accent`/`glow`
+convertis, `contrast` repris SANS clamp — vérifié avec une valeur hors `[0,1]`, résultat gelé) ;
+`temperature()` (interpolation exacte aux bornes `energy=0`/`energy=1` contre `drift.lowEnergy`/
+`drift.highEnergy`, point médian à `energy=0.5`, et le clamp interne — `energy<0` se comporte comme
+`0`, `energy>1` comme `1`, même schéma de test que pour `defaultPalette`) ; indépendance entre deux
+appels successifs avec des configs différentes (aucun état partagé).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **542/542** verts (531 + 11 nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — `palette.ts`
+lui-même non modifié, uniquement des tests ajoutés autour. `git status --short` : un seul fichier
+touché (`tests/unit/buildPalette.test.ts`), aucun fichier de production. Pas de vérification
+navigateur : même raison qu'aux étapes précédentes de cette série (zéro code de production modifié).
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
