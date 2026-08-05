@@ -1594,3 +1594,51 @@ code mort par construction (tous les appelants actuels appellent cette méthode 
 est encore vrai) — observé en marge, pas touché, hors périmètre de ce correctif.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 28 — hors roadmap : BehaviourEngine recâblable sans reconstruction
+
+**Hors de docs/00a.** Reprend la « limite assumée, non corrigée » documentée depuis l'Étape 14/P12
+(voir plus haut dans ce journal) : `applyActiveConfiguration()` (`ui/App.ts`) protège `Scene` d'une
+reconstruction à chaque glissement de macro (`sceneStyleId` comparé à la cible), mais
+`BehaviourEngine` n'avait pas ce garde — reconstruit à chaque appel, remettant à zéro toute
+enveloppe `Impulse`/`Continuous` en cours. Choisi comme prochaine unité de travail autonome après
+une revue ciblée des limites ouvertes des Étapes 14-27 (gap UX concret, documenté de longue date,
+scope clair, ne touche aucune zone à risque non balisée).
+
+**Correctif, en 3 temps** :
+1. `Impulse.ts` : nouvelle méthode `seed(v)` — DISTINCTE de `reset()` (qui ramène à 0, utilisée par
+   `seek()`, docs/02 §Seek) — impose une valeur arbitraire sans perturber la suite de la
+   décroissance exponentielle.
+2. `BehaviourEngine.ts` : `resolved` devient mutable (était `private readonly`) ; nouvelle méthode
+   `setMapping(mapping)` — reconstruit `resolved` via `resolve(mapping)` (les primitives DOIVENT
+   être reconstruites, `decay`/`rise`/`fall` sont `private readonly`, fixés au constructeur — même
+   raison que `ScreenShake`/`SpectrumBars`, Étape 20), puis reporte la valeur EN COURS de chaque
+   primitive existante sur la nouvelle, par nom de signal (`seed()` pour `Impulse`, `reset(v)` —
+   déjà existant — pour `Continuous`). `Anticipation` n'a rien à préserver : sans état interne par
+   construction (recalculée à chaque pas depuis `timeline.timeToNext`).
+3. `ui/App.ts` : nouvelle variable `behaviourEngineTimeline`, même rôle que `sceneStyleId` pour
+   `scene` — `applyActiveConfiguration()` appelle `behaviourEngine.setMapping(currentMapping)` si le
+   timeline n'a pas changé depuis la dernière construction, sinon reconstruit `new
+   BehaviourEngine(...)` (nouveau morceau chargé — le timeline est `private readonly` dans
+   `BehaviourEngine`, une vraie reconstruction reste nécessaire dans ce cas).
+
+Fait et vérifié : `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **463/463** verts (457 + 6
+nouveaux — 2 dans `impulse.test.ts` pour `seed()`, 4 dans `behaviourEngine.test.ts` pour
+`setMapping()`, dont un qui prouve explicitement la non-régression : un `Impulse` en décroissance
+partielle continue sa décroissance depuis sa valeur courante après `setMapping()`, jamais depuis 0 —
+ce test aurait échoué avec l'ancien `new BehaviourEngine(...)` inconditionnel). `npm run test:arch` :
+1/1. `npm run build` : succès, 165 modules, 314,22 ko (gzip 85,82 ko).
+
+Vérifié au navigateur : démo réelle, lecture démarrée, glissement RÉEL du curseur `energy` (panneau
+Simple, `#macro-energy-simple`) 21 fois de suite en cours de lecture (`input`/`change` dispatchés,
+exactement le chemin DOM réel, pas un appel direct à `applyActiveConfiguration()`) — aucune erreur
+console, aucun plantage. Vérification fonctionnelle de bout en bout (le câblage `ui/App.ts` n'est
+pas couvert par les tests unitaires, qui portent sur `BehaviourEngine`/`Impulse` isolément) ;
+l'absence d'à-coup visuel lui-même n'a pas été confirmée à l'œil (effet subtil sur une durée de
+quelques dizaines de ms, même limite de rigueur que les vérifications visuelles des Étapes 22/25) —
+la preuve de la préservation de valeur repose sur les tests unitaires, qui l'isolent précisément.
+Limites connues : aucune nouvelle — cette étape referme la dernière limite UX documentée de
+l'Étape 14/P12 encore ouverte (les deux autres, numérotées (2) et (3) plus haut dans ce journal,
+concernent l'éditeur de preset JSON et la priorité style-local-sur-preset, non affectées ici).
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

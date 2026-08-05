@@ -45,4 +45,17 @@ describe('Impulse', () => {
     impulse.reset();
     expect(impulse.value).toBe(0);
   });
+
+  it('seed() impose une valeur arbitraire, contrairement à reset() qui ne connaît que 0 (Étape 28)', () => {
+    const impulse = new Impulse(0.2);
+    impulse.seed(0.42);
+    expect(impulse.value).toBe(0.42);
+  });
+
+  it('après seed(), la décroissance continue normalement depuis la valeur imposée', () => {
+    const impulse = new Impulse(0.5); // demi-vie 0,5s
+    impulse.seed(1.0);
+    impulse.update(0.5);
+    expect(impulse.value).toBeCloseTo(0.5, 10);
+  });
 });

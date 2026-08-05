@@ -111,6 +111,8 @@ let currentTimeline: MusicTimeline | null = null;
 let currentAudioBuffer: AudioBuffer | null = null;
 let stepper: StepContextBuilder | null = null;
 let behaviourEngine: BehaviourEngine | null = null;
+/** Timeline pour laquelle `behaviourEngine` a été construit — distinct de `currentTimeline`, même rôle que `sceneStyleId` pour `scene` (Étape 28). */
+let behaviourEngineTimeline: MusicTimeline | null = null;
 let scene: Scene | null = null;
 /** Style pour lequel `scene` a été construite — distinct de `currentStyleId` (la cible désirée), pour détecter un vrai changement. */
 let sceneStyleId: StyleId | null = null;
@@ -193,14 +195,13 @@ function activePresetObject(): Preset {
  * est réinjectée via `scene.init()` (les couches la relisent sans perdre
  * leur état de simulation).
  *
- * Limite connue assumée (docs/JOURNAL.md, Étape 14/P12) : `BehaviourEngine`
- * N'A PAS ce garde — il est reconstruit à chaque appel, ce qui remet à zéro
- * les enveloppes `Impulse`/`Continuous` en cours (`BehaviourEngine.ts` n'a
- * pas de méthode pour changer son `mapping` sans se reconstruire). Effet
- * perceptible : un bref à-coup sur l'enveloppe en cours si un macro-curseur
- * est déplacé pendant qu'un impact décroît. Non corrigé ici — retoucher
- * `BehaviourEngine` (déjà livré et vérifié en P6) est hors périmètre de
- * cette étape.
+ * `BehaviourEngine` suit le même principe depuis l'Étape 28 (corrige la
+ * limite connue depuis l'Étape 14/P12) : `behaviourEngineTimeline` détecte
+ * un vrai changement de morceau, comme `sceneStyleId` pour `scene` —
+ * `BehaviourEngine.setMapping()` (Étape 28) recâble sans perdre les
+ * enveloppes `Impulse`/`Continuous` en cours si le timeline n'a pas changé ;
+ * seule une reconstruction fraîche (nouveau morceau chargé) justifie encore
+ * `new BehaviourEngine(...)`.
  */
 function applyActiveConfiguration(): void {
   const preset = activePresetObject();
@@ -231,7 +232,12 @@ function applyActiveConfiguration(): void {
   renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[currentQualityLevel].internalResolutionScale);
 
   if (currentTimeline) {
-    behaviourEngine = new BehaviourEngine(currentTimeline, currentMapping);
+    if (behaviourEngine && behaviourEngineTimeline === currentTimeline) {
+      behaviourEngine.setMapping(currentMapping);
+    } else {
+      behaviourEngine = new BehaviourEngine(currentTimeline, currentMapping);
+      behaviourEngineTimeline = currentTimeline;
+    }
   }
 
   simplePanel.setPalette(currentPalette);

@@ -32,4 +32,15 @@ export class Impulse {
   reset(): void {
     this.v = 0;
   }
+
+  /**
+   * Distinct de `reset()` (Étape 28) : `BehaviourEngine.setMapping()` recâble
+   * les primitives (nouveau `decay` depuis le mapping) sans les ramener à 0 —
+   * `seek()` veut un retour à 0, un recâblage en cours de lecture veut
+   * PRÉSERVER l'impulsion en train de décroître (sinon un simple glissement
+   * de macro produit un à-coup visible sur l'enveloppe en cours).
+   */
+  seed(v: number): void {
+    this.v = v;
+  }
 }

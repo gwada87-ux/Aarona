@@ -37,13 +37,46 @@ function pulseFromPhase(phase: number): number {
 }
 
 export class BehaviourEngine {
-  private readonly resolved: ResolvedMapping;
+  private resolved: ResolvedMapping;
 
   constructor(
     private readonly timeline: MusicTimeline,
     mapping: MappingSchema,
   ) {
     this.resolved = resolve(mapping);
+  }
+
+  /**
+   * Recâble sur un nouveau `mapping` SANS reconstruire l'instance (Étape 28,
+   * corrige la limite connue depuis l'Étape 14/P12 : jusqu'ici, `ui/App.ts`
+   * devait jeter le `BehaviourEngine` entier à chaque glissement de macro
+   * `energy`/`reactivity`, remettant à zéro toute enveloppe `Impulse`/
+   * `Continuous` en cours — un bref à-coup visible si un macro-curseur est
+   * déplacé pendant qu'un impact décroît.
+   *
+   * `resolve(mapping)` reconstruit forcément les primitives (leurs `decay`/
+   * `rise`/`fall` sont `private readonly`, fixés au constructeur — même
+   * raison que `ScreenShake`/`SpectrumBars`, Étape 20) ; mais la valeur EN
+   * COURS de chaque primitive existante est reportée sur la nouvelle par
+   * `seed()`/`reset()` quand le même nom de signal existe des deux côtés —
+   * les nouveaux paramètres (decay/rise/fall) s'appliquent immédiatement,
+   * la valeur affichée ne saute pas.
+   *
+   * `Anticipation` n'a rien à préserver : sans état interne par construction
+   * (recalculée à chaque pas depuis `timeline.timeToNext`, voir sa
+   * docstring) — reconstruire ses primitives ne change rien d'observable.
+   */
+  setMapping(mapping: MappingSchema): void {
+    const previous = this.resolved;
+    this.resolved = resolve(mapping);
+    for (const [signal, entry] of this.resolved.impulses) {
+      const prior = previous.impulses.get(signal);
+      if (prior) entry.primitive.seed(prior.primitive.value);
+    }
+    for (const [signal, entry] of this.resolved.continuous) {
+      const prior = previous.continuous.get(signal);
+      if (prior) entry.primitive.reset(prior.primitive.value);
+    }
   }
 
   update(step: StepContext): VisualSignals {

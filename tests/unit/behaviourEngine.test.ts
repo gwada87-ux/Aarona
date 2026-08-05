@@ -120,6 +120,77 @@ describe('BehaviourEngine — reset(t) (docs/02 §Seek)', () => {
   });
 });
 
+describe('BehaviourEngine — setMapping() (Étape 28, corrige la limite de l\'Étape 14/P12)', () => {
+  it('préserve la valeur en cours d\'un Impulse en décroissance (pas de saut à 0)', () => {
+    const timeline = buildTimeline();
+    const stepper = new StepContextBuilder(timeline, 1);
+    const engine = new BehaviourEngine(timeline, defaultMapping);
+    const dt = 1 / 120;
+
+    engine.update(stepper.build(0.5)); // KICK, impact = 0.8
+    let signals = engine.update(stepper.build(0.5 + dt)); // début de décroissance
+    const beforeSwap = signals.impact;
+    expect(beforeSwap).toBeGreaterThan(0);
+    expect(beforeSwap).toBeLessThan(0.8); // déjà entamé la décroissance
+
+    // recâblage en cours de route (ex. glissement du macro energy) : même table, juste rejouée.
+    engine.setMapping(defaultMapping);
+    signals = engine.update(stepper.build(0.5 + 2 * dt));
+
+    // sans setMapping() (donc avec l'ancien `new BehaviourEngine(...)`), impact retomberait à 0 —
+    // ici il continue sa décroissance normale depuis beforeSwap, pas depuis 0.
+    expect(signals.impact).toBeGreaterThan(0);
+    expect(signals.impact).toBeLessThan(beforeSwap);
+    expect(signals.impact).toBeGreaterThan(beforeSwap * 0.5); // une seule sous-étape de décroissance, pas un saut
+  });
+
+  it('préserve la valeur en cours d\'un Continuous (pas de saut vers 0 avant reconvergence)', () => {
+    const timeline = buildTimeline();
+    const stepper = new StepContextBuilder(timeline, 1);
+    const engine = new BehaviourEngine(timeline, defaultMapping);
+
+    let signals = engine.update(stepper.build(0));
+    for (let t = 1 / 120; t <= 2; t += 1 / 120) signals = engine.update(stepper.build(t));
+    const beforeSwap = signals.drive;
+    expect(beforeSwap).toBeGreaterThan(0); // déjà monté depuis 0 vers ~0.7
+
+    engine.setMapping(defaultMapping);
+    signals = engine.update(stepper.build(2 + 1 / 120));
+
+    expect(signals.drive).toBeCloseTo(beforeSwap, 2); // pas de retour à 0, juste la suite de la convergence
+  });
+
+  it('un signal absent du nouveau mapping perd son état ; un signal nouveau démarre neutre', () => {
+    const timeline = buildTimeline();
+    const stepper = new StepContextBuilder(timeline, 1);
+    const engine = new BehaviourEngine(timeline, defaultMapping);
+
+    engine.update(stepper.build(0.5)); // impact tiré
+    const mappingSansImpact: MappingSchema = { ...defaultMapping };
+    delete (mappingSansImpact as Record<string, unknown>).impact;
+    engine.setMapping(mappingSansImpact);
+
+    const signals = engine.update(stepper.build(0.5 + 1 / 120));
+    expect(signals.impact).toBe(0); // plus de primitive impact -> impulseValue() retombe sur le défaut 0
+  });
+
+  it('les NOUVEAUX paramètres (decay) du mapping recâblé s\'appliquent immédiatement, pas les anciens', () => {
+    const timeline = buildTimeline();
+    const stepper = new StepContextBuilder(timeline, 1);
+    const engine = new BehaviourEngine(timeline, defaultMapping);
+
+    engine.update(stepper.build(0.5)); // impact = 0.8, decay par défaut (0.12s)
+    const mappingDecayLong: MappingSchema = { ...defaultMapping, impact: { from: ['KICK', 'CLAP'], gain: 1.0, decay: 5 } };
+    engine.setMapping(mappingDecayLong);
+
+    let signals = engine.update(stepper.build(0.5 + 1 / 120));
+    const justAfterSwap = signals.impact;
+    for (let t = 0.5 + 2 / 120; t <= 0.5 + 0.12; t += 1 / 120) signals = engine.update(stepper.build(t));
+    // decay=5s : après 0,12s la perte est minime, très différente de la demi-vie du mapping d'origine.
+    expect(signals.impact).toBeCloseTo(justAfterSwap, 1);
+  });
+});
+
 describe('BehaviourEngine — table de câblage recâblable sans recompilation', () => {
   it('un preset qui nourrit impact depuis SNARE au lieu de KICK change le comportement, même code', () => {
     const timeline = buildTimeline();
