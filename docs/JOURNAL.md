@@ -2296,3 +2296,56 @@ réel aujourd'hui donc aucun impact visible actuel, mais le même trou de contra
 pour ces trois types.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+Addendum post-commit : la correction ci-dessus a été confirmée de bout en bout au navigateur
+(preview `pulsar-dev`, http://localhost:5174) — `importTrack()` exécuté avec un `AudioBuffer` réel
+(`buildDemoAudioFile()` + `decodeAudioFile()`), pipeline Worker complet, sans contournement.
+Résultat : **16 événements DOWNBEAT** synthétisés, exactement `grid.downbeats.length` (16), chacun
+avec la vraie `confidence` de grille (0,8276…, pas figée) et `meta.barIndex` séquentiel (0..15).
+Vérification demandée « sur demande » dans le rapport d'étape initial, effectuée dans la foulée
+sans modification de fichier — aucun nouveau commit nécessaire pour cet addendum.
+
+## Étape 45 — hors roadmap : correction de la mise en page responsive (canvas illisible < 768px)
+
+**Hors de docs/00a.** Trouvé par exploration interactive du harnais dans le navigateur (pas par
+lecture de code ni par test unitaire — exactement le genre de bug que ni l'audit statique ni les
+tests ne peuvent détecter, `App.ts`/le DOM restant hors périmètre des tests unitaires par
+conception, docs/16). En vérifiant la correction de l'Étape 44 au navigateur, la grille CSS de
+`index.html` s'est révélée n'avoir AUCUN `@media` (vérifié par grep) : `body { grid-template-
+columns: 1fr 340px; }`, une colonne principale flexible et une barre latérale fixe de 340px, sans
+aucun point de rupture. Sous ~700px de large, `#preview-wrap` (`aspect-ratio: 16/9`) hérite d'une
+largeur quasi nulle — confirmé en lisant `getBoundingClientRect()` en direct : à 406px de large
+(largeur d'iPhone typique), le canvas de prévisualisation — le cœur du produit — tombait à **34×19
+CSS px**, littéralement illisible, alors que le reste de l'interface (boutons, sliders) restait
+normalement dimensionné. Pas une dégradation progressive : cassé net dès le passage sous le seuil,
+y compris en redimensionnant une fenêtre de bureau (pas seulement sur mobile).
+
+**Correctif (choix utilisateur : corriger, breakpoint 768px)** : un seul bloc `@media (max-width:
+768px)` ajouté dans `index.html` — la grille passe d'une colonne à deux (`1fr 340px`) à une seule
+colonne (`grid-template-rows: auto 1fr auto`), faisant passer la barre latérale sous l'aperçu au
+lieu d'à côté ; `aside` perd sa bordure gauche au profit d'une bordure haute (cohérence visuelle de
+l'empilement). `aside` avait déjà `overflow-y: auto` (pensé pour l'ancien layout à hauteur
+contrainte) — devient un no-op inoffensif en layout empilé, où c'est la page entière qui défile
+normalement. Un hunk, aucun fichier `.ts` touché.
+
+**Vérification au navigateur (avant/après, aux deux extrêmes)** :
+- Avant le correctif, à 406px : `#preview-wrap` = 34,4×19,35 CSS px (confirmé par
+  `getBoundingClientRect()`).
+- Après le correctif, à ~400-610px (plusieurs largeurs testées sous le seuil) : canvas 525-578px de
+  large, barre latérale repositionnée SOUS l'aperçu (`aside.getBoundingClientRect().top` après le
+  bas de `#preview-wrap`, plus de positionnement côte à côte) — capture d'écran prise à 400px de
+  large : l'anneau central du style Pulse est bien visible et net.
+- Au-dessus du seuil (1280px, desktop) : canvas 908×511 CSS px, IDENTIQUE à avant le correctif ;
+  barre latérale toujours positionnée à côté (`aside.left = 940`, pas en dessous) — aucune
+  régression du layout desktop.
+
+`npx vite build` : succès, 165 modules, `index.html` 14,64 ko (gzip 4,29 ko, légère hausse attendue
+— nouveau bloc CSS). `npx vitest run` (suite complète) : **648/648** verts, inchangé (fichier CSS
+pur, aucune logique TypeScript touchée). `npm run test:arch` : 1/1. `git status --short` : 1
+fichier (`index.html`).
+Limites connues : le breakpoint (768px) et la stratégie (empilement simple plutôt que tiroir
+repliable) sont un choix pragmatique, pas un audit UX mobile complet — d'autres réglages fins
+(tailles de police, paddings) pourraient encore être resserrés sur très petits écrans si jugé utile
+plus tard.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

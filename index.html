@@ -129,6 +129,15 @@
     .project-row .project-info { flex: 1; min-width: 0; }
     .project-row .project-name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .project-row .project-date { font-size: 0.72rem; opacity: 0.6; }
+
+    /* La grille body à 2 colonnes fixes (1fr + 340px) n'avait aucun point de rupture : sous
+       ~700px de large, #preview-wrap (aspect-ratio 16/9) hérite d'une largeur quasi nulle et le
+       canvas devient illisible (quelques pixels), pas seulement « un peu serré ». En dessous de
+       768px, la barre latérale passe sous l'aperçu plutôt qu'à côté. */
+    @media (max-width: 768px) {
+      body { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+      aside { border-left: none; border-top: 1px solid #262832; }
+    }
   </style>
 </head>
 <body>
