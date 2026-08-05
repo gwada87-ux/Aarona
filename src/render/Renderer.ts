@@ -152,5 +152,18 @@ export interface Renderer {
    */
   setChromaticAberration(enabled: boolean): void;
 
+  /**
+   * Résolution interne (docs/07 §"La résolution interne", Étape 24) : fraction
+   * de la résolution native du canvas à laquelle TOUT le dessin de la frame a
+   * lieu (couches, bloom, décalage chromatique) — un unique agrandissement
+   * bilinéaire natif remet à l'échelle réelle en toute fin de `endFrame()`.
+   * `1` (défaut) = chemin direct sur le canvas réel, identique à avant cette
+   * étape ; aucun buffer interne n'est créé dans ce cas. Même principe de
+   * booléen/nombre simple que `setChromaticAberration` — pas de type dédié,
+   * `perf/qualityLevels.ts::QualityLevelConfig.internalResolutionScale` est
+   * déjà un `number` nu.
+   */
+  setInternalResolutionScale(scale: number): void;
+
   endFrame(): void;
 }

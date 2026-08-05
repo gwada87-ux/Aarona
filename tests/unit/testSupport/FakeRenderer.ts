@@ -15,6 +15,7 @@ export type RecordedCall =
   | { type: 'captureFeedback' }
   | { type: 'setBloomConfig'; config: BloomConfig }
   | { type: 'setChromaticAberration'; enabled: boolean }
+  | { type: 'setInternalResolutionScale'; scale: number }
   | { type: 'endFrame' };
 
 /**
@@ -94,6 +95,10 @@ export class FakeRenderer implements Renderer {
 
   setChromaticAberration(enabled: boolean): void {
     this.calls.push({ type: 'setChromaticAberration', enabled });
+  }
+
+  setInternalResolutionScale(scale: number): void {
+    this.calls.push({ type: 'setInternalResolutionScale', scale });
   }
 
   endFrame(): void {

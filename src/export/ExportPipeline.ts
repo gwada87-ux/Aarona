@@ -86,6 +86,7 @@ export async function runExport(
   // dans le pipeline lui-même, ne dépend pas de ce qu'un futur appelant pourrait oublier de faire).
   target.renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom);
   target.renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].chromaticAberration);
+  target.renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].internalResolutionScale);
 
   const totalFrames = Math.max(0, Math.round(config.durationSec * config.fps));
   const startedAt = performance.now();

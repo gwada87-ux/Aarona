@@ -71,9 +71,14 @@ setBloomConfig()`, voir §"Techniques Canvas 2D" de docs/07). **`feedback` câbl
 seule la condition d'activation par niveau était neuve). **`chromaticAberration` câblé à l'Étape 23**
 (`render/Renderer.ts::setChromaticAberration()`, voir §"Le décalage chromatique" de docs/07) — post-
 traitement neuf, contrairement à `bloom`/`feedback` qui réutilisaient une mécanique déjà en place.
-Restent `internalResolutionScale`/`spectrumBands`, toujours sans consommateur — chacun exigerait de
-construire une fonctionnalité de rendu ou d'analyse entièrement nouvelle, comme le bloom et le
-décalage chromatique. L'étage
+**`internalResolutionScale` câblé à l'Étape 24** (`render/Renderer.ts::setInternalResolutionScale()`,
+voir §"La résolution interne" de docs/07) — le plus invasif des trois post-traitements du `Renderer`
+(bloom, décalage chromatique, résolution interne) : contrairement aux deux autres, ce n'est pas un
+ajout en périphérie de `endFrame()`, mais un changement de cible pour TOUTES les méthodes de dessin
+pendant la frame (`fillCircle`, `clear`, `captureFeedback`/`drawFeedback`…). Restent `spectrumBands`,
+toujours sans consommateur — exigerait de construire une fonctionnalité d'analyse entièrement
+nouvelle (touche le pipeline d'analyse en amont, pas seulement `render/`), contrairement aux trois
+post-traitements ci-dessus qui restent entièrement dans `render/`. L'étage
 « modulé par la macro `density` » (résolution du nombre de particules ci-dessus) n'existe toujours
 pas : `density` agit bien sur les couches visuelles depuis l'Étape 20 (`presets/layerMacros.ts`,
 `spawnCountMul` de `ParticleField`), mais PAS sur `preset.layers.particles.count` selon l'ordre de

@@ -1349,3 +1349,72 @@ fonctionnalité de rendu ou d'analyse nouvelle (voir Étape 21). Coût réel en 
 au navigateur (comme le bloom à l'Étape 21) — à confirmer par Aaron.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 24 — hors roadmap : la résolution interne
+
+**Hors de docs/00a.** Dernier des trois post-traitements du `Renderer` restés inertes après
+l'Étape 23 (`internalResolutionScale`/`spectrumBands`) — `spectrumBands` écarté car il exigerait de
+toucher le pipeline d'analyse en amont, hors de `render/`, un chantier nettement plus gros et risqué.
+
+**Plus invasif que le bloom et le décalage chromatique, annoncé avant de coder** : ceux-ci
+ajoutaient un post-traitement APRÈS coup dans `endFrame()`, sans toucher aux méthodes de dessin.
+Ici, `fillCircle`/`strokeCircle`/`strokePath`/`fillPath`/`fillRadialGradient`/`drawSprite`/
+`applyShake`/`captureFeedback`/`drawFeedback` utilisent toutes la cible de dessin de la frame — la
+rendre configurable a exigé de changer CETTE cible, pas d'ajouter une étape en périphérie.
+
+Fait et vérifié : `Canvas2DRenderer` distingue désormais `canvas` (le `<canvas>`/`OffscreenCanvas`
+RÉEL du constructeur, cible finale d'affichage/export, jamais dessiné dedans directement pendant la
+frame) et `activeCanvas`/`ctx` (la cible ACTIVE de la frame en cours — `canvas` lui-même à
+`internalResolutionScale === 1`, ou un buffer interne réduit sinon, choisi dans `beginFrame()`).
+Toutes les méthodes de dessin ciblent déjà `this.ctx`/`this.activeCanvas` (aucune ne référençait
+`this.canvas` directement en dehors de `beginFrame`/`clear`/`fillRadialGradient`/`captureFeedback`/
+`drawFeedback`/`applyBloom`/`applyChromaticAberration`/`compositeTintedChannel` — ces méthodes-là
+seules ont dû être retouchées pour lire `activeCanvas` au lieu de `canvas`). `endFrame()` : après le
+bloom et le décalage chromatique (qui opèrent donc à la résolution INTERNE, moins cher), un unique
+`drawImage` avec agrandissement bilinéaire natif recopie `activeCanvas` vers `canvas` — seulement si
+`activeCanvas !== canvas` (donc jamais à `internalResolutionScale === 1`, HIGH/ULTRA : aucun buffer
+créé, aucune copie de plus, chemin strictement identique à avant cette étape).
+`computeSmallDimensions` (`bloomMath.ts`, Étape 21) réutilisée telle quelle pour dimensionner le
+buffer interne — même calcul exact, pas de raison de le dupliquer dans un nouveau fichier.
+Bug latent trouvé et corrigé AVANT toute vérification (relecture de code, pas d'exécution) :
+`ExportPipeline.ts::runExport()` dessine le filigrane via `Renderer` APRÈS `endFrame()`, hors du
+bracket `beginFrame`/`endFrame` (pas de nouvelle frame pour un simple filigrane) ; sans un reset de
+`activeCanvas`/`ctx` vers la cible réelle à la fin de `endFrame()`, ces appels auraient visé le
+buffer interne déjà recopié plus haut — jamais réaffiché — si `internalResolutionScale < 1` à
+l'export. Sans effet aujourd'hui (l'export est figé à HIGH = échelle 1, la branche ne s'exécute même
+pas), mais latent si ce figeage changeait un jour ; `endFrame()` restaure donc systématiquement
+`activeCanvas`/`ctx` vers `canvas`/`displayCtx` juste après l'agrandissement, plutôt que de laisser
+la cible active « traîner » jusqu'au prochain `beginFrame()`.
+Câblage : `ui/App.ts` (`applyActiveConfiguration`, `applyQualityLevel`) et
+`ExportPipeline.ts::runExport()`, mêmes points d'appel que `setBloomConfig`/`setChromaticAberration`.
+`FakeRenderer.ts` enregistre l'appel. `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **430/430**
+verts (inchangé — refactor pur de la cible de dessin, aucune nouvelle logique testable en Node,
+`Canvas2DRenderer` n'étant testable qu'au navigateur comme avant). `npm run test:arch` : 1/1.
+`npm run build` : succès, 164 modules, 312,17 ko (gzip 85,27 ko).
+
+Vérifié au navigateur, plus en profondeur que d'habitude vu l'invasivité du changement : (1) test
+ISOLÉ (`Canvas2DRenderer` instancié directement) — disque dessiné à échelle 1 vs 0,5, centre
+identique dans les deux cas, coins identiques, surface non noire proche (léger excédent à échelle
+réduite, anticrénelage de l'agrandissement, attendu) ; (2) traînée (`captureFeedback`/`drawFeedback`)
+testée sur deux frames successives à échelle 0,5 — la seconde frame montre bien la trace de la
+première, confirmant que la capture/rejeu fonctionnent à la résolution interne ; (3) bloom +
+décalage chromatique + résolution interne combinés (échelle 0,6) — aucune erreur, halo visiblement
+présent (25 452/40 000 pixels non noirs pour un disque qui en couvrirait ~12 000 seul), confirme que
+les post-traitements chaînés fonctionnent correctement sur le buffer réduit ; (4) balayage complet
+par l'appli — 3 styles × 4 niveaux de qualité (démo, `__pulsarDebug.step()`) : les 12 combinaisons
+rendent sans erreur, dimensions du canvas réel correctes dans tous les cas (agrandissement réussi à
+LOW/MEDIUM, chemin direct à HIGH/ULTRA). Erreurs console rencontrées PENDANT le balayage (`Audio
+BufferSourceNode.start()` avec un offset négatif) tracées à `AudioEngine.pause()`/`currentRawT()` —
+un module non touché par cette étape, déclenché uniquement par mon propre harnais de test (cycles
+play/pause artificiels très rapprochés, 12× de suite sans délai réaliste) ; reproduction sur un
+onglet neuf avec un cycle play/pause réaliste (délai de 600 ms) : aucune erreur. Signalé pour
+transparence, pas une régression de cette étape.
+Limites connues : `spectrumBands` reste inerte, exigerait de toucher le pipeline d'analyse en amont.
+Coût réel en millisecondes non mesuré au navigateur (comme le bloom et le décalage chromatique) — à
+confirmer par Aaron ; le gain attendu devrait être plus perceptible que celui des deux précédents sur
+LOW/MEDIUM, puisque TOUT le dessin de la frame en bénéficie, pas seulement un post-traitement.
+Export non testé au navigateur spécifiquement : structurellement sans effet, `EXPORT_QUALITY_LEVEL`
+étant figé à `'high'` (échelle 1) — la branche d'agrandissement de `endFrame()` ne s'exécute jamais à
+l'export, comportement provablement identique à avant cette étape plutôt que vérifié empiriquement.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

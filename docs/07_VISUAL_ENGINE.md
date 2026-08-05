@@ -298,6 +298,45 @@ comportement additif localisé et l'absence de régression ailleurs dans l'image
 en conditions réelles (particules + bloom simultanés) faute d'un moyen de figer les deux autres
 dimensions (particules, passes de bloom) qui changent aussi avec le niveau de qualité.
 
+### 2ter. La résolution interne
+
+```
+1. tout le dessin de la frame (couches, bloom, décalage chromatique) a lieu
+   dans un buffer interne réduit (0,6× à 1,0× selon le niveau de qualité)
+2. un unique agrandissement bilinéaire natif, en toute fin de endFrame(),
+   remet ce buffer à la résolution réelle du canvas
+```
+
+**Implémenté à l'Étape 24** (`src/render/Renderer.ts` — `setInternalResolutionScale()`,
+`src/render/canvas2d/Canvas2DRenderer.ts` — `activeCanvas`/`ctx` mutables, choisis dans
+`beginFrame()`). Plus invasif que le bloom ou le décalage chromatique : ce n'est pas un
+post-traitement ajouté en périphérie, c'est la cible de dessin de TOUTES les méthodes
+(`fillCircle`, `clear`, `fillRadialGradient`, `drawSprite`, `captureFeedback`/`drawFeedback`, le
+bloom, le décalage chromatique) qui change — `activeCanvas` (buffer interne réduit ou canvas réel)
+plutôt que `canvas` (toujours le `<canvas>`/`OffscreenCanvas` réel, cible finale d'affichage/export,
+jamais dessiné dedans directement pendant la frame). À `internalResolutionScale === 1` (HIGH/ULTRA,
+le cas le plus fréquent), `activeCanvas === canvas` : aucun buffer créé, aucune copie
+supplémentaire — chemin strictement identique à avant cette étape. `captureFeedback()`/
+`drawFeedback()` (docs/07 §"Field") portent sur `activeCanvas` : la traînée est capturée et rejouée
+à la résolution interne, cohérent puisque `Scene.draw()` appelle `captureFeedback()` AVANT
+`endFrame()` (donc avant le bloom/décalage chromatique/agrandissement — voir le commentaire de
+`Scene.ts`). Piège corrigé avant vérification : `ExportPipeline.ts::runExport()` dessine le
+filigrane via `Renderer` APRÈS `endFrame()`, hors du bracket `beginFrame`/`endFrame` — sans un reset
+de `activeCanvas`/`ctx` vers la cible réelle à la fin de `endFrame()`, ces appels auraient visé un
+buffer interne déjà recopié et jamais réaffiché si `internalResolutionScale < 1` à l'export (sans
+effet aujourd'hui, l'export est figé à HIGH = échelle 1, mais latent sinon) ; `endFrame()` restaure
+donc systématiquement `activeCanvas`/`ctx` vers la cible réelle juste après l'agrandissement.
+Vérifié au navigateur par un test isolé (`Canvas2DRenderer` instancié directement) : disque identique
+au centre entre échelle 1 et 0,5, coins identiques, surface non noire proche entre les deux (léger
+excédent à échelle réduite dû à l'anticrénelage de l'agrandissement, attendu) ; traînée
+(`captureFeedback`/`drawFeedback`) et bloom+décalage chromatique combinés testés à échelle réduite
+sans erreur ni corruption. Balayage complet par l'appli (3 styles × 4 niveaux de qualité, démo,
+`__pulsarDebug.step()`) : les 12 combinaisons rendent sans erreur, dimensions du canvas réel
+correctes dans tous les cas. Coût réel en millisecondes non mesuré (comme le bloom et le décalage
+chromatique) — à confirmer par Aaron au navigateur ; le gain attendu (moins de pixels à traiter par
+tout ce qui dessine, pas seulement un post-traitement) devrait être plus perceptible que celui du
+bloom/décalage chromatique sur LOW/MEDIUM.
+
 ### 3. Les particules : atlas et tableau typé
 
 ```

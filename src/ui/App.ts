@@ -229,6 +229,7 @@ function applyActiveConfiguration(): void {
   applyLayerMacros();
   renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom);
   renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[currentQualityLevel].chromaticAberration);
+  renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[currentQualityLevel].internalResolutionScale);
 
   if (currentTimeline) {
     behaviourEngine = new BehaviourEngine(currentTimeline, currentMapping);
@@ -255,9 +256,10 @@ function applyActiveConfiguration(): void {
  * `QualityGovernor` ne change de niveau qu'après 2 à 8 s de tenue, et au plus
  * 1×/minute en remontée).
  *
- * `chromaticAberration` (Étape 23) : câblé indépendamment du style — c'est
- * un post-traitement du `Renderer` (docs/07 §"Le décalage chromatique"), pas
- * une couche de Scene, donc pas concerné par la reconstruction ci-dessus.
+ * `chromaticAberration`/`internalResolutionScale` (Étapes 23/24) : câblés
+ * indépendamment du style — ce sont des réglages du `Renderer` (docs/07
+ * §"Le décalage chromatique"/§"La résolution interne"), pas une couche de
+ * Scene, donc pas concernés par la reconstruction ci-dessus.
  */
 function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void {
   currentQualityLevel = level;
@@ -265,6 +267,7 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
   advancedPanel.selectQuality(level);
   renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[level].bloom);
   renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[level].chromaticAberration);
+  renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[level].internalResolutionScale);
 
   if (currentStyleId === 'field' && sceneStyleId === 'field' && currentPalette) {
     scene = STYLE_FACTORIES.field(QUALITY_LEVEL_CONFIGS[level].maxParticles, QUALITY_LEVEL_CONFIGS[level].feedback);

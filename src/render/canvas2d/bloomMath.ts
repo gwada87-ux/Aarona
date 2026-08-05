@@ -22,7 +22,12 @@ export const BLUR_RADIUS_FRACTION_PER_PASS = 0.06;
 /** Alpha de composition additive du bloom flouté par-dessus l'image d'origine. */
 export const BLOOM_COMPOSITE_ALPHA = 0.55;
 
-/** Dimensions du buffer réduit pour un `resolutionScale` donné — au moins 1×1. */
+/**
+ * Dimensions du buffer réduit pour un `resolutionScale` donné — au moins 1×1.
+ * Formule assez générique pour être réutilisée telle quelle par
+ * `Canvas2DRenderer::beginFrame()` (Étape 24, résolution interne) — même
+ * calcul exact (`max(1, round(dim×scale))`), pas de raison de le dupliquer.
+ */
 export function computeSmallDimensions(fullWidth: number, fullHeight: number, resolutionScale: number): { readonly width: number; readonly height: number } {
   return {
     width: Math.max(1, Math.round(fullWidth * resolutionScale)),
