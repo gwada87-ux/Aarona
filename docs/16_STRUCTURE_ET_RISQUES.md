@@ -150,6 +150,35 @@ l'arborescence pour les mêmes raisons). `tests/unit/architecture.test.ts` contr
 couche `presets` (`core`, `music`, `behaviour`, `analysis`, `visual` — voir le commentaire en tête
 de ce fichier de test pour la justification de chaque autorisation).
 
+### État réel — Étape 14/P12
+
+`ui/` existe désormais, `main.ts` (harnais de dev P7/P9/P11) est **supprimé** — remplacé par l'app
+réelle. Diffère de l'arborescence aspirationnelle du haut de ce document :
+
+```
+├── ui/
+│   ├── App.ts               orchestrateur : import -> pipeline -> Transport réel -> boucle de rendu
+│   ├── pipeline.ts           importTrack() : AudioBuffer -> démixage -> Worker -> finalizePmdi -> ...
+│   ├── seekPriming.ts        rattrapage de seek (docs/02), pur, testé
+│   ├── demoDoc.ts             document + WAV synthétiques pour le bouton "Charger une démo"
+│   ├── timeline/
+│   │   ├── timelineLayout.ts  maths pures temps<->pixel (testées)
+│   │   └── Timeline.ts        canvas direct (waveform/sections/ticks/playhead), scrub souris/tactile
+│   ├── panels/
+│   │   ├── SimplePanel.ts     preset + palette + 3 macros + format d'export
+│   │   └── AdvancedPanel.ts   8 macros + style + sécurité
+│   └── dialogs/
+│       ├── ExportDialog.ts        reprend la logique de main.ts, adaptée à l'AudioBuffer réel
+│       └── PresetEditorDialog.ts  éditeur JSON (docs/08)
+```
+
+Pas de `layout/` ni `controls/` séparés : la mise en page est en HTML/CSS statique (`index.html`,
+ADR-001 « sans framework UI »), pas construite dynamiquement — rien à mettre dans ces dossiers.
+`perf/`/`debug/`/`integration/` restent inexistants (hors périmètre de cette étape). `audio/` reçoit
+un fichier additif (`downmix.ts`) et `analysis/` un bootstrap de Worker (`analyzeInWorker.ts`) — tous
+deux nécessaires à l'intégration mais absents de l'arborescence aspirationnelle d'origine, même
+pragmatisme que les étapes précédentes.
+
 ### Vérification automatique des règles de dépendance
 
 `tests/unit/architecture.test.ts` parcourt les imports de `src/` et échoue si une règle du tableau de

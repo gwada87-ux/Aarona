@@ -105,6 +105,13 @@ Fichier (File)
 Le Worker signale sa progression pour que l'UI reste vivante. L'utilisateur peut choisir son preset
 pendant l'analyse.
 
+**Implémenté à l'Étape 14/P12** (`src/ui/App.ts`, `src/ui/pipeline.ts`, `src/analysis/
+analyzeInWorker.ts`) : premier branchement bout en bout de ce flux — le Worker (`analysis/
+worker.ts`) existait depuis P4 mais rien ne l'INSTANCIAIT avant cette étape. `analyzeInWorker.ts`
+porte le `new Worker(...)` + le protocole de message ; `ui/pipeline.ts` (`importTrack`) enchaîne
+démixage → Worker → `finalizePmdi` → `suggestPreset` → `MusicTimeline`. Vérifié au navigateur (voir
+docs/JOURNAL.md, Étape 14/P12) — la progression s'affiche, le preset suggéré est présélectionné.
+
 ---
 
 ## FLUX 2 — Lecture (boucle de preview)
@@ -201,6 +208,19 @@ erreur   = tMesure − tPredit
 t        = tPredit + clamp(erreur, −2 ms, +2 ms)  ← convergence douce
 si |erreur| > 120 ms → resynchronisation dure (seek externe détecté)
 ```
+
+**Implémenté à l'Étape 14/P12** (`src/ui/App.ts`, boucle `loop()`) : `AudioEngine.tick(nowMs)` produit
+`t` (corrigé) et `dt` (delta BRUT, non corrigé — les deux sont exposés séparément, voir
+`AudioEngine.ts`). Piège rencontré et corrigé pendant la vérification au navigateur (dérive lente
+perçue à l'oreille/à l'œil sur une lecture longue) : alimenter l'accumulateur à pas fixe avec `dt`
+brut fait dériver l'horloge de simulation (`simT`) de la position audio réelle, puisque `dt` n'hérite
+jamais de la correction ci-dessus — seul `t` le fait. Le correctif alimente l'accumulateur avec le
+DELTA de `t` d'une image à l'autre (`audioEngine.t − dernierT`), qui embarque la correction. Voir
+docs/JOURNAL.md, Étape 14/P12, « décisions de conception ».
+
+**Écart connu :** `RealtimeProbe` (P3, `src/audio/RealtimeProbe.ts`) reste non instancié — le
+« micro-mouvement continu » qu'il devait fournir (pondéré à 25 % max sur les bandes) n'est câblé nulle
+part, ni avant cette étape ni par elle. Purement décoratif d'après ce document ; non bloquant.
 
 ---
 

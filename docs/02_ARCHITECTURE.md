@@ -279,6 +279,16 @@ de l'inertie importe peu puisque l'image change en permanence.
 Le priming à fenêtre courte n'est **pas** bit-exact vis-à-vis d'une lecture continue. C'est assumé et
 documenté : le test golden, lui, prime toujours à 0,5 s / 1/120 s.
 
+**Implémenté à l'Étape 14/P12** (`src/ui/seekPriming.ts`, `primeAfterSeek()`) : les 4 étapes
+ci-dessus, `PRIME_WINDOW` scrub/relâché identiques au tableau. Écart assumé : les couches
+`needsDrawPriming` sont redessinées à PLEINE résolution à chaque sous-pas, pas à 0,4× — le
+`Viewport` du projet ne porte qu'un ratio et une zone de sécurité, aucune dimension en pixels ; une
+résolution réduite exigerait un second canvas hors écran dédié (le buffer de feedback capturé
+dessus serait à la mauvaise résolution pour le rendu plein écran qui suit). Une seule couche
+(`FrameFeedback`, style Field) déclare `needsDrawPriming` aujourd'hui — un seul appel `draw()` par
+sous-pas, jamais la scène entière — donc le coût reste borné même sans cette optimisation.
+Vérifié au navigateur (scrub perçu fluide, aucun saut mort) — voir docs/JOURNAL.md, Étape 14/P12.
+
 ## Comment le Mode B se branchera (sans rien changer)
 
 ```

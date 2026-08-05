@@ -213,6 +213,13 @@ par schéma et rechargement à chaud. Coût de développement : quelques heures.
 mais exactement celui qui écrira les presets communautaires de la V2. Trois interfaces complètes à
 maintenir pour un MVP est un mauvais investissement ; un éditeur JSON en est un bon.
 
+**Implémenté à l'Étape 14/P12** (`src/ui/dialogs/PresetEditorDialog.ts`) : `<textarea>` +
+`validatePreset()` + application à chaud, comme annoncé — quelques heures de développement, pas plus.
+Le preset édité devient la configuration active TELLE QUELLE (le module interne `customPreset` de
+`ui/App.ts`), pas un diff sur `userMappingOverrides` — plus simple que ce que l'Étape 13/P11 avait
+anticipé, et couvre en plus palette/classification/safety, que `userMappingOverrides` ne couvrait
+pas.
+
 ---
 
 ## Résolution d'un preset

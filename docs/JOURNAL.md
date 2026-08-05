@@ -644,3 +644,98 @@ navigateur de cette étape est à refaire dès qu'un canal de navigateur fonctio
 seront réellement exposés à un humain, et où le manque de configurabilité des couches visuelles
 (décision 1) devra être tranché : soit les rendre configurables, soit assumer que 6 macros restent
 sans effet pour la durée du MVP.
+
+## Étape 14 — P12 : interface utilisateur et timeline
+
+Fait et vérifié : premier branchement RÉEL de bout en bout — import de fichier → `AudioEngine` (P3)
+→ démixage → Worker d'analyse (P4, jamais instancié avant cette étape) → `finalizePmdi` (P10) →
+suggestion de preset (P11) → `MusicTimeline` (P5) → `BehaviourEngine` (P6) → `Scene` (P7/P9) →
+`Canvas2DRenderer` → `FlashLimiter`, piloté par un `Transport` RÉEL au lieu de l'horloge synthétique
+du harnais. Nouveaux : `audio/downmix.ts` (+`AudioEngine.decodedBuffer` getter additif),
+`analysis/analyzeInWorker.ts` (bootstrap du Worker, jusqu'ici manquant), `ui/pipeline.ts`
+(`importTrack`, orchestration testable par injection de la fonction d'analyse), `ui/seekPriming.ts`
+(rattrapage de seek, docs/02, testé), `ui/timeline/{timelineLayout.ts,Timeline.ts}` (maths pures
+testées + canvas direct : waveform, ticks de mesures, blocs de sections, tête de lecture, scrub
+souris/tactile), `ui/demoDoc.ts` (document + WAV synthétiques pour un bouton démo sans fichier),
+`ui/panels/{SimplePanel,AdvancedPanel}.ts`, `ui/dialogs/{ExportDialog,PresetEditorDialog}.ts`,
+`ui/App.ts` (orchestrateur). `index.html` réécrit en app réelle (import glisser-déposer, preview,
+transport, frise, panneaux Simple/Avancé, dialogues) ; `main.ts` (harnais P7/P9/P11) **supprimé** —
+chaque brique qu'il exerçait est déjà testée isolément. 25 nouveaux tests (`downmix` 4,
+`seekPriming` 7, `timelineLayout` 9, `uiPipeline` 5 — total **55 fichiers/304 tests**). `npx tsc
+--noEmit` : 0 erreur. `npx vitest run` : **304/304** verts. `npm run test:arch` : 1/1 — `ui`
+respecte les couches déjà autorisées, `audio`/`analysis` restent dans leurs bornes malgré les ajouts.
+`npm run build` : succès, 150 modules, le Worker se scinde correctement en chunk séparé
+(`worker-*.js`, 16,5 ko) — confirme que `new Worker(new URL(...))` est bien reconnu par Vite.
+
+Vérification navigateur : **assistée par Aaron**, pas autonome — le panneau Browser intégré refusait
+toute navigation cette session (« blocked by policy », y compris vers un site public), et le second
+canal (extension Chrome/Edge connectée) était bloqué par liste de sites approuvés vide côté
+extension ; aucun des deux n'a pu être débloqué malgré plusieurs tentatives et un redémarrage. Aaron
+a testé directement dans Edge (`localhost:5174`) suivant une checklist de 9 points : import réel,
+lecture synchronisée, scrub, changement de preset/macro, panneau Avancé (style + Énergie), plein
+écran, éditeur de preset, export (téléchargement obtenu), bouton démo. Tout confirmé fonctionnel.
+
+**Un vrai bug trouvé et corrigé grâce à ce test** : Aaron a signalé que le visuel ne bougeait
+« pas parfaitement en rythme » en lecture réelle. Cause identifiée en relisant `AudioEngine.tick()` :
+`audioEngine.dt` est le delta BRUT (non corrigé) entre deux images, alors que `audioEngine.t` seul
+porte la correction de dérive de `correctDrift()` (convergence douce, ±2 ms/image, vers l'horloge
+audio réelle — docs/02/03). La boucle de rendu alimentait l'accumulateur à pas fixe avec `dt` brut :
+`simT` (l'horloge de simulation) n'héritait donc JAMAIS de cette correction et s'écartait lentement
+de la position audio réelle au fil de la lecture — exactement le symptôme rapporté (pas cassé, juste
+imparfait, et pire sur les lectures longues). Corrigé en alimentant l'accumulateur avec le DELTA de
+`audioEngine.t` d'une image à l'autre plutôt que `dt` (voir `ui/App.ts`, `loop()`, et docs/02/03 mis
+à jour). Aaron a retesté après correctif : amélioration confirmée (« un peu mieux qu'avant », sans
+le motif d'un décalage constant ni d'une dérive croissante) — l'imprécision résiduelle relève de la
+précision de détection des beats elle-même (limite connue, documentée, bloquée sur corpus annoté
+depuis l'Étape 2), pas d'un bug de synchronisation.
+
+Décisions de conception (tranchées et documentées, non soumises à Aaron avant implémentation — coût
+d'erreur <1 jour ; deux ont ensuite été corrigées en cours de vérification suite au test réel) :
+(1) `applyActiveConfiguration()` (`ui/App.ts`) ne reconstruit la `Scene` QUE si le style change
+réellement (`sceneStyleId` comparé à la cible) — reconstruire à chaque glissement de macro aurait
+vidé le pool de particules (`ParticleField`) et la traînée de feedback (`FrameFeedback`) à chaque
+toucher de curseur. À style inchangé, seule la palette est réinjectée via `scene.init()`. **Limite
+assumée, non corrigée** : `BehaviourEngine`, lui, EST reconstruit à chaque appel (pas de méthode pour
+changer son `mapping` sans se reconstruire) — un glissement de macro pendant la décroissance d'un
+impact produit un bref à-coup sur l'enveloppe en cours. Retoucher `BehaviourEngine` (livré et vérifié
+en P6) est hors périmètre de cette étape. (2) L'éditeur de preset JSON ne produit pas un diff sur
+`resolvePreset({userMappingOverrides})` (mécanisme prévu par l'Étape 13/P11) mais remplace la
+configuration active EN ENTIER (`customPreset` dans `ui/App.ts`) — plus simple, et couvre en plus
+palette/classification/safety que le diff mapping-only ne couvrait pas. (3) `style`/`macros`/`safety`
+sont TOUJOURS pris depuis l'état local (`currentStyleId`/`currentMacros`/`reducedFlashing`) et
+appliqués PAR-DESSUS le preset actif (catalogue ou édité) dans `activePresetObject()` — sinon changer
+de style depuis le panneau Avancé n'aurait aucun effet tant qu'un preset reste sélectionné (bug
+auto-détecté en relecture avant tout test navigateur, jamais montré à Aaron). (4) Le bouton « Charger
+une démo » synthétise un vrai fichier WAV (ton 220 Hz, encodeur PCM 16 bits écrit à la main,
+~40 lignes) et le fait passer par le VRAI `AudioEngine.load()`/`decodeAudioFile()` — un raccourci
+sans fichier réel aurait laissé `audioEngine.play()` totalement inerte (`if (!this.decoded ||
+this.playing) return`), un bug auto-détecté en relisant `AudioEngine.ts` avant tout test. (5)
+Décision NON prise dans cette étape, contrairement à ce que l'entrée précédente envisageait : la
+configurabilité des couches visuelles (6 des 8 macros, `layers.*`) reste non câblée — P12 porte
+l'intégration UI, pas une refonte de `visual/` déjà livrée et vérifiée (P7/P9) ; le statu quo de P11
+est reconduit tel quel, panneaux honnêtes (⚠) inclus. (6) Durée d'export = durée RÉELLE du morceau
+(`timeline.duration`) — le champ « durée à exporter » du harnais (une commodité de test P8) a été
+retiré, il n'a plus de sens en usage réel.
+
+Fait mais non vérifié : l'effet exact de « Appliquer » dans l'éditeur de preset JSON n'a été confirmé
+qu'à moitié par Aaron (« je pense que ça se répercute ») — pas de contre-preuve, mais pas une
+confirmation ferme non plus. `RealtimeProbe` (P3) reste totalement non câblé — ni avant cette étape
+ni par elle ; purement décoratif d'après docs/03, non bloquant. Le repli `MediaRecorder` n'applique
+toujours pas le watermark (limite héritée de P8, inchangée). Aucun essai délibéré d'import d'un
+fichier non audio (le chemin d'erreur existe — `AudioValidationError` catché, message affiché — mais
+non exercé en conditions réelles). Aucune mesure chiffrée du fps de l'interface ni de la latence de
+scrub (le critère docs/14 « ≤40 ms/saut, ≥55 fps » n'a été jugé qu'au ressenti par Aaron, pas
+instrumenté).
+Limites connues : la dérive de synchronisation résiduelle après correctif est attribuée à la
+précision de détection des beats (documentée, docs/05, 70-85 % réel), pas reproduite/quantifiée
+formellement — seul le ressenti d'Aaron avant/après le correctif de dérive d'horloge fait foi ici.
+Pas de limitation de fréquence (throttle) sur les événements `pointermove` du scrub — chaque
+mouvement déclenche un rattrapage complet ; non signalé comme un problème par Aaron, mais non
+mesuré non plus.
+Dette introduite : aucune connue — `main.ts` supprimé proprement (récupérable via l'historique git,
+rien d'autre ne l'important).
+Bloque la suite : le corpus annoté (Aaron) reste le seul bloqueur pour la F-mesure et le critère de
+suggestion de preset, inchangé depuis l'Étape 2. La configurabilité des couches visuelles (6 macros
+inertes) reste un choix à trancher un jour, reporté une seconde fois — candidate pour une étape
+dédiée future plutôt que pour continuer à être repoussée en fin d'étape. Prochaine étape (00a) :
+Étape 15 (P13, projet et persistance).

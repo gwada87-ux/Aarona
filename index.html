@@ -2,122 +2,295 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>PULSAR VISUALIZER — dev P9 (styles Field / Spectrum Pro)</title>
+  <title>PULSAR VISUALIZER</title>
   <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
     body {
       font-family: system-ui, sans-serif;
-      background: #14161b;
+      background: #0d0e12;
       color: #e8e8ec;
-      max-width: 960px;
-      margin: 2rem auto;
-      padding: 0 1rem;
+      margin: 0;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
     }
-    h1 { font-size: 1.1rem; font-weight: 600; }
-    p { opacity: 0.8; font-size: 0.9rem; }
-    fieldset { border: 1px solid #333; border-radius: 6px; margin: 1rem 0; }
-    legend { padding: 0 0.4rem; opacity: 0.8; font-size: 0.85rem; }
-    label { display: block; margin: 0.5rem 0; font-size: 0.9rem; }
-    button { font-size: 0.95rem; padding: 0.4rem 0.9rem; cursor: pointer; margin-right: 0.4rem; }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #262832;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+    header .spacer { flex: 1; }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      padding: 1rem;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    #preview-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #canvas { width: 100%; height: 100%; display: block; }
+
+    #dropzone {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      background: rgba(10, 10, 14, 0.92);
+      text-align: center;
+      padding: 1rem;
+    }
+    #dropzone.dragover { outline: 2px dashed #7b4cff; outline-offset: -8px; }
+    #dropzone p { opacity: 0.7; font-size: 0.85rem; max-width: 28rem; margin: 0; }
+    #dropzone.hidden { display: none; }
+
+    #analysis-status {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: rgba(10, 10, 14, 0.92);
+    }
+    #analysis-status.hidden { display: none; }
+    #analysis-progress { width: 60%; }
+
+    #transport {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    #transport button { font-size: 1rem; padding: 0.35rem 0.7rem; cursor: pointer; }
+    #out-time { font-variant-numeric: tabular-nums; opacity: 0.8; font-size: 0.85rem; min-width: 9ch; }
+    #volume { width: 90px; }
+
+    #timeline-canvas { width: 100%; height: 72px; display: block; border-radius: 4px; background: #16171d; cursor: pointer; touch-action: none; }
+
+    aside {
+      border-left: 1px solid #262832;
+      padding: 1rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .tabs { display: flex; gap: 0.4rem; }
+    .tabs button { flex: 1; padding: 0.4rem; cursor: pointer; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; }
+    .tabs button[aria-selected="true"] { background: #7b4cff; border-color: #7b4cff; }
+
+    fieldset { border: 1px solid #2c2e38; border-radius: 6px; margin: 0; }
+    legend { padding: 0 0.4rem; opacity: 0.8; font-size: 0.8rem; }
+    label { display: block; margin: 0.5rem 0; font-size: 0.85rem; }
+    .macro-row { display: flex; align-items: center; gap: 0.5rem; }
+    .macro-row input[type="range"] { flex: 1; }
+    .macro-note { font-size: 0.72rem; opacity: 0.55; margin: 0 0 0.4rem; }
+    select, input[type="number"] { width: 100%; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.3rem; }
     input[type="range"] { width: 100%; }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; font-size: 0.9rem; }
-    dt { opacity: 0.7; }
-    dd { margin: 0; font-variant-numeric: tabular-nums; }
-    #canvas { width: 100%; aspect-ratio: 16 / 9; background: #05060B; border-radius: 6px; display: block; }
+
+    #palette-swatch { display: flex; gap: 4px; height: 20px; border-radius: 4px; overflow: hidden; margin-top: 0.3rem; }
+    #palette-swatch span { flex: 1; }
+
+    #preset-suggestion { font-size: 0.78rem; opacity: 0.75; margin: 0.3rem 0 0; }
+
+    dialog { background: #16171d; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 8px; padding: 1.25rem; max-width: 640px; width: 90vw; }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog h2 { margin-top: 0; font-size: 1rem; }
+    #preset-json { width: 100%; height: 320px; font-family: ui-monospace, monospace; font-size: 0.8rem; background: #0d0e12; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.5rem; }
+    #preset-json-errors { color: #ff6b6b; font-size: 0.8rem; white-space: pre-wrap; margin: 0.5rem 0; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.75rem; }
+
+    #debug-state { font-size: 0.72rem; opacity: 0.5; }
+    #debug-state dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 0.6rem; margin: 0; }
   </style>
 </head>
 <body>
-  <h1>PULSAR VISUALIZER — Étape 10 / P8 : export production</h1>
-  <p>
-    Harnais de vérification manuelle. Timeline SYNTHÉTIQUE (clic 120 BPM écrit à la main, pas de
-    fichier audio) — pipeline réel : MusicTimeline → StepContextBuilder → BehaviourEngine → Scene
-    Pulse → Canvas2DRenderer → FlashLimiter (docs/03_DATA_FLOW.md FLUX 2), et désormais
-    ExportPipeline → Mediabunny (ou repli MediaRecorder) → fichier MP4 téléchargé (docs/09_EXPORT.md).
-  </p>
+  <header>
+    <h1>PULSAR VISUALIZER</h1>
+    <span class="spacer"></span>
+    <button id="btn-demo">Charger une démo</button>
+    <button id="btn-fullscreen">Plein écran</button>
+    <button id="btn-export-open">Exporter…</button>
+  </header>
 
-  <canvas id="canvas"></canvas>
+  <main>
+    <div id="preview-wrap">
+      <canvas id="canvas"></canvas>
 
-  <fieldset>
-    <legend>Preset (docs/08_PRESETS.md) — recâble mapping/palette/style/sécurité, résolu en direct</legend>
-    <label>
-      <select id="preset-select">
-        <option value="" selected>Aucun (câblage et palette par défaut)</option>
-      </select>
-    </label>
-    <p id="preset-info" style="opacity: 0.8; font-size: 0.85rem;"></p>
-  </fieldset>
+      <div id="dropzone">
+        <p><strong>Glisse un fichier audio ici</strong>, ou :</p>
+        <button id="btn-pick-file">Choisir un fichier</button>
+        <input type="file" id="file-input" accept="audio/*" hidden />
+        <p>MP3, WAV, OGG, FLAC — 12 minutes / 150 Mo maximum. Ou charge la démo synthétique en haut à droite.</p>
+        <p id="import-error" style="color: #ff6b6b;"></p>
+      </div>
 
-  <fieldset>
-    <legend>Style (docs/07_VISUAL_ENGINE.md)</legend>
-    <label>
-      <select id="style-select">
-        <option value="pulse" selected>Pulse — géométrie réactive (P7)</option>
-        <option value="field">Field — champ de particules (P9)</option>
-        <option value="spectrum-pro">Spectrum Pro — 6 bandes réelles (P9)</option>
-      </select>
-    </label>
-  </fieldset>
+      <div id="analysis-status" class="hidden">
+        <p id="analysis-stage">Analyse…</p>
+        <progress id="analysis-progress" max="1" value="0"></progress>
+      </div>
+    </div>
 
-  <fieldset>
-    <legend>Transport (synthétique)</legend>
-    <button id="btn-play">Lecture</button>
-    <button id="btn-pause">Pause</button>
-    <label>
-      Position (secondes)
-      <input type="range" id="seek-range" min="0" max="60" step="0.1" value="0" />
-    </label>
-  </fieldset>
+    <div id="transport">
+      <button id="btn-play">▶</button>
+      <button id="btn-pause">⏸</button>
+      <span id="out-time">0:00 / 0:00</span>
+      <span class="spacer"></span>
+      <label style="display:flex; align-items:center; gap:0.3rem; margin:0; font-size:0.8rem;">
+        Volume
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.9" />
+      </label>
+    </div>
 
-  <fieldset>
-    <legend>FlashLimiter (docs/07 — critère : 3 flashs/s max, 2 en mode réduit)</legend>
-    <label>
-      <input type="checkbox" id="reduced-flashing" /> Mode réduction des flashs (seuil 0,18, 2/s)
-    </label>
-    <label>
-      <input type="checkbox" id="flash-stress" /> Test de stress (alternance noir/blanc ~20/s, doit être clampée)
-    </label>
-  </fieldset>
+    <canvas id="timeline-canvas"></canvas>
 
-  <fieldset>
-    <legend>Export (docs/09_EXPORT.md)</legend>
+    <details id="debug-state">
+      <summary>État (debug)</summary>
+      <dl>
+        <dt>fps (lissé)</dt><dd id="out-fps">0.0</dd>
+        <dt>régime</dt><dd id="out-regime">—</dd>
+        <dt>frames clampées (FlashLimiter)</dt><dd id="out-clamped">0</dd>
+        <dt>confiance grille</dt><dd id="out-grid-confidence">—</dd>
+      </dl>
+    </details>
+  </main>
+
+  <aside>
+    <div class="tabs" role="tablist">
+      <button id="tab-simple" role="tab" aria-selected="true">Simple</button>
+      <button id="tab-advanced" role="tab" aria-selected="false">Avancé</button>
+    </div>
+
+    <div id="panel-simple">
+      <fieldset>
+        <legend>Preset</legend>
+        <label>
+          <select id="preset-select">
+            <option value="" selected>Aucun (câblage et palette par défaut)</option>
+          </select>
+        </label>
+        <p id="preset-suggestion"></p>
+        <div id="palette-swatch"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Macros</legend>
+        <label>Énergie
+          <div class="macro-row"><input type="range" id="macro-energy-simple" min="0" max="1" step="0.01" /></div>
+        </label>
+        <label>Densité
+          <p class="macro-note">⚠ pas encore câblée à un rendu visuel (voir docs/JOURNAL.md, Étape 13/P11) — la valeur est mémorisée mais sans effet pour l'instant.</p>
+          <div class="macro-row"><input type="range" id="macro-density-simple" min="0" max="1" step="0.01" /></div>
+        </label>
+        <label>Glow
+          <p class="macro-note">⚠ pas encore câblée non plus, même raison.</p>
+          <div class="macro-row"><input type="range" id="macro-glow-simple" min="0" max="1" step="0.01" /></div>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Format d'export</legend>
+        <label>
+          <select id="export-format-simple">
+            <option value="youtube" selected>YouTube (1920×1080, 16:9)</option>
+            <option value="vertical">Shorts / TikTok / Reels (1080×1920, 9:16)</option>
+            <option value="square">Post carré (1080×1080, 1:1)</option>
+            <option value="free">Gratuit (1280×720, watermark)</option>
+          </select>
+        </label>
+      </fieldset>
+    </div>
+
+    <div id="panel-advanced" hidden>
+      <fieldset>
+        <legend>Style</legend>
+        <label>
+          <select id="style-select">
+            <option value="pulse" selected>Pulse</option>
+            <option value="field">Field</option>
+            <option value="spectrum-pro">Spectrum Pro</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Les 8 macros</legend>
+        <p class="macro-note">Énergie et Réactivité agissent réellement sur le câblage musical. Les 6 autres (densité, mouvement, profondeur, glow, chaos, douceur) sont mémorisées mais sans consommateur visuel pour l'instant — voir docs/JOURNAL.md, Étape 13/P11.</p>
+        <div id="macro-grid-advanced"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Sécurité</legend>
+        <label>
+          <input type="checkbox" id="reduced-flashing" /> Réduction des flashs (WCAG 2.3.1)
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Preset JSON</legend>
+        <button id="btn-preset-editor-open">Éditer le preset actif…</button>
+      </fieldset>
+    </div>
+  </aside>
+
+  <dialog id="export-dialog">
+    <h2>Exporter la vidéo</h2>
     <label>
       Format
       <select id="export-format">
-        <option value="preview" selected>Aperçu rapide (854×480)</option>
-        <option value="youtube">YouTube (1920×1080, 16:9)</option>
-        <option value="vertical">Shorts/TikTok/Reels (1080×1920, 9:16)</option>
+        <option value="youtube" selected>YouTube (1920×1080, 16:9)</option>
+        <option value="vertical">Shorts / TikTok / Reels (1080×1920, 9:16)</option>
         <option value="square">Post carré (1080×1080, 1:1)</option>
         <option value="free">Gratuit (1280×720, watermark)</option>
       </select>
     </label>
     <label>
-      Fps
+      Images par seconde
       <select id="export-fps">
         <option value="30" selected>30</option>
         <option value="60">60</option>
       </select>
     </label>
     <label>
-      Durée à exporter (secondes)
-      <input type="number" id="export-duration" value="5" min="1" max="60" step="1" />
-    </label>
-    <label>
       <input type="checkbox" id="export-watermark" /> Watermark (marque discrète en bas à droite)
     </label>
-    <button id="btn-export">Exporter</button>
-    <button id="btn-export-cancel" disabled>Annuler</button>
     <p id="export-status" style="opacity: 0.8; font-size: 0.85rem;"></p>
-  </fieldset>
+    <div class="dialog-actions">
+      <button id="btn-export-cancel" disabled>Annuler</button>
+      <button id="btn-export-close">Fermer</button>
+      <button id="btn-export">Exporter</button>
+    </div>
+  </dialog>
 
-  <fieldset>
-    <legend>État</legend>
-    <dl>
-      <dt>t (synthétique)</dt><dd id="out-t">0.00</dd>
-      <dt>FPS (lissé)</dt><dd id="out-fps">0.0</dd>
-      <dt>régime</dt><dd id="out-regime">—</dd>
-      <dt>frames clampées par le FlashLimiter</dt><dd id="out-clamped">0</dd>
-    </dl>
-  </fieldset>
+  <dialog id="preset-editor-dialog">
+    <h2>Éditeur de preset (JSON)</h2>
+    <p style="opacity:0.75; font-size:0.85rem;">Validé par schéma avant application — rien n'est appliqué tant qu'il reste des erreurs (docs/08_PRESETS.md).</p>
+    <textarea id="preset-json" spellcheck="false"></textarea>
+    <div id="preset-json-errors"></div>
+    <div class="dialog-actions">
+      <button id="btn-preset-editor-close">Fermer</button>
+      <button id="btn-preset-editor-validate">Valider</button>
+      <button id="btn-preset-editor-apply">Appliquer</button>
+    </div>
+  </dialog>
 
-  <script type="module" src="/src/main.ts"></script>
+  <script type="module" src="/src/ui/App.ts"></script>
 </body>
 </html>

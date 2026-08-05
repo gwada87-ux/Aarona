@@ -44,6 +44,11 @@ export class AudioEngine implements Transport {
     return this.decoded?.buffer.duration ?? 0;
   }
 
+  /** L'`AudioBuffer` décodé — `null` avant `load()`. Besoin réel : export (audio source) et analyse (démixage). */
+  get decodedBuffer(): AudioBuffer | null {
+    return this.decoded?.buffer ?? null;
+  }
+
   /** Point d'attache pour une sonde décorative (RealtimeProbe) ou un futur remux. */
   get outputNode(): AudioNode {
     return this.gainNode;
