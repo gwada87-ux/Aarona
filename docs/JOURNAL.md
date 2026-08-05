@@ -1502,3 +1502,51 @@ reste du rendu (négligeable en principe — une boucle O(96), pas de flou/getIm
 chronométré isolément). Le gap macros-de-couche-absentes-à-l'export (voir plus haut) reste ouvert.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 26 — hors roadmap : corrige le gap « macros de couche absentes à l'export »
+
+**Hors de docs/00a.** Demandé explicitement par Aaron après l'avoir signalé (pas corrigé) à
+l'Étape 25 : les 6 macros de couche de l'Étape 20 (densité/mouvement/profondeur/glow/chaos/
+douceur) n'étaient JAMAIS appliquées à la Scene d'export — `ui/App.ts::applyLayerMacros()`
+n'était appelé que depuis la boucle de preview, jamais depuis `ExportPipeline.ts::runExport()`,
+qui construit sa PROPRE Scene indépendante via `config.createScene()`. Une vidéo exportée avec
+`density`/`chaos`/etc réglés loin du neutre rendait donc comme si tous les macros de couche
+étaient à leur valeur neutre (0,5), quels que soient les curseurs affichés dans l'UI.
+
+**Correctif : extraction plutôt que duplication.** La boucle qui résout `LAYER_MACRO_CURVES`
+et assigne `layer.params` (jusque-là seulement dans `ui/App.ts::applyLayerMacros()`) est
+extraite en `presets/layerMacros.ts::applyLayerMacrosToScene(scene, macros, styleId)` — une
+fonction PURE de ses trois arguments, sans dépendance à l'état module-scope d'`App.ts`.
+`presets: ['core', 'music', 'behaviour', 'analysis', 'visual']` (docs/02) autorise déjà
+l'import de `visual/scene/Scene` ; `export`/`ui` importent déjà `presets` — aucune nouvelle
+arête de dépendance. Appelée IDENTIQUEMENT par `ui/App.ts::applyLayerMacros()` (preview) et
+`ExportPipeline.ts::runExport()` (export, juste après `scene.init(...)`, avant les réglages
+`Renderer` figés à HIGH) : un seul point de vérité, plus de risque de divergence entre les deux
+chemins. `ExportConfig` gagne deux champs (`macros: PresetMacros`, `styleId: StyleId`) ;
+`ExportDialogOptions` gagne `getMacros`/`getStyleId` ; `ui/App.ts` les fournit avec
+`currentMacros`/`currentStyleId` — mêmes valeurs que la preview au moment du clic sur Exporter.
+`bandCount` (Étape 25, `spectrumBars`) reste injecté APRÈS cet appel (il ne fait pas partie des
+macros — piloté par le niveau de qualité), dans les deux fichiers, en fusionnant avec les params
+déjà posés par les macros (`{...layer.params, bandCount}`) plutôt qu'en écrasant tout.
+
+Fait et vérifié : `npx tsc --noEmit` : 0 erreur (a révélé `tests/unit/exportPipeline.test.ts` :
+`ExportConfig` gagnant 2 champs requis, fixture mise à jour avec une fonction `neutralMacros()`
+locale au test, même valeur que celle d'`App.ts`). `npx vitest run` : **453/453** verts (451 + 2
+nouveaux, `exportPipeline.test.ts` — un test qui PROUVE la correction : `density=1` sur la Scene
+d'export produit bien `pulseRings.maxActiveRings > 6` en utilisant `runExport()`/
+`applyLayerMacrosToScene` réels, pas des mocks ; ce test aurait échoué avant ce correctif
+puisque `layer.params` serait resté `{}`). `npm run test:arch` : 1/1. `npm run build` : succès,
+165 modules, 313,82 ko (gzip 85,75 ko).
+
+Vérifié au navigateur (onglet neuf, pour éviter tout résidu HMR d'une précédente édition) :
+`runExport()` appelé directement via import dynamique du module compilé par Vite (même
+technique que les tests isolés des Étapes 23/24), deux Scenes `pulse` exportées côte à côte —
+macros neutres (`density=0,5`) → `maxActiveRings=5` (le milieu exact de `{at0:2, at1:8}`) ;
+macros denses (`density=1`) → `maxActiveRings=8` (`at1` exact). Aucune erreur console sur
+l'onglet neuf (une erreur `applyLayerMacrosToScene is not defined` vue une fois était un résidu
+HMR de l'onglet précédent pendant l'édition, pas reproduite après rechargement).
+Limites connues : aucune nouvelle. Le correctif ne couvre QUE les 6 macros de couche —
+`bandCount`, bloom, décalage chromatique, résolution interne avaient déjà chacun leur propre
+point d'application à l'export depuis leurs étapes respectives, non affectés par ce gap.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

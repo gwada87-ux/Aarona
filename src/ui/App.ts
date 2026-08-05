@@ -31,8 +31,7 @@ import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
 import type { MacroName } from '../presets/schema';
-import { applyMacroCurves } from '../presets/macros';
-import { LAYER_MACRO_CURVES } from '../presets/layerMacros';
+import { applyLayerMacrosToScene } from '../presets/layerMacros';
 import { importTrack, type ImportedTrack } from './pipeline';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
@@ -287,28 +286,24 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
  * feedback intacts. `energy`/`reactivity` restent sur `WIRED_MACRO_CURVES` →
  * `mapping.*` → `BehaviourEngine` (`resolvePreset`, inchangé).
  *
- * `bandCount` (Étape 25, `spectrumBars` uniquement) : injecté ICI plutôt que
- * via `layerMacros.ts`, ce n'est pas un macro-curseur mais un réglage du
+ * `bandCount` (Étape 25, `spectrumBars` uniquement) : injecté APRÈS
+ * `applyLayerMacrosToScene`, ce n'est pas un macro-curseur mais un réglage du
  * niveau de qualité (`QUALITY_LEVEL_CONFIGS[...].spectrumBands`) — même
  * source que `bloom`/`chromaticAberration`/`internalResolutionScale`, mais
- * c'est un `layer.params`, pas un réglage de `Renderer`, donc câblé ici où
- * `layer.params` est déjà reconstruit à chaque appel plutôt que comme un
- * appel `renderer.setXxx()` séparé.
+ * c'est un `layer.params`, pas un réglage de `Renderer`.
+ *
+ * Boucle macros extraite dans `presets/layerMacros.ts::applyLayerMacrosToScene`
+ * (Étape 26) : appelée IDENTIQUEMENT ici et par `ExportPipeline.ts::runExport()`
+ * — l'export construisait jusque-là sa propre Scene sans jamais appliquer ces
+ * 6 macros, gap découvert et signalé à l'Étape 25, corrigé en partageant cette
+ * fonction plutôt qu'en dupliquant la boucle dans les deux fichiers.
  */
 function applyLayerMacros(): void {
   if (!scene) return;
-  const flat = applyMacroCurves(currentMacros, LAYER_MACRO_CURVES);
-  const layerPrefix = `${currentStyleId}.`;
-  for (const layer of scene.layers) {
-    const paramPrefix = `${layerPrefix}${layer.id}.`;
-    const params: Record<string, number> = {};
-    for (const [path, value] of Object.entries(flat)) {
-      if (path.startsWith(paramPrefix)) params[path.slice(paramPrefix.length)] = value;
-    }
-    if (layer.id === 'spectrumBars') {
-      params.bandCount = QUALITY_LEVEL_CONFIGS[currentQualityLevel].spectrumBands;
-    }
-    layer.params = params;
+  applyLayerMacrosToScene(scene, currentMacros, currentStyleId);
+  const spectrumBarsLayer = scene.layers.find((l) => l.id === 'spectrumBars');
+  if (spectrumBarsLayer) {
+    spectrumBarsLayer.params = { ...spectrumBarsLayer.params, bandCount: QUALITY_LEVEL_CONFIGS[currentQualityLevel].spectrumBands };
   }
 }
 
@@ -403,6 +398,8 @@ const exportDialog = new ExportDialog({
       QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
       QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
     ),
+  getMacros: () => currentMacros,
+  getStyleId: () => currentStyleId,
   getAudioBuffer: () => currentAudioBuffer,
   getProjectSeed: () => projectSeed,
   seekToStart: () => handleSeek(0, 'release'),

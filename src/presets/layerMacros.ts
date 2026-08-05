@@ -28,7 +28,9 @@
  * autour des constantes actuelles de chaque couche pour rester
  * perceptuellement raisonnables — même discipline que `WIRED_MACRO_CURVES`.
  */
-import type { MacroCurveTable } from './macros';
+import { applyMacroCurves, type MacroCurveTable } from './macros';
+import type { PresetMacros, StyleId } from './schema';
+import type { Scene } from '../visual/scene/Scene';
 
 export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
   density: Object.freeze({
@@ -82,3 +84,29 @@ export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
     'spectrum-pro.spectrumBars.fallTau': { at0: 0.15, at1: 0.55 },
   }),
 });
+
+/**
+ * Résout `LAYER_MACRO_CURVES` pour `macros`/`styleId` et assigne le résultat à `layer.params` de
+ * chaque couche de `scene` — extrait ici (Étape 26) pour être appelé identiquement par
+ * `ui/App.ts::applyLayerMacros()` (preview) ET `export/ExportPipeline.ts::runExport()` (export),
+ * qui construisaient jusqu'ici deux Scenes indépendantes sans jamais partager cette logique :
+ * l'export ne l'appliquait tout simplement JAMAIS (gap découvert et signalé à l'Étape 25, corrigé
+ * ici). Dupliquer cette boucle dans les deux fichiers aurait risqué de les faire diverger — un seul
+ * point de vérité plutôt que deux copies à maintenir en phase.
+ *
+ * Remplace ENTIÈREMENT `layer.params` (comme avant l'extraction) : un appelant qui a besoin d'y
+ * ajouter un réglage supplémentaire (ex. `bandCount` de `spectrumBars`, Étape 25 — piloté par le
+ * niveau de qualité, pas par les macros) doit le faire APRÈS cet appel, pas avant.
+ */
+export function applyLayerMacrosToScene(scene: Scene, macros: PresetMacros, styleId: StyleId): void {
+  const flat = applyMacroCurves(macros, LAYER_MACRO_CURVES);
+  const layerPrefix = `${styleId}.`;
+  for (const layer of scene.layers) {
+    const paramPrefix = `${layerPrefix}${layer.id}.`;
+    const params: Record<string, number> = {};
+    for (const [path, value] of Object.entries(flat)) {
+      if (path.startsWith(paramPrefix)) params[path.slice(paramPrefix.length)] = value;
+    }
+    layer.params = params;
+  }
+}

@@ -15,6 +15,7 @@ import type { MappingSchema } from '../../behaviour/mapping/MappingSchema';
 import type { MusicTimeline } from '../../music/MusicTimeline';
 import type { Palette } from '../../visual/palette/Palette';
 import type { Scene } from '../../visual/scene/Scene';
+import type { PresetMacros, StyleId } from '../../presets/schema';
 
 export interface ExportDialogOptions {
   readonly canvas: HTMLCanvasElement;
@@ -22,6 +23,9 @@ export interface ExportDialogOptions {
   readonly getMapping: () => MappingSchema;
   readonly getPalette: () => Palette;
   readonly getStyleFactory: () => () => Scene;
+  /** Étape 26 : macros de couche + style actif, transmis à `runExport()` pour corriger le gap « macros absentes à l'export ». */
+  readonly getMacros: () => PresetMacros;
+  readonly getStyleId: () => StyleId;
   readonly getAudioBuffer: () => AudioBuffer | null;
   /** Graine du projet (docs/13_PROJECT_FORMAT.md) — DOIT être la même qu'en preview pour un export reproductible au pixel près. */
   readonly getProjectSeed: () => number;
@@ -92,6 +96,8 @@ export class ExportDialog {
             projectSeed: this.options.getProjectSeed(),
             mapping: this.options.getMapping(),
             createScene: this.options.getStyleFactory(),
+            macros: this.options.getMacros(),
+            styleId: this.options.getStyleId(),
             palette: this.options.getPalette(),
             fps,
             durationSec,

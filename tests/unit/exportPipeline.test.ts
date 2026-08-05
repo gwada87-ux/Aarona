@@ -8,6 +8,15 @@ import { validatePmdi } from '../../src/music/validatePmdi';
 import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
 import { FakeFrameEncoder } from './testSupport/FakeFrameEncoder';
 import type { PmdiDocument } from '../../src/music/pmdi';
+import { MACRO_NAMES } from '../../src/presets/index';
+import type { MacroName, PresetMacros } from '../../src/presets/schema';
+
+/** Toutes les macros à 0,5 (neutre) — même valeur que `neutralMacros()` (ui/App.ts). */
+function neutralMacros(): PresetMacros {
+  const macros = {} as Record<MacroName, number>;
+  for (const name of MACRO_NAMES) macros[name] = 0.5;
+  return macros as PresetMacros;
+}
 
 function buildTimeline() {
   const doc: PmdiDocument = {
@@ -29,6 +38,8 @@ function baseConfig(overrides: Partial<ExportConfig> = {}): ExportConfig {
     projectSeed: 1,
     mapping: defaultMapping,
     createScene: createPulseStyle,
+    macros: neutralMacros(),
+    styleId: 'pulse',
     palette: defaultPalette,
     fps: 30,
     durationSec: 0.5,
@@ -137,5 +148,29 @@ describe('runExport — watermark', () => {
 
     const countFillCircle = (r: FakeRenderer) => r.calls.filter((c) => c.type === 'fillCircle').length;
     expect(countFillCircle(withMark.renderer)).toBeGreaterThan(countFillCircle(withoutMark.renderer));
+  });
+});
+
+describe('runExport — macros de couche (Étape 26)', () => {
+  it("applique les macros de couche (Étape 20) à la Scene d'export — gap découvert et signalé à l'Étape 25, corrigé ici", async () => {
+    // pulse.pulseRings.maxActiveRings : { at0: 2, at1: 8 } (layerMacros.ts) — density=1 doit s'approcher de 8.
+    const scene = createPulseStyle();
+    const macros: PresetMacros = { ...neutralMacros(), density: 1 };
+    const { target } = fakeTarget();
+
+    await runExport(baseConfig({ createScene: () => scene, macros, styleId: 'pulse', durationSec: 0.1 }), target, new FakeFrameEncoder());
+
+    const pulseRingsLayer = scene.layers.find((l) => l.id === 'pulseRings')!;
+    expect(pulseRingsLayer.params.maxActiveRings).toBeGreaterThan(6);
+  });
+
+  it("macros neutres (0,5 partout) : n'écrase pas les params en un objet vide (au moins une clé présente)", async () => {
+    const scene = createPulseStyle();
+    const { target } = fakeTarget();
+
+    await runExport(baseConfig({ createScene: () => scene, macros: neutralMacros(), styleId: 'pulse', durationSec: 0.1 }), target, new FakeFrameEncoder());
+
+    const pulseRingsLayer = scene.layers.find((l) => l.id === 'pulseRings')!;
+    expect(Object.keys(pulseRingsLayer.params).length).toBeGreaterThan(0);
   });
 });

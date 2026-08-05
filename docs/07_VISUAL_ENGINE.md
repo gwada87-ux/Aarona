@@ -557,11 +557,11 @@ d'énergie par bande sur le même spectrogramme.
 `drawBars`, factorisées pour ne pas dupliquer la logique). Câblé depuis `perf/qualityLevels.ts::
 spectrumBands` via `ui/App.ts::applyLayerMacros()` (injecté après les macros de couche, ce n'est
 pas un macro-curseur) et `ExportPipeline.ts::runExport()` (point d'application indépendant, comme
-le bloom). **Limite préexistante découverte en cours de route, pas introduite ici** : les 6 macros
-de couche de l'Étape 20 (densité/mouvement/...) ne sont JAMAIS appliquées à l'export
-(`applyLayerMacros()` n'est appelé que depuis `ui/App.ts`, jamais depuis `ExportPipeline.ts`) — un
-gap déjà existant, hors périmètre de cette étape ; `bandCount` a son propre point d'application
-dédié dans `runExport()` pour ne pas hériter de ce gap.
+le bloom). **Limite préexistante découverte à cette étape, CORRIGÉE à l'Étape 26** : les 6 macros
+de couche de l'Étape 20 (densité/mouvement/...) n'étaient jusque-là JAMAIS appliquées à l'export —
+voir §"Le spectre visuel fin" ci-dessus pour l'historique, et docs/JOURNAL.md Étape 26 pour le
+correctif (`presets/layerMacros.ts::applyLayerMacrosToScene`, partagé preview/export). `bandCount`
+avait déjà son propre point d'application indépendant dans `runExport()`, non affecté par ce gap.
 
 Vérifié : 451/451 tests verts (21 nouveaux — `spectrumBands.test.ts`, `spectrumGrouping.test.ts`,
 5 cas `bandCount` dans `spectrumBars.test.ts`), `test:arch` 1/1 (aucune nouvelle arête de dépendance

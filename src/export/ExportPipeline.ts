@@ -8,6 +8,8 @@ import type { Scene } from '../visual/scene/Scene';
 import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
 import { EXPORT_QUALITY_LEVEL, QUALITY_LEVEL_CONFIGS } from '../perf/qualityLevels';
+import { applyLayerMacrosToScene } from '../presets/layerMacros';
+import type { PresetMacros, StyleId } from '../presets/schema';
 import type { FrameEncoder } from './encoders/FrameEncoder';
 import { drawWatermark } from './watermark';
 import { yieldToEventLoop } from './yieldToEventLoop';
@@ -40,6 +42,17 @@ export interface ExportConfig {
   readonly projectSeed: number;
   readonly mapping: MappingSchema;
   readonly createScene: () => Scene;
+  /**
+   * Macros de couche (Étape 20, densité/mouvement/profondeur/glow/chaos/
+   * douceur) + style actif — Étape 26 : jusque-là absents d'`ExportConfig`,
+   * `runExport()` construisait sa propre Scene sans jamais leur appliquer
+   * ces macros (gap découvert et signalé à l'Étape 25). `styleId` DOIT
+   * correspondre au style de la Scene produite par `createScene()` — c'est
+   * à l'appelant (`ExportDialog`) de les garder synchronisés, comme il le
+   * fait déjà pour `createScene`/`palette`.
+   */
+  readonly macros: PresetMacros;
+  readonly styleId: StyleId;
   readonly palette: Palette;
   readonly fps: Fps;
   readonly durationSec: number;
@@ -80,6 +93,10 @@ export async function runExport(
   const behaviourEngine = new BehaviourEngine(config.timeline, config.mapping);
   const scene = config.createScene();
   scene.init({ renderer: target.renderer, palette: config.palette });
+  // Macros de couche (Étape 20) — CORRIGÉ à l'Étape 26 : jusque-là jamais appliquées à l'export
+  // (gap signalé à l'Étape 25). Même fonction que `ui/App.ts::applyLayerMacros()`, un seul point
+  // de vérité pour ne pas laisser preview et export diverger.
+  applyLayerMacrosToScene(scene, config.macros, config.styleId);
   // docs/10 règle non négociable #2 : l'export fige TOUJOURS le bloom au niveau HIGH, quel que
   // soit le niveau courant de la preview — figé ICI plutôt que délégué à l'appelant (`ExportDialog`
   // gèle déjà `getStyleFactory` de la même façon, mais un second point d'application indépendant,
@@ -87,13 +104,12 @@ export async function runExport(
   target.renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom);
   target.renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].chromaticAberration);
   target.renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].internalResolutionScale);
-  // `bandCount` (Étape 25) : un `layer.params`, pas un réglage de `Renderer` — `ui/App.ts` le
-  // câble via `applyLayerMacros()`, qui n'est JAMAIS appelé pour la Scene d'export (les 6 macros
-  // de couche, Étape 20, ne le sont pas non plus aujourd'hui — limite préexistante, hors périmètre
-  // ici). Point d'application indépendant, ne dépend pas de ce qu'un futur appelant pourrait oublier.
+  // `bandCount` (Étape 25) : un `layer.params`, pas un réglage de `Renderer` — appliqué APRÈS
+  // les macros ci-dessus (dont il ne fait pas partie), point d'application indépendant, ne dépend
+  // pas de ce qu'un futur appelant pourrait oublier.
   const spectrumBarsLayer = scene.layers.find((l) => l.id === 'spectrumBars');
   if (spectrumBarsLayer) {
-    spectrumBarsLayer.params = { bandCount: QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].spectrumBands };
+    spectrumBarsLayer.params = { ...spectrumBarsLayer.params, bandCount: QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].spectrumBands };
   }
 
   const totalFrames = Math.max(0, Math.round(config.durationSec * config.fps));
