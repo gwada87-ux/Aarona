@@ -1174,3 +1174,36 @@ Bloque la suite : vérification navigateur de cette étape à faire par Aaron av
 pleinement close. Restent ouverts, sans lien avec ce chantier : le corpus annoté (Étape 2), le banc
 `bench:render`/`bench:export`/`bench:memory`/`bench:leak` (nécessite `node-canvas`, décision de
 dépendance non prise), et les cinq décisions produit/business de l'Étape 18.
+
+## Vérification navigateur — Étape 20 (a posteriori, même session)
+
+Le blocage des outils de navigateur (« blocked by policy » / « blocked by your site permissions »,
+signalé à répétition depuis l'Étape 16) a été résolu avec Aaron : la cause réelle était le premier
+écran de consentement de l'extension Claude in Chrome (« Before you start ») jamais validé, combiné
+à un serveur de dev (`pulsar-dev`) arrêté entre-temps et à un port de proxy (3000) propre au panneau
+interne, différent du port réel de Vite (5174). Une fois ces trois points réglés, la vraie
+vérification a pu être faite (Chrome réel, `http://localhost:5174`), en pilotant la simulation via
+le hook `window.__pulsarDebug` (déjà exposé en dev depuis P7) pour avancer `simT` de façon
+déterministe sans dépendre du rendu temps réel ni du focus de l'onglet.
+
+Résultats : l'app charge et fonctionne (démo, timeline, transport). Les 3 styles rendent
+correctement — Pulse (anneau + halo), Field (particules + grille en perspective), Spectrum Pro
+(barres + reflets + halos + onde) — visuellement conformes à docs/07. Le panneau debug affiche
+exactement les champs attendus (fps/régime/clampées/confiance/qualité/particules/sync) ; le
+`QualityGovernor` a RÉELLEMENT dégradé vers LOW en conditions de charge réelles pendant le test —
+confirmation en direct que P14 fonctionne, pas seulement en test unitaire. Effet de la macro
+Densité mesuré précisément par script (style Field, 300 pas de simulation à chaque extrême) :
+**105/2500 particules à Densité=0, 367/2500 à Densité=1** — ratio ≈3,5, cohérent avec le
+multiplicateur codé (0,4→1,4) dans `layerMacros.ts`. Balayage de robustesse : les 3 styles × 6
+macros aux deux bornes (0 et 1), soit 36 combinaisons, sans **aucune erreur JavaScript** ni FPS en
+chute. Les 8 macros de l'Advanced n'affichent plus d'icône ⚠, et la note "Profondeur n'a pas d'effet
+visible en Pulse" (texte exact de l'Étape 20) s'affiche bien.
+
+Item non concluant, sans rapport avec le produit : le transport (temps de lecture réel) se fige
+après ~54 s dans l'onglet automatisé, très probablement un throttling de `requestAnimationFrame` en
+arrière-plan propre à l'automatisation du navigateur (onglet non visible/focus), contourné en
+pilotant `simT` directement via `__pulsarDebug.step()`. Non revérifié en usage normal (onglet au
+premier plan) — à confirmer par Aaron s'il observe un figement similaire en usage réel.
+
+**Étapes 16 à 20 sont donc maintenant vérifiées au navigateur réel**, levant le "fait mais non
+vérifié" resté ouvert à chacune d'elles.
