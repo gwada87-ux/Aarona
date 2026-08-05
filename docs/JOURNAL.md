@@ -2242,3 +2242,57 @@ Limites connues : le second bug trouvé (PulseRings/DOWNBEAT) reste ouvert, mis 
 étape séparée (portée à trancher : DOWNBEAT seul vs BEAT+DOWNBEAT+BAR+PHRASE, docs/06).
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 44 — hors roadmap : synthèse des événements DOWNBEAT dans finalize.ts
+
+**Hors de docs/00a.** Second bug de l'audit adversarial de l'Étape 43, portée validée avec
+l'utilisateur : minimale (DOWNBEAT seul, pas BEAT/BAR/PHRASE — ces trois derniers n'ont aujourd'hui
+aucun consommateur réel, contrairement à DOWNBEAT).
+
+**Le bug :** `PulseRings.ts` (style Pulse) déclenche ses anneaux secondaires sur `step.fired.some(e
+=> e.type === 'DOWNBEAT')` — mais aucun `MusicEvent` de type `DOWNBEAT` n'était jamais construit par
+le vrai pipeline d'analyse. `AnalysisPipeline.ts` range les temps forts détectés dans `grid.
+downbeats` (un tableau de nombres, pas des événements), et `finalize.ts` — qui assemble le tableau
+`events` final à partir de `partial.events`/`classifiedEvents`/`macroEvents` — ne les convertissait
+jamais. Seul `ui/demoDoc.ts` (la démo synthétique du harnais) construit un vrai `DOWNBEAT`, ce qui
+masquait le trou : `tests/unit/pulseRings.test.ts` alimente la couche avec des événements
+synthétiques directs, jamais avec la sortie réelle de `finalizePmdi`. Conséquence concrète : sur
+n'importe quel morceau importé et auto-analysé (Mode A), le pool de 8 anneaux secondaires de Pulse
+ne s'allumait jamais, pour aucun morceau, jamais — seul l'anneau central (piloté par `impact`/
+`weight`, lui bien câblé) réagissait.
+
+**Reproduction AVANT correctif :** 4 nouveaux tests dans `tests/unit/finalize.test.ts` appelant
+`finalizePmdi()` avec un `grid.downbeats` non vide et vérifiant la présence d'événements `DOWNBEAT`
+dans le résultat. Lancés seuls contre le code non corrigé : échec confirmé sur les 4 (`expected []
+to have a length of 4`, etc.) — la fonctionnalité documentée (docs/06 : DOWNBEAT dans le vocabulaire
+GÉNÉRAL, pas "Mode B uniquement") était bien absente en pratique.
+
+**Correctif :** dans `finalize.ts`, un nouveau tableau `downbeatEvents` construit depuis
+`downbeatTimes` (déjà extrait, ligne 65, pour `detectSections`/`detectMacroEvents`) — un événement
+par temps fort, `intensity: 1` (même convention que `demoDoc.ts`), `confidence: partial.confidence.
+grid` (reprend la confiance DÉJÀ calculée par la détection de grille, pas une valeur figée comme le
+`0.95` arbitraire du harnais synthétique), `meta.barIndex` (index dans `grid.downbeats`, conforme au
+payload documenté dans docs/06). Intégré à la fusion `events` existante (ordre inchangé pour les
+autres sources, tri global par `t` préservé). Un hunk. `PulseRings.ts` lui-même non modifié : il
+écoutait déjà correctement `'DOWNBEAT'`, il n'en recevait simplement jamais.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run tests/unit/finalize.test.ts` : 10/10 verts (les 4
+nouveaux passent désormais). `npx vitest run` (suite complète) : **648/648** verts (643 + 4
+nouveaux — aucune régression sur les fixtures existantes qui avaient déjà `grid.downbeats` non vide,
+notamment `breakScenario` dans ce même fichier, vérifiées : aucune n'affirmait de compte total
+d'événements). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 315,03 ko (gzip
+86,06 ko) — légère hausse attendue (nouveau code de synthèse dans `finalize.ts`).
+
+Pas de vérification navigateur complète (import d'un vrai fichier audio + pipeline Worker de bout
+en bout) : le mécanisme du correctif est entièrement capturé par les tests unitaires (logique de
+synthèse PMDI pure, déterministe, sans dépendance DOM/navigateur) ; une confirmation visuelle
+nécessiterait d'importer un fichier audio réel et de faire tourner le pipeline d'analyse complet
+(déjà couvert par ailleurs par `pipeline.test.ts`) — proposable sur demande si une confiance
+supplémentaire est souhaitée.
+
+Limites connues : `BEAT`/`BAR`/`PHRASE` (docs/06, même vocabulaire général) restent absents du vrai
+pipeline — portée explicitement exclue de cette étape (décision utilisateur), aucun consommateur
+réel aujourd'hui donc aucun impact visible actuel, mais le même trou de contrat documenté subsiste
+pour ces trois types.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

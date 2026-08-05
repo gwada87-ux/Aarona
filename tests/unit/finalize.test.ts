@@ -131,3 +131,48 @@ describe('finalizePmdi — tolérance à l\'inconnu', () => {
     expect(doc.events).toHaveLength(0);
   });
 });
+
+describe('finalizePmdi — événements DOWNBEAT synthétisés depuis grid.downbeats (régression Étape 44)', () => {
+  it('un temps fort par entrée de grid.downbeats, au bon instant', () => {
+    const doc = baseDoc({ grid: { beats: [], downbeats: [0, 2, 4, 6] } });
+    const result = finalizePmdi(doc);
+
+    const downbeats = result.events.filter((e) => e.type === 'DOWNBEAT');
+    expect(downbeats).toHaveLength(4);
+    expect(downbeats.map((e) => e.t)).toEqual([0, 2, 4, 6]);
+  });
+
+  it('meta.barIndex reflète la position dans grid.downbeats (0-based)', () => {
+    const doc = baseDoc({ grid: { beats: [], downbeats: [0, 2, 4] } });
+    const result = finalizePmdi(doc);
+
+    const downbeats = result.events.filter((e) => e.type === 'DOWNBEAT');
+    expect(downbeats.map((e) => e.meta?.barIndex)).toEqual([0, 1, 2]);
+  });
+
+  it('confidence reprend celle de la grille (partial.confidence.grid), pas une valeur figée', () => {
+    const doc = baseDoc({ grid: { beats: [], downbeats: [0] }, confidence: { tempo: 1, grid: 0.42, classification: 0, structure: 0 } });
+    const result = finalizePmdi(doc);
+
+    const downbeat = result.events.find((e) => e.type === 'DOWNBEAT');
+    expect(downbeat?.confidence).toBe(0.42);
+  });
+
+  it('grid.downbeats vide (ou grid absent) : aucun DOWNBEAT, ne lève pas', () => {
+    const doc = baseDoc({ grid: { beats: [], downbeats: [] } });
+    expect(() => finalizePmdi(doc)).not.toThrow();
+    expect(finalizePmdi(doc).events.filter((e) => e.type === 'DOWNBEAT')).toHaveLength(0);
+  });
+
+  it('les DOWNBEAT sont fusionnés et triés avec les autres événements, pas ajoutés à part', () => {
+    const doc = baseDoc({
+      grid: { beats: [], downbeats: [5, 1] }, // volontairement non trié en entrée
+      ext: { onsetDescriptors: [kickDescriptor(3)], rawRmsDb: constantFeature('ext.rawRmsDb', 10, 8, -20) },
+    });
+    const result = finalizePmdi(doc);
+
+    const ts = result.events.map((e) => e.t);
+    expect(ts).toEqual([...ts].sort((a, b) => a - b));
+    expect(result.events.filter((e) => e.type === 'DOWNBEAT').map((e) => e.t)).toEqual([1, 5]);
+  });
+});

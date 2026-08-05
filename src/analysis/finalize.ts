@@ -86,7 +86,20 @@ export function finalizePmdi(partial: PmdiDocument, options: FinalizePmdiOptions
     rawRmsDbTrack,
   });
 
-  const events: MusicEvent[] = [...partial.events, ...classifiedEvents, ...macroEvents].sort((a, b) => a.t - b.t);
+  // docs/06_EVENT_SYSTEM.md §"Grille rythmique" : DOWNBEAT fait partie du vocabulaire général
+  // (pas "Mode B uniquement"), mais `grid.downbeats` (AnalysisPipeline.ts) n'était jusqu'ici
+  // jamais converti en MusicEvent — PulseRings.ts, seul consommateur réel, n'avait donc jamais
+  // d'anneau secondaire sur un morceau auto-analysé (Mode A). `confidence` reprend celle, déjà
+  // calculée, de la détection de grille — pas une valeur figée.
+  const downbeatEvents: MusicEvent[] = downbeatTimes.map((t, i) => ({
+    t,
+    type: 'DOWNBEAT',
+    intensity: 1,
+    confidence: partial.confidence.grid,
+    meta: { barIndex: i },
+  }));
+
+  const events: MusicEvent[] = [...partial.events, ...downbeatEvents, ...classifiedEvents, ...macroEvents].sort((a, b) => a.t - b.t);
 
   const classificationConfidence = classifiedEvents.length > 0 ? average(classifiedEvents.map((e) => e.confidence)) : 0;
   const structureConfidence = sections.length > 0 ? average(sections.map((s) => s.confidence)) : 0;
