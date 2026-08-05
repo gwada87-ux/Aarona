@@ -49,6 +49,24 @@ export function fft(re: Float64Array, im: Float64Array): void {
   }
 }
 
+/**
+ * FFT inverse, en place — via le tour classique « conjuguer, FFT directe, conjuguer et diviser
+ * par N » (évite de dupliquer les papillons de `fft()` avec le signe inverse). Ajoutée à l'Étape
+ * 19 pour l'autocorrélation par FFT de `bassContour.ts::trackPitch` (théorème de
+ * Wiener-Khinchin : autocorrélation = IFFT(|FFT(x)|²)) — bien plus rapide que la somme directe
+ * pour la plage de délais utile à la détection de hauteur.
+ */
+export function ifft(re: Float64Array, im: Float64Array): void {
+  const n = re.length;
+  for (let i = 0; i < n; i++) im[i] = -im[i]!;
+  fft(re, im);
+  const invN = 1 / n;
+  for (let i = 0; i < n; i++) {
+    re[i] = re[i]! * invN;
+    im[i] = -im[i]! * invN;
+  }
+}
+
 /** Fenêtre de Hann, taille N. */
 export function hannWindow(size: number): Float64Array {
   const w = new Float64Array(size);

@@ -7,6 +7,7 @@
  * des noms de notes (le produit ne le prétendra jamais en Mode A).
  */
 import { median } from '../core/math/percentile';
+import { fft, ifft } from './fft';
 
 export interface BiquadCoeffs {
   readonly b0: number;
@@ -72,13 +73,28 @@ const PITCH_HOP = 512;
 const MIN_F0_HZ = 27.5; // A0
 const MAX_F0_HZ = 200; // G3, docs/04 l.193
 
-/** Autocorrélation par fenêtre de 2048 échantillons, hop 512 (docs/04 l.192). */
+/** Puissance de 2 ≥ 2·PITCH_WINDOW : le zero-padding évite le repliement circulaire sur toute la plage de délais utile (voir `trackPitch`). */
+const AUTOCORR_FFT_SIZE = 4096;
+
+/**
+ * Autocorrélation par fenêtre de 2048 échantillons, hop 512 (docs/04 l.192). Calculée par FFT
+ * (Wiener-Khinchin : autocorrélation = IFFT(|FFT(x)|²)) plutôt que par somme directe — la somme
+ * directe coûtait O(plage de délais × fenêtre) par image, soit l'essentiel du temps d'analyse
+ * d'un morceau entier (~9,4 s sur 4 min, docs/JOURNAL.md Étape 17/P15). Avec un zero-padding à
+ * `AUTOCORR_FFT_SIZE` ≥ 2·PITCH_WINDOW, la corrélation CIRCULAIRE coïncide exactement avec la
+ * corrélation LINÉAIRE sur la plage de délais couverte (aucun terme ne peut « boucler ») — même
+ * résultat numérique que la somme directe (voir tests/unit/fft.test.ts et
+ * tests/unit/bassContour.test.ts), en O(N log N) par image au lieu de O(plage × fenêtre).
+ */
 export function trackPitch(lowpassed: Float64Array, sampleRate: number): PitchFrame[] {
   const minLag = Math.max(1, Math.round(sampleRate / MAX_F0_HZ));
   const maxLag = Math.round(sampleRate / MIN_F0_HZ);
   const numFrames = Math.max(0, Math.floor((lowpassed.length - PITCH_WINDOW) / PITCH_HOP) + 1);
 
   const out: PitchFrame[] = [];
+  const re = new Float64Array(AUTOCORR_FFT_SIZE);
+  const im = new Float64Array(AUTOCORR_FFT_SIZE);
+
   for (let i = 0; i < numFrames; i++) {
     const start = i * PITCH_HOP;
     const seg = lowpassed.subarray(start, start + PITCH_WINDOW);
@@ -86,11 +102,20 @@ export function trackPitch(lowpassed: Float64Array, sampleRate: number): PitchFr
     let energy0 = 0;
     for (let n = 0; n < seg.length; n++) energy0 += seg[n]! * seg[n]!;
 
+    re.fill(0);
+    im.fill(0);
+    re.set(seg);
+    fft(re, im);
+    for (let k = 0; k < AUTOCORR_FFT_SIZE; k++) {
+      re[k] = re[k]! * re[k]! + im[k]! * im[k]!; // |X[k]|²
+      im[k] = 0;
+    }
+    ifft(re, im); // re[lag] = autocorrélation (réelle) au délai `lag`, pour lag < PITCH_WINDOW
+
     let bestLag = minLag;
     let bestCorr = -Infinity;
     for (let lag = minLag; lag <= maxLag && lag < seg.length; lag++) {
-      let sum = 0;
-      for (let n = 0; n + lag < seg.length; n++) sum += seg[n]! * seg[n + lag]!;
+      const sum = re[lag]!;
       if (sum > bestCorr) {
         bestCorr = sum;
         bestLag = lag;

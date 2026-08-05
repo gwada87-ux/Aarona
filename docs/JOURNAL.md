@@ -1027,3 +1027,71 @@ hébergeur) sont des décisions produit/business à prendre par Aaron, pas des t
 restantes. Séparément : le corpus annoté (bloqueur inchangé depuis l'Étape 2) et l'optimisation
 `resample()`/`bassContour()` (Étape 17/P15) restent ouverts. **Fin de la feuille de route
 docs/00a_ORDRE_DES_ETAPES.md — 18/18 étapes parcourues.**
+
+## Étape 19 — hors roadmap : correctif de performance (resample/bassContour)
+
+**Hors de docs/00a** (la roadmap est close depuis l'Étape 18) : reprise du chantier signalé à
+l'Étape 17/P15 (`bench:analysis` échouait, 19,5 s au lieu de 8 s, `resample`/`bassContour`
+responsables de ~82 % du temps). Objectif : faire passer le banc, sans changer le comportement
+observable (Loi 1, docs/00b) — les deux correctifs sont des restructurations de calcul, pas des
+changements d'algorithme au sens mathématique.
+
+Fait et vérifié : `src/analysis/resample.ts` réécrit en filtre polyphase précalculé. Constat : les
+taux d'échantillonnage étant des entiers, `sourceRate/targetRate` est une fraction EXACTE réduite
+par pgcd — la position fractionnaire dans le signal source ne prend donc qu'un nombre fini de
+valeurs (phases), qui reviennent périodiquement. L'ancien code recalculait le noyau sinc/Blackman
+(`sin`/`cos`) à CHAQUE échantillon de sortie (~169 M appels trigonométriques sur 4 min de signal) ;
+le nouveau code précalcule le noyau une fois par phase (au plus quelques centaines), puis parcourt
+les échantillons de sortie par simples additions/multiplications, avec un compteur de phase entier
+incrémental (aucune division flottante par échantillon). Les indices hors du support d'origine ont
+un poids `blackman()` exactement nul par construction — les inclure dans la somme élargie ne change
+donc pas le résultat (0 + x = x, aucune perte de précision).
+
+`src/analysis/bassContour.ts::trackPitch` réécrit pour calculer l'autocorrélation par FFT plutôt que
+par somme directe. Constat : la somme directe coûtait O(plage de délais [110..802] × fenêtre [2048])
+par image, sur ~10 300 images pour 4 min — plus de 11 milliards d'opérations. Remplacée par le
+théorème de Wiener-Khinchin (autocorrélation = partie réelle de `IFFT(|FFT(x)|²)`), avec un
+zero-padding à `AUTOCORR_FFT_SIZE = 4096` (≥ 2×la fenêtre de 2048) : la corrélation CIRCULAIRE ainsi
+calculée coïncide EXACTEMENT avec la corrélation LINÉAIRE d'origine sur toute la plage de délais
+utile (aucun terme ne peut « boucler » avec un padding suffisant — démontré dans le commentaire du
+code et vérifié par test). `src/analysis/fft.ts::ifft` ajoutée (FFT inverse par le tour classique
+« conjuguer, FFT directe, conjuguer, diviser par N » — ne duplique pas les papillons de `fft()`).
+
+Chaque correctif est prouvé identique à l'ancien calcul par un test de régression DÉDIÉ qui compare
+au code naïf d'origine recopié tel quel (pas seulement aux tests existants, plus tolérants) :
+`tests/unit/resample.test.ts` (2 nouveaux tests, ratio 2:1 et ratio non entier, écart < 1e-9),
+`tests/unit/bassContour.test.ts` (1 nouveau test, signal composite sinusoïde+bruit, écart < 1e-6
+sur f0 et confidence, image par image), `tests/unit/fft.test.ts` (2 nouveaux tests pour `ifft` :
+aller-retour `ifft(fft(x))==x`, et autocorrélation par Wiener-Khinchin == somme directe).
+
+**Résultat mesuré** (`npm run bench:analysis`, même signal synthétique de 4 min qu'à l'Étape 17/P15,
+même machine) : **19 587 ms → 5 666 ms** (×3,5). Détail par étape : `resample` 6 558 ms → 425 ms
+(×15,4) ; `bassContour` 9 447 ms → 1 805 ms (×5,2) ; `stft` (1 686 ms, inchangé) devient l'étape la
+plus coûteuse mais reste largement dans le budget. Le banc passe désormais sous le seuil documenté
+de 8 s, avec ~2,3 s de marge.
+
+5 nouveaux tests répartis sur 3 fichiers — total **65 fichiers/389 tests**. `npx tsc --noEmit` :
+0 erreur. `npx vitest run` : **389/389** verts. `npm run test:arch` : 1/1. `npm run build` : succès,
+inchangé (304,73 ko gzip 83,40 ko — code interne à `analysis/`, pas de nouvel import côté bundle
+applicatif). `npm run bench:analysis` : **passe** (5 666 ms ≤ 8 000 ms).
+
+Décision de conception (tranchée et documentée, non soumise à Aaron — chaque correctif prouvé par
+test dédié, coût d'erreur faible) : restructuration du CALCUL, pas changement de MÉTHODE — le filtre
+reste un sinc fenêtré Blackman de même largeur, l'autocorrélation reste la même somme de produits ;
+seule la manière d'atteindre le même résultat change (précalcul périodique / domaine fréquentiel).
+Choix délibéré plutôt qu'une méthode plus rapide mais numériquement différente (ex. filtre IIR pour
+le rééchantillonnage, YIN au lieu de l'autocorrélation pour la hauteur) : le risque de dérive sur la
+qualité de détection (docs/11 Niveau 2, F-mesure) aurait été réel et non mesurable sans corpus —
+alors qu'une restructuration pure, prouvée identique par test, ne peut pas la dégrader.
+
+Limites connues : le gain n'a été mesuré qu'une fois, sur une seule machine (le nombre absolu peut
+varier ailleurs, mais le facteur d'accélération, lié à la complexité algorithmique et non au
+matériel, doit rester comparable). `stft` (1,7 s) et le reste du pipeline n'ont pas été touchés —
+marge suffisante aujourd'hui, mais pourraient redevenir le facteur limitant si `bench:analysis`
+était un jour exécuté sur un signal plus long ou une machine plus lente (aucun seuil CI n'existe
+encore pour ce banc, voir docs/11 Niveau 4). `bench:render`/`bench:export`/`bench:memory`/
+`bench:leak` restent hors de portée de l'environnement Node de test (inchangé depuis l'Étape 17).
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu pour ce chantier précis. Restent ouverts, sans lien
+avec ce correctif : le corpus annoté (Étape 2), et les cinq décisions produit/business de l'Étape 18
+(licence, page produit, analytique, démo réelle, hébergeur).

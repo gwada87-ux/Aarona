@@ -68,3 +68,65 @@ describe('analysis/bassContour', () => {
     expect(segments.length).toBe(0);
   });
 });
+
+/**
+ * Régression Étape 19 : `trackPitch` a été réécrit pour calculer l'autocorrélation par FFT
+ * (Wiener-Khinchin) plutôt que par somme directe — la somme directe dominait le temps d'analyse
+ * d'un morceau entier (~9,4 s sur 4 min, docs/JOURNAL.md Étape 17/P15). Ce test compare directement
+ * à la somme directe d'origine (copiée telle quelle, jamais optimisée) pour prouver que le
+ * résultat numérique n'a pas changé.
+ */
+describe('analysis/bassContour — trackPitch régression vs somme directe (Étape 19)', () => {
+  const MIN_F0_HZ = 27.5;
+  const MAX_F0_HZ = 200;
+  const PITCH_WINDOW = 2048;
+  const PITCH_HOP = 512;
+
+  function trackPitchNaive(lowpassed: Float64Array, sampleRate: number) {
+    const minLag = Math.max(1, Math.round(sampleRate / MAX_F0_HZ));
+    const maxLag = Math.round(sampleRate / MIN_F0_HZ);
+    const numFrames = Math.max(0, Math.floor((lowpassed.length - PITCH_WINDOW) / PITCH_HOP) + 1);
+    const out: { t: number; f0: number; confidence: number }[] = [];
+    for (let i = 0; i < numFrames; i++) {
+      const start = i * PITCH_HOP;
+      const seg = lowpassed.subarray(start, start + PITCH_WINDOW);
+      let energy0 = 0;
+      for (let n = 0; n < seg.length; n++) energy0 += seg[n]! * seg[n]!;
+      let bestLag = minLag;
+      let bestCorr = -Infinity;
+      for (let lag = minLag; lag <= maxLag && lag < seg.length; lag++) {
+        let sum = 0;
+        for (let n = 0; n + lag < seg.length; n++) sum += seg[n]! * seg[n + lag]!;
+        if (sum > bestCorr) {
+          bestCorr = sum;
+          bestLag = lag;
+        }
+      }
+      const f0 = sampleRate / bestLag;
+      const confidence = energy0 > 0 ? Math.max(0, Math.min(1, bestCorr / energy0)) : 0;
+      const t = (start + PITCH_WINDOW / 2) / sampleRate;
+      out.push({ t, f0, confidence });
+    }
+    return out;
+  }
+
+  it('signal composite (sinusoïde + bruit) : mêmes f0/confidence à 1e-6 près, image par image', () => {
+    const n = SAMPLE_RATE * 2; // 2s, plusieurs images
+    let seed = 3;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return (seed / 0x7fffffff) * 2 - 1;
+    };
+    const signal = Float64Array.from({ length: n }, (_, i) => 0.7 * Math.sin((2 * Math.PI * 55 * i) / SAMPLE_RATE) + 0.05 * rand());
+
+    const expected = trackPitchNaive(signal, SAMPLE_RATE);
+    const actual = trackPitch(signal, SAMPLE_RATE);
+
+    expect(actual.length).toBe(expected.length);
+    for (let i = 0; i < expected.length; i++) {
+      expect(actual[i]!.t).toBe(expected[i]!.t);
+      expect(actual[i]!.f0).toBeCloseTo(expected[i]!.f0, 6);
+      expect(actual[i]!.confidence).toBeCloseTo(expected[i]!.confidence, 6);
+    }
+  });
+});

@@ -166,13 +166,24 @@ signal synthétique. `bench:render` (Canvas 2D), `bench:export` (WebCodecs) et `
 test actuel (`environment: 'node'`, aucun Canvas — en ajouter un exigerait une dépendance native
 comme `node-canvas`, une décision d'ADR non prise ici) ; à faire au navigateur (docs/JOURNAL.md).
 
-**Résultat mesuré, une exécution, machine de développement** : le pipeline complet sur un signal
-synthétique de 4 min met **19,5 s**, soit environ 2,4× le seuil documenté de 8 s — le banc RÉVÈLE un
-écart réel, il ne le masque pas. Répartition par étape (`onProgress`) : `resample` (6,6 s) et
-`bassContour` (9,4 s) dominent très largement (~82 % du total) ; `stft` (1,7 s) loin derrière ; tout
-le reste (waveform/features/onsets/tempo/beats/downbeats/descriptors/finalize) est négligeable.
-Optimisation signalée pour une session dédiée (hors périmètre de cette étape, qui construit le banc,
-pas le correctif) — voir docs/JOURNAL.md, Étape 17/P15.
+**Résultat mesuré à l'Étape 17/P15, une exécution, machine de développement** : le pipeline complet
+sur un signal synthétique de 4 min mettait **19,5 s**, soit environ 2,4× le seuil documenté de 8 s —
+le banc RÉVÉLAIT un écart réel, il ne le masquait pas. Répartition par étape (`onProgress`) :
+`resample` (6,6 s) et `bassContour` (9,4 s) dominaient très largement (~82 % du total).
+
+**Corrigé à l'Étape 19** (`src/analysis/resample.ts`, `src/analysis/bassContour.ts::trackPitch`,
+`src/analysis/fft.ts::ifft` nouvelle) : `resample` recalculait le noyau sinc/Blackman (sin/cos) à
+CHAQUE échantillon de sortie ; comme les taux d'échantillonnage sont des entiers, la position
+fractionnaire dans le signal source ne prend qu'un nombre fini de valeurs distinctes (fraction
+exacte réduite par pgcd) — le noyau est maintenant précalculé une fois par phase (polyphase).
+`trackPitch` calculait l'autocorrélation par somme directe (O(plage de délais × fenêtre) par image)
+; remplacée par une autocorrélation par FFT (Wiener-Khinchin : `IFFT(|FFT(x)|²)`, zero-padding à
+2×la fenêtre pour égaler exactement la somme directe, sans repliement circulaire). Les deux
+correctifs sont prouvés numériquement identiques à l'ancien calcul par des tests de régression
+dédiés comparant à l'implémentation naïve d'origine (`tests/unit/resample.test.ts`,
+`tests/unit/bassContour.test.ts`), pas seulement par les tests existants, plus tolérants.
+**Résultat après correctif : 5,67 s** — sous le seuil de 8 s avec marge. `resample` : 6,6 s → 0,43 s
+(×15) ; `bassContour` : 9,4 s → 1,8 s (×5). Détail dans docs/JOURNAL.md, Étape 19.
 
 ---
 

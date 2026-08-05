@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fft, hannWindow, realSpectrumMagnitudes } from '../../src/analysis/fft';
+import { fft, hannWindow, ifft, realSpectrumMagnitudes } from '../../src/analysis/fft';
 
 /** DFT naïve — référence indépendante, docs/11_TESTING.md §analysis/fft. */
 function naiveDftComplex(signal: ArrayLike<number>): { re: Float64Array; im: Float64Array } {
@@ -108,6 +108,53 @@ describe('analysis/fft — realSpectrumMagnitudes() vs DFT naïve', () => {
     const ref = naiveRealMagnitudes(signal);
     for (let k = 0; k <= n / 2; k += 17) {
       expect(mags[k]).toBeCloseTo(ref[k]!, 6);
+    }
+  });
+});
+
+describe('analysis/fft — ifft()', () => {
+  it('ifft(fft(x)) == x (aller-retour, bruit 64 points)', () => {
+    const n = 64;
+    let seed = 99;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return (seed / 0x7fffffff) * 2 - 1;
+    };
+    const original = Array.from({ length: n }, () => rand());
+    const re = Float64Array.from(original);
+    const im = new Float64Array(n);
+    fft(re, im);
+    ifft(re, im);
+    for (let i = 0; i < n; i++) {
+      expect(re[i]).toBeCloseTo(original[i]!, 9);
+      expect(im[i]).toBeCloseTo(0, 9);
+    }
+  });
+
+  it('autocorrélation par Wiener-Khinchin (|FFT|² puis ifft) == somme directe, avec zero-padding suffisant', () => {
+    const n = 8; // longueur du signal utile
+    const N = 16; // >= 2n, évite le repliement circulaire sur la plage de délais couverte ici
+    let seed = 5;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return (seed / 0x7fffffff) * 2 - 1;
+    };
+    const signal = Array.from({ length: n }, () => rand());
+
+    const re = new Float64Array(N);
+    const im = new Float64Array(N);
+    re.set(signal);
+    fft(re, im);
+    for (let k = 0; k < N; k++) {
+      re[k] = re[k]! * re[k]! + im[k]! * im[k]!;
+      im[k] = 0;
+    }
+    ifft(re, im);
+
+    for (let lag = 0; lag < n; lag++) {
+      let direct = 0;
+      for (let i = 0; i + lag < n; i++) direct += signal[i]! * signal[i + lag]!;
+      expect(re[lag]).toBeCloseTo(direct, 9);
     }
   });
 });
