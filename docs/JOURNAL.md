@@ -2349,3 +2349,57 @@ repliable) sont un choix pragmatique, pas un audit UX mobile complet — d'autre
 plus tard.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 46 — hors roadmap : synthèse des événements BEAT/BAR/PHRASE dans finalize.ts
+
+**Hors de docs/00a.** Reprise, sur demande explicite, de la portée mise en réserve à l'Étape 44
+(DOWNBEAT seul à l'époque). Referme le contrat documenté par docs/06_EVENT_SYSTEM.md §"Grille
+rythmique" pour les trois types restants du vocabulaire général (pas "Mode B uniquement").
+
+**BEAT** (`meta.indexInBar`, 0..3) : synthétisé depuis `grid.beats`, un événement par entrée. Le
+calcul n'est PAS un simple `i % 4` (qui supposerait à tort que le premier beat détecté est toujours
+un downbeat) : `AnalysisPipeline.ts::detectDownbeat()` calcule une phase interne (`downbeat.phase`,
+0..3) jamais persistée dans le PMDI, et `downbeatTimes = beats.filter(i % 4 === phase)` — vérifié
+en lisant le code source. `computeIndexInBar()` retrouve cette phase en cherchant l'index du
+PREMIER downbeat dans `beatTimes` (égalité stricte, garantie exacte par construction — même valeur
+`b.t` recopiée sans arithmétique dans les deux tableaux), puis calcule `((i − phase) % 4 + 4) % 4`
+pour chaque beat. Sans aucun downbeat détecté (piste très courte/silencieuse), repli sur phase 0 —
+seule hypothèse possible faute d'ancrage, documenté comme tel.
+
+**BAR** ("début de mesure", sans payload documenté) : `DOWNBEAT` ("premier temps de la mesure") et
+`BAR` coïncident exactement dans l'hypothèse MVP à 4 temps déjà posée par ce projet (un seul modèle
+métrique, aucune distinction rythme/perception à faire) — mêmes instants que `grid.downbeats`,
+sans `meta`.
+
+**PHRASE** ("début de phrase, 4 ou 8 mesures", `meta.bars`) : AUCUN signal de structure phrastique
+n'existe dans ce pipeline (`structure.ts` détecte des SECTIONS par énergie, un concept différent,
+pas aligné sur des multiples de mesures) — hypothèse MVP explicite et assumée, au même titre que la
+mesure à 4 temps déjà en place : une phrase toutes les 4 mesures (`PHRASE_BARS = 4`, une constante
+nommée plutôt qu'un nombre magique), `meta.bars` reflète ce choix plutôt que de le taire.
+
+`tests/unit/finalize.test.ts` (+6 tests, 16 au total) : BEAT — décalage de phase non trivial
+vérifié avec des downbeats démarrant à l'index de beat 2 (pas 0), attendu `[2,3,0,1,2,3,0,1]` ;
+repli phase 0 sans aucun downbeat. BAR — mêmes instants que DOWNBEAT, `meta` absent. PHRASE — un
+événement tous les 4 downbeats, `meta.bars = 4`. `grid.beats`/`grid.downbeats` vides : aucun
+événement des 3 types, ne lève pas. `confidence` des 3 types reprend celle de la grille (0,33 dans
+le test), pas figée — même principe que DOWNBEAT (Étape 44).
+
+**Vérification au navigateur** (pipeline Worker réel, `importTrack()` + `buildDemoAudioFile()` +
+`decodeAudioFile()`, même méthode qu'à l'Étape 44) : sur une démo de 20 s, **64 BEAT**, **16
+DOWNBEAT**, **16 BAR** (instants identiques aux DOWNBEAT, confirmé programmatiquement), **4
+PHRASE** (`meta.bars=4` chacun). Les 2 premiers beats détectés (avant le tout premier downbeat)
+reçoivent bien `indexInBar` 2 et 3 — pas 0 et 1 — confirmant que le calcul de phase fonctionne sur
+de VRAIES données détectées, pas seulement sur les fixtures construites à la main des tests
+unitaires.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run tests/unit/finalize.test.ts` : 16/16 verts, 6/6
+nouveaux du premier coup. `npx vitest run` (suite complète) : **654/654** verts (648 + 6 nouveaux).
+`npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 315,44 ko (gzip 86,19 ko) —
+légère hausse attendue (nouvelle logique de synthèse). `git status --short` : 2 fichiers
+(`finalize.ts`, `finalize.test.ts`).
+Limites connues : PHRASE reste une hypothèse mécanique (toutes les 4 mesures, jamais 8, jamais liée
+à une vraie répétition musicale) — pas de régression par rapport à avant (l'événement n'existait
+pas du tout), mais à ne pas confondre avec une détection de structure réelle. Le vocabulaire complet
+de docs/06 §"Grille rythmique" est maintenant entièrement câblé côté Mode A.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

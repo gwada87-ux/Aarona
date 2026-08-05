@@ -176,3 +176,64 @@ describe('finalizePmdi — événements DOWNBEAT synthétisés depuis grid.downb
     expect(result.events.filter((e) => e.type === 'DOWNBEAT').map((e) => e.t)).toEqual([1, 5]);
   });
 });
+
+describe('finalizePmdi — événements BEAT/BAR/PHRASE synthétisés (régression Étape 46)', () => {
+  it('BEAT : un événement par entrée de grid.beats, meta.indexInBar tient compte du décalage de phase (pas juste i % 4)', () => {
+    const beats = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5];
+    const downbeats = [1, 3]; // phase=2 : downbeats aux index de beat 2 et 6
+    const doc = baseDoc({ grid: { beats, downbeats } });
+    const result = finalizePmdi(doc);
+
+    const beatEvents = result.events.filter((e) => e.type === 'BEAT');
+    expect(beatEvents).toHaveLength(8);
+    expect(beatEvents.map((e) => e.t)).toEqual(beats);
+    expect(beatEvents.map((e) => e.meta?.indexInBar)).toEqual([2, 3, 0, 1, 2, 3, 0, 1]);
+  });
+
+  it('BEAT : sans aucun downbeat détecté, repli sur la phase 0 (indexInBar = i % 4)', () => {
+    const beats = [0, 0.5, 1, 1.5, 2];
+    const doc = baseDoc({ grid: { beats, downbeats: [] } });
+    const result = finalizePmdi(doc);
+
+    const beatEvents = result.events.filter((e) => e.type === 'BEAT');
+    expect(beatEvents.map((e) => e.meta?.indexInBar)).toEqual([0, 1, 2, 3, 0]);
+  });
+
+  it('BAR : un événement par entrée de grid.downbeats, mêmes instants que DOWNBEAT, sans meta', () => {
+    const doc = baseDoc({ grid: { beats: [0, 1, 2, 3], downbeats: [0, 2] } });
+    const result = finalizePmdi(doc);
+
+    const barEvents = result.events.filter((e) => e.type === 'BAR');
+    const downbeatEvents = result.events.filter((e) => e.type === 'DOWNBEAT');
+    expect(barEvents.map((e) => e.t)).toEqual(downbeatEvents.map((e) => e.t));
+    expect(barEvents.every((e) => e.meta === undefined)).toBe(true);
+  });
+
+  it('PHRASE : un événement toutes les 4 mesures (tous les 4 downbeats), meta.bars = 4', () => {
+    const downbeats = [0, 2, 4, 6, 8, 10, 12]; // 7 downbeats
+    const doc = baseDoc({ grid: { beats: downbeats, downbeats } });
+    const result = finalizePmdi(doc);
+
+    const phraseEvents = result.events.filter((e) => e.type === 'PHRASE');
+    expect(phraseEvents.map((e) => e.t)).toEqual([0, 8]); // downbeats d'index 0 et 4
+    expect(phraseEvents.every((e) => e.meta?.bars === 4)).toBe(true);
+  });
+
+  it('grid.beats/downbeats vides : aucun BEAT/BAR/PHRASE, ne lève pas', () => {
+    const doc = baseDoc({ grid: { beats: [], downbeats: [] } });
+    expect(() => finalizePmdi(doc)).not.toThrow();
+    const result = finalizePmdi(doc);
+    expect(result.events.filter((e) => ['BEAT', 'BAR', 'PHRASE'].includes(e.type))).toHaveLength(0);
+  });
+
+  it('confidence de BEAT/BAR/PHRASE reprend celle de la grille, pas une valeur figée', () => {
+    const doc = baseDoc({
+      grid: { beats: [0, 1], downbeats: [0] },
+      confidence: { tempo: 1, grid: 0.33, classification: 0, structure: 0 },
+    });
+    const result = finalizePmdi(doc);
+    const relevant = result.events.filter((e) => ['BEAT', 'BAR', 'PHRASE'].includes(e.type));
+    expect(relevant.length).toBeGreaterThan(0);
+    expect(relevant.every((e) => e.confidence === 0.33)).toBe(true);
+  });
+});

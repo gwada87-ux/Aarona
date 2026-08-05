@@ -37,6 +37,21 @@ function sumTracks(a: SampledTrack, b: SampledTrack): SampledTrack {
 }
 
 /**
+ * `meta.indexInBar` (docs/06) : position (0..3, hypothèse MVP mesure à 4 temps déjà posée par
+ * AnalysisPipeline.ts) de chaque beat par rapport au PREMIER downbeat de la piste — pas un simple
+ * `i % 4`, qui suppose à tort que le beat 0 est toujours un downbeat (`AnalysisPipeline.ts` calcule
+ * `downbeat.phase` dans [0,3], jamais persisté dans le PMDI). `downbeatTimes[0]` est TOUJOURS un
+ * élément exact de `beatTimes` par construction (`downbeatTimes = beats.filter(i % 4 === phase)`),
+ * d'où la comparaison par égalité stricte. Sans downbeat détecté (piste très courte/silencieuse),
+ * repli sur la phase 0 — la seule hypothèse possible faute d'ancrage.
+ */
+function computeIndexInBar(beatTimes: readonly number[], downbeatTimes: readonly number[]): number[] {
+  const phase = downbeatTimes.length > 0 ? beatTimes.indexOf(downbeatTimes[0]!) : -1;
+  const basePhase = phase >= 0 ? phase : 0;
+  return beatTimes.map((_, i) => (((i - basePhase) % 4) + 4) % 4);
+}
+
+/**
  * Complète un document PMDI partiel. Fonction PURE : ne mute pas `partial`,
  * retourne un nouveau document. Sans `ext.onsetDescriptors` (document trop
  * ancien, ou déjà Mode B), la classification est simplement vide — tolérance
@@ -86,11 +101,21 @@ export function finalizePmdi(partial: PmdiDocument, options: FinalizePmdiOptions
     rawRmsDbTrack,
   });
 
-  // docs/06_EVENT_SYSTEM.md §"Grille rythmique" : DOWNBEAT fait partie du vocabulaire général
-  // (pas "Mode B uniquement"), mais `grid.downbeats` (AnalysisPipeline.ts) n'était jusqu'ici
-  // jamais converti en MusicEvent — PulseRings.ts, seul consommateur réel, n'avait donc jamais
-  // d'anneau secondaire sur un morceau auto-analysé (Mode A). `confidence` reprend celle, déjà
-  // calculée, de la détection de grille — pas une valeur figée.
+  // docs/06_EVENT_SYSTEM.md §"Grille rythmique" : BEAT/DOWNBEAT/BAR/PHRASE font partie du
+  // vocabulaire GÉNÉRAL (pas "Mode B uniquement"), mais `grid.beats`/`grid.downbeats`
+  // (AnalysisPipeline.ts) n'étaient jusqu'ici jamais convertis en MusicEvent — PulseRings.ts, seul
+  // consommateur réel (DOWNBEAT), n'avait donc jamais d'anneau secondaire sur un morceau
+  // auto-analysé (Mode A ; corrigé Étape 44). `confidence` reprend partout celle, déjà calculée,
+  // de la détection de grille — jamais une valeur figée.
+  const indexInBar = computeIndexInBar(beatTimes, downbeatTimes);
+  const beatEvents: MusicEvent[] = beatTimes.map((t, i) => ({
+    t,
+    type: 'BEAT',
+    intensity: 1,
+    confidence: partial.confidence.grid,
+    meta: { indexInBar: indexInBar[i]! },
+  }));
+
   const downbeatEvents: MusicEvent[] = downbeatTimes.map((t, i) => ({
     t,
     type: 'DOWNBEAT',
@@ -99,7 +124,40 @@ export function finalizePmdi(partial: PmdiDocument, options: FinalizePmdiOptions
     meta: { barIndex: i },
   }));
 
-  const events: MusicEvent[] = [...partial.events, ...downbeatEvents, ...classifiedEvents, ...macroEvents].sort((a, b) => a.t - b.t);
+  // BAR ("début de mesure") et DOWNBEAT ("premier temps de la mesure") coïncident dans l'hypothèse
+  // MVP à 4 temps de ce projet — il n'existe qu'un seul modèle métrique, pas de distinction
+  // rythme/perception à faire ici. Pas de payload documenté (docs/06), donc pas de `meta`.
+  const barEvents: MusicEvent[] = downbeatTimes.map((t) => ({
+    t,
+    type: 'BAR',
+    intensity: 1,
+    confidence: partial.confidence.grid,
+  }));
+
+  // PHRASE ("début de phrase, 4 ou 8 mesures") : aucun signal de structure phrastique n'existe
+  // dans ce pipeline (`structure.ts` détecte des SECTIONS par énergie, un concept différent, pas
+  // aligné sur des multiples de mesures). Hypothèse MVP explicite, au même titre que la mesure à 4
+  // temps : une phrase toutes les 4 mesures, `meta.bars` reflète ce choix plutôt que de le taire.
+  const PHRASE_BARS = 4;
+  const phraseEvents: MusicEvent[] = downbeatTimes
+    .filter((_, i) => i % PHRASE_BARS === 0)
+    .map((t) => ({
+      t,
+      type: 'PHRASE',
+      intensity: 1,
+      confidence: partial.confidence.grid,
+      meta: { bars: PHRASE_BARS },
+    }));
+
+  const events: MusicEvent[] = [
+    ...partial.events,
+    ...beatEvents,
+    ...downbeatEvents,
+    ...barEvents,
+    ...phraseEvents,
+    ...classifiedEvents,
+    ...macroEvents,
+  ].sort((a, b) => a.t - b.t);
 
   const classificationConfidence = classifiedEvents.length > 0 ? average(classifiedEvents.map((e) => e.confidence)) : 0;
   const structureConfidence = sections.length > 0 ? average(sections.map((s) => s.confidence)) : 0;
