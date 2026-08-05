@@ -55,7 +55,7 @@ export class AdvancedPanel {
       input.min = '0';
       input.max = '1';
       input.step = '0.01';
-      input.title = wired ? '' : "pas encore câblée à un rendu visuel (docs/JOURNAL.md, Étape 13/P11)";
+      input.title = wired ? '' : "sans effet visuel pour l'instant — à venir";
       input.addEventListener('input', () => callbacks.onMacroChange(name, Number(input.value)));
       this.macroInputs.set(name, input);
 

@@ -959,3 +959,71 @@ documenté explicitement, pas caché).
 Bloque la suite : la correction de `resample()`/`bassContour()` (signalée en tâche séparée) et
 l'acquisition d'un corpus annoté restent les deux prérequis pour clore réellement docs/11. Prochaine
 étape (00a) : Étape 18 (P16, finition et mise en ligne).
+
+## Étape 18 — P16 : finition et mise en ligne
+
+**Dernière étape de la feuille de route (00a) — 18/18 étapes parcourues.** Périmètre RÉDUIT par
+rapport à docs/14_ROADMAP.md §P16 (« écran d'accueil, morceau de démonstration embarqué, textes,
+licence, page produit, analytique locale optionnelle, empaquetage ») : voir « Limites connues » pour
+ce qui a été délibérément laissé de côté et pourquoi.
+
+Fait et vérifié : `index.html` — tagline d'accueil dans `#dropzone` (reprend la promesse d'une phrase
+de docs/01_VISION.md : « transforme un morceau en vidéo musicale synchronisée, en local, en moins de
+deux minutes »), sous-titre « 100 % local... aucun upload, aucun compte », `<meta name="description">`,
+`<meta name="viewport">` (absente jusqu'ici). Textes adoucis : les avertissements « ⚠ pas encore
+câblée à un rendu visuel (voir docs/JOURNAL.md, Étape 13/P11) » (Simple, Avancé) et deux autres
+références internes (« docs/10_PERFORMANCE.md » dans la note Qualité, « docs/08_PRESETS.md » dans le
+dialogue d'édition de preset) reformulés sans référence à un fichier de conception interne —
+`src/ui/panels/AdvancedPanel.ts` (tooltip des macros non câblées) mis à jour en cohérence.
+Audit mise en ligne (`npm run build`) : `dist/` est un site statique pur, aucun backend requis (ADR-001) ;
+le Worker d'analyse est instancié via `new Worker(new URL('./worker.ts', import.meta.url))` — motif
+Vite portable, pas de chemin absolu codé en dur ; taille du bundle 304,73 ko (gzip 83,39 ko), très en
+dessous du budget de docs/00b (≤ 400 ko gzip) ; `dist/` déjà dans `.gitignore` (jamais commité, se
+reconstruit à la demande). `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **384/384** verts
+(inchangé — aucune nouvelle logique cette étape, uniquement du texte/HTML). `npm run test:arch` : 1/1.
+`npm run build` : succès.
+
+Décision de conception (tranchée et documentée, non soumise à Aaron — coût d'erreur faible,
+réversible) : les avertissements sur les macros inertes restent VISIBLES (pas de suppression des
+curseurs Densité/Glow du panneau Simple, qui aurait exigé de toucher `SimplePanel.ts` et le typage de
+`PresetMacros` pour un gain cosmétique modeste) — seule leur FORMULATION change. Un curseur qui ne
+fait rien SANS explication serait pire (perçu comme un bug) qu'un curseur honnêtement annoncé « sans
+effet pour l'instant », qui ne l'est plus une fois retiré la référence à un fichier de conception
+interne, incompréhensible pour un utilisateur final.
+
+Fait mais non vérifié : vérification navigateur en attente — les deux outils de navigateur
+disponibles cette session ont de nouveau refusé de charger `localhost:3000` (même limite qu'aux
+Étapes 16/17). Aaron : recharger l'app et confirmer que le nouvel écran d'accueil s'affiche
+correctement (tagline lisible, pas de débordement de texte dans la zone de dépôt à différentes
+tailles de fenêtre), et que les info-bulles des macros non câblées (survol, panneau Avancé)
+affichent le nouveau texte.
+
+Limites connues — périmètre P16 du roadmap volontairement PAS traité en entier, chaque point pour une
+raison différente, aucun résolu en silence :
+- **Licence** : absente. Choix d'une licence logicielle (MIT/propriétaire/source-available) a un
+  impact commercial direct (le produit est positionné comme vendable — voir ADR-006, le watermark
+  existant) ; décision d'Aaron, pas à trancher seul comme une simple case à cocher.
+- **Page produit** : absente. Un site marketing séparé de l'application elle-même est un livrable
+  distinct, hors du périmètre "application" que ce dépôt construit depuis l'Étape 1.
+- **Analytique locale optionnelle** : absente. N'est PAS dans la liste "Inclus" du périmètre MVP
+  strict de docs/00b §4 — l'ajouter serait une fonctionnalité nouvelle, pas de la finition, et
+  soulève des questions de conception (quoi mesurer, où, opt-in comment) qui dépassent une décision
+  à faible coût d'erreur.
+- **Morceau de démonstration RÉEL embarqué** : toujours synthétique (`ui/demoDoc.ts`, depuis
+  l'Étape 14/P12) plutôt qu'un vrai morceau produit "libre de droits" comme le prévoyait docs/11 —
+  sourcer et licencier un morceau réel n'est pas à ma portée (aucun accès à une bibliothèque audio,
+  et le choix engage Aaron). La démo synthétique remplit déjà le rôle fonctionnel (essayer l'outil
+  sans importer son propre fichier).
+- **Mise en ligne réelle** : non faite. Aucun hébergeur choisi, aucune information de déploiement
+  fournie — action externe, potentiellement difficile à annuler (achat de domaine, configuration
+  DNS), hors de mon autorité sans décision explicite d'Aaron. Note technique laissée pour quand ce
+  choix sera fait : `vite.config.ts` n'a pas de `base` configuré (chemins d'assets racine-absolus,
+  `/assets/...`) — correct pour un déploiement à la racine d'un domaine, à ajuster (`base:
+  '/sous-chemin/'`) si l'hébergeur choisi sert l'app depuis un sous-chemin (ex. GitHub Pages "project
+  pages").
+Dette introduite : aucune connue.
+Bloque la suite : les cinq points ci-dessus (licence, page produit, analytique, démo réelle,
+hébergeur) sont des décisions produit/business à prendre par Aaron, pas des tâches techniques
+restantes. Séparément : le corpus annoté (bloqueur inchangé depuis l'Étape 2) et l'optimisation
+`resample()`/`bassContour()` (Étape 17/P15) restent ouverts. **Fin de la feuille de route
+docs/00a_ORDRE_DES_ETAPES.md — 18/18 étapes parcourues.**

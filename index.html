@@ -2,6 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="PULSAR VISUALIZER transforme un morceau audio en vidéo musicale synchronisée, entièrement en local dans le navigateur, en moins de deux minutes." />
   <title>PULSAR VISUALIZER</title>
   <style>
     :root { color-scheme: dark; }
@@ -59,6 +61,8 @@
     #dropzone.dragover { outline: 2px dashed #7b4cff; outline-offset: -8px; }
     #dropzone p { opacity: 0.7; font-size: 0.85rem; max-width: 28rem; margin: 0; }
     #dropzone.hidden { display: none; }
+    #dropzone .hero-tagline { opacity: 1; font-size: 1.15rem; font-weight: 600; max-width: 26rem; line-height: 1.4; margin: 0 0 0.25rem; }
+    #dropzone .hero-subtitle { opacity: 0.6; font-size: 0.8rem; max-width: 26rem; margin: -0.5rem 0 0.5rem; }
 
     #analysis-status {
       position: absolute;
@@ -144,6 +148,8 @@
       <canvas id="canvas"></canvas>
 
       <div id="dropzone">
+        <p class="hero-tagline">Ton morceau, transformé en vidéo musicale synchronisée — en moins de deux minutes.</p>
+        <p class="hero-subtitle">100 % local dans le navigateur : aucun upload, aucun compte.</p>
         <p><strong>Glisse un fichier audio ici</strong>, ou :</p>
         <button id="btn-pick-file">Choisir un fichier</button>
         <input type="file" id="file-input" accept="audio/*" hidden />
@@ -208,11 +214,11 @@
           <div class="macro-row"><input type="range" id="macro-energy-simple" min="0" max="1" step="0.01" /></div>
         </label>
         <label>Densité
-          <p class="macro-note">⚠ pas encore câblée à un rendu visuel (voir docs/JOURNAL.md, Étape 13/P11) — la valeur est mémorisée mais sans effet pour l'instant.</p>
+          <p class="macro-note">Sans effet visuel pour l'instant (à venir) — la valeur choisie reste mémorisée.</p>
           <div class="macro-row"><input type="range" id="macro-density-simple" min="0" max="1" step="0.01" /></div>
         </label>
         <label>Glow
-          <p class="macro-note">⚠ pas encore câblée non plus, même raison.</p>
+          <p class="macro-note">Sans effet visuel pour l'instant, comme Densité.</p>
           <div class="macro-row"><input type="range" id="macro-glow-simple" min="0" max="1" step="0.01" /></div>
         </label>
       </fieldset>
@@ -244,7 +250,7 @@
 
       <fieldset>
         <legend>Les 8 macros</legend>
-        <p class="macro-note">Énergie et Réactivité agissent réellement sur le câblage musical. Les 6 autres (densité, mouvement, profondeur, glow, chaos, douceur) sont mémorisées mais sans consommateur visuel pour l'instant — voir docs/JOURNAL.md, Étape 13/P11.</p>
+        <p class="macro-note">Énergie et Réactivité agissent réellement sur le rendu. Les 6 autres (densité, mouvement, profondeur, glow, chaos, douceur) sont mémorisées mais sans effet visuel pour l'instant — à venir.</p>
         <div id="macro-grid-advanced"></div>
       </fieldset>
 
@@ -265,7 +271,7 @@
             <option value="ultra">Ultra</option>
           </select>
         </label>
-        <p class="macro-note">Ajustée automatiquement selon les performances (docs/10_PERFORMANCE.md). Un choix ici devient un plafond : la remontée automatique ne le dépassera jamais, mais la descente automatique reste active en cas de saccades.</p>
+        <p class="macro-note">Ajustée automatiquement selon les performances de ta machine. Un choix ici devient un plafond : la remontée automatique ne le dépassera jamais, mais la descente automatique reste active en cas de saccades.</p>
       </fieldset>
 
       <fieldset>
@@ -306,7 +312,7 @@
 
   <dialog id="preset-editor-dialog">
     <h2>Éditeur de preset (JSON)</h2>
-    <p style="opacity:0.75; font-size:0.85rem;">Validé par schéma avant application — rien n'est appliqué tant qu'il reste des erreurs (docs/08_PRESETS.md).</p>
+    <p style="opacity:0.75; font-size:0.85rem;">Validé par schéma avant application — rien n'est appliqué tant qu'il reste des erreurs.</p>
     <textarea id="preset-json" spellcheck="false"></textarea>
     <div id="preset-json-errors"></div>
     <div class="dialog-actions">
