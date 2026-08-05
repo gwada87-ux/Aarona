@@ -1735,3 +1735,46 @@ câblage direct dans `ui/App.ts`, jamais fait) ; hors périmètre ici, volontair
 `PerfSnapshot` fournit déjà.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 31 — hors roadmap : premiers tests de project/storage/db.ts
+
+**Hors de docs/00a.** `project/storage/db.ts` (persistance IndexedDB — projets, caches audio/
+analyse LRU, réglages) était le seul module encore « non couvert par un test automatisé »
+explicitement documenté dans son propre commentaire d'en-tête depuis l'Étape 15/P13 (« `indexedDB`
+n'existe pas en environnement Node »), même limite qu'`AudioEngine.ts` avant l'Étape 27 — mais
+cette fois avec une surface d'API bien plus large et des règles de cycle de vie de transaction plus
+subtiles à reproduire fidèlement à la main (contrairement au petit double `FakeAudioContext` de
+l'Étape 27). Question posée explicitement à Aaron avant de coder : écrire un faux IndexedDB maison
+(risque de modéliser incorrectement des subtilités réelles — timing de transaction, curseurs — et
+donner une fausse confiance) ou ajouter `fake-indexeddb` (bibliothèque standard du secteur, une
+nouvelle dépendance de dev). **Choix d'Aaron : `fake-indexeddb`.**
+
+Fait et vérifié : `npm install -D fake-indexeddb` (`^6.2.5`) — aucune vulnérabilité introduite
+(`npm audit` : les 2 seules alertes existantes concernent `esbuild`/`vite`, préexistantes, sans
+rapport). `tests/unit/db.test.ts` (nouveau, **20 tests**, aucune modification de `db.ts` lui-même —
+uniquement des tests ajoutés autour du code déjà en place) : schéma des 4 magasins à l'ouverture,
+CRUD complet des projets (sauver/charger/lister/supprimer, `put` écrase sans doublon, id inconnu
+renvoie `null` plutôt que lever), cache audio et cache d'analyse (aller-retour fidèle, écrasement
+sur la même clé), `getCacheUsage` (somme correcte, indépendante par cache), `clearCaches` (vide
+les deux caches, épargne les projets — pas un cache), réglages (`getSettings` sur base vide renvoie
+`{}` et non `null`, `saveSettings` écrase entièrement plutôt que fusionner). `IDBFactory` fraîche
+(`beforeEach`) : isolation complète entre tests, `openDatabase()` ouvrant toujours le même
+`DB_NAME` fixe.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **486/486** verts (466 + 20 nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — identique
+à l'Étape 30, `fake-indexeddb` étant une dépendance de DEV, jamais dans le bundle de production.
+Aucune vérification navigateur : `db.ts` lui-même n'a pas été modifié, rien d'observable dans
+l'appli n'a changé — uniquement de l'infrastructure de test ajoutée autour d'un module existant.
+
+Limites assumées, annoncées avant de coder : `AUDIO_CACHE_LIMIT_BYTES`/`ANALYSIS_CACHE_LIMIT_BYTES`
+(500 Mo / 200 Mo) ne sont pas des paramètres injectables — les dépasser réellement dans un test
+allouerait des centaines de Mo, impraticable. Le déclenchement RÉEL de l'éviction à pleine échelle
+n'est donc pas exercé ici ; l'algorithme de SÉLECTION (`selectEvictions`, `project/lru.ts`) est
+déjà testé séparément, pur, depuis l'Étape 15/P13 — ce n'est donc pas un vrai trou de couverture,
+juste une limite de ce fichier-ci. `evictFromStore` (privée) est implicitement exercée à chaque
+appel de `cacheAudio`/`cacheAnalysis` dans les tests ci-dessus, mais ne déclenche jamais de
+suppression réelle (tailles de test bien sous les limites).
+Dette introduite : aucune connue — première dépendance de dev ajoutée depuis le début du projet
+(hors `mediabunny`, dépendance de production), décidée explicitement par Aaron.
+Bloque la suite : aucun blocage technique connu.
