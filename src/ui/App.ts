@@ -170,6 +170,9 @@ let audioFileSize = 0;
 let audioHash: string | null = null;
 let analysisCacheKeyValue: string | null = null;
 let autosaveTimer: number | null = null;
+/** Identité stable de la démo synthétique (voir loadDemo()) — un seul projet sauvegardé, mis à jour à chaque clic, pas un nouveau par clic. */
+let demoProjectId: string | null = null;
+let demoProjectCreatedAt: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Résolution de la configuration active (preset choisi + macros + surcharges)
@@ -572,6 +575,17 @@ async function loadDemo(): Promise<void> {
   if (!audioBuffer) return;
   currentAudioBuffer = audioBuffer;
   await startNewProjectIdentity('Démo synthétique', file);
+  // Charger la démo plusieurs fois met à jour LE MÊME projet (comme "Nouvelle variante",
+  // ci-dessous) plutôt que d'en accumuler un nouveau à chaque clic dans le panneau Projets —
+  // startNewProjectIdentity() donne à chaque fois une identité neuve, ici volontairement
+  // remplacée par l'identité stable de la démo après coup.
+  if (demoProjectId === null) {
+    demoProjectId = projectId;
+    demoProjectCreatedAt = projectCreatedAt;
+  } else {
+    projectId = demoProjectId;
+    projectCreatedAt = demoProjectCreatedAt!;
+  }
 
   const doc = buildDemoDoc(audioBuffer.duration);
   const waveformPeaks = computeWaveformPeaks(downmixToMono(audioBuffer));

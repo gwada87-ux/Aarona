@@ -2403,3 +2403,47 @@ pas du tout), mais à ne pas confondre avec une détection de structure réelle.
 de docs/06 §"Grille rythmique" est maintenant entièrement câblé côté Mode A.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 47 — hors roadmap : la démo synthétique n'accumule plus une entrée par clic
+
+**Hors de docs/00a.** Repéré pendant l'exploration interactive de l'Étape 45 (mis de côté à
+l'époque) : le panneau Projets accumulait une entrée « Démo synthétique » distincte et permanente à
+CHAQUE clic sur « Charger une démo », sans aucune action de l'utilisateur au-delà du clic lui-même
+(l'auto-sauvegarde se déclenche 5 s après tout chargement, `applyActiveConfiguration()` →
+`scheduleAutosave()`). Cause : `loadDemo()` (`App.ts`) appelle `startNewProjectIdentity()` — qui
+génère un `projectId` (`crypto.randomUUID()`) neuf à chaque appel — exactement comme pour un vrai
+fichier fraîchement importé, ce qui est correct pour un import réel mais pas pour un contenu
+synthétique strictement identique rechargé plusieurs fois. `saveProject()` fait un `put` classique
+(upsert par id, vérifié dans `db.test.ts`) : réutiliser le même id écrase l'entrée précédente au
+lieu d'en créer une nouvelle — même principe déjà en place pour « Nouvelle variante », qui garde le
+`projectId` et ne fait que régénérer la graine.
+
+**Choix utilisateur** : réutiliser le même `projectId` entre chargements de démo, sans toucher au
+comportement des fichiers réellement importés (qui gardent une identité neuve à chaque import,
+inchangé).
+
+**Correctif** : deux nouvelles variables de module `demoProjectId`/`demoProjectCreatedAt` (`null`
+tant qu'aucune démo n'a été chargée cette session). Dans `loadDemo()`, après l'appel — inchangé —
+à `startNewProjectIdentity()` (qui fait toujours son travail complet : nom, graine fraîche, hash,
+cache audio), `projectId`/`projectCreatedAt` sont RÉÉCRITS avec l'identité stable de la démo si
+elle existe déjà, ou celle-ci est initialisée au premier chargement. La graine (`projectSeed`) reste
+fraîche à chaque clic — chaque rechargement produit donc une variante visuelle différente, mais
+c'est la MÊME entrée sauvegardée qui est mise à jour, pas une nouvelle à chaque fois (exactement le
+même principe que « Nouvelle variante », qui ne touche jamais `projectId` non plus).
+
+**Vérification au navigateur** (seule vérification possible : logique d'orchestration `App.ts`,
+hors périmètre des tests unitaires par conception, docs/16) : démo chargée 3 fois de suite, 5,6 s
+d'attente après chaque clic (le délai d'auto-sauvegarde), panneau Projets rouvert et compté après
+chaque chargement (avec un délai supplémentaire pour laisser `listProjects(db)`, asynchrone, se
+résoudre — un premier essai sans ce délai donnait un compte à zéro, race condition de mesure, pas
+un vrai comportement de l'app). Résultat : **7 entrées avant le 1er rechargement de cette
+vérification, 7 après le 2e, 7 après le 3e** — le compte reste rigoureusement stable, confirmant
+l'upsert. Le chemin d'import d'un vrai fichier n'a pas été retouché (code inchangé) : garde son
+identité neuve par construction.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` (suite complète) : **654/654** verts, inchangé
+(`App.ts` n'a jamais de test dédié, par conception). `npm run test:arch` : 1/1. `npm run build` :
+succès, 165 modules, 315,50 ko (gzip 86,22 ko). `git status --short` : 1 fichier (`App.ts`).
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
