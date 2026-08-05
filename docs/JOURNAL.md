@@ -1854,3 +1854,43 @@ réelle ; hors périmètre de cette étape (ajout de tests sur le code existant,
 signalé pour transparence plutôt que découvert en silence.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 34 — hors roadmap : premiers tests de applyLayerMacrosToScene()
+
+**Hors de docs/00a.** `presets/layerMacros.ts::applyLayerMacrosToScene()` — la fonction extraite à
+l'Étape 26 pour devenir le POINT DE VÉRITÉ PARTAGÉ entre preview (`ui/App.ts`) et export
+(`ExportPipeline.ts`) pour les 6 macros de couche — n'avait jamais de test direct : seule sa
+CONSOMMATION en aval (`layer.params` lus par `SpectrumBars`/`PulseRings`/etc, déjà couverts) était
+testée, jamais le ROUTAGE par préfixe `<styleId>.<layerId>.<paramKey>` lui-même. Repérée par une
+revue ciblée des fichiers avec logique réelle et zéro couverture directe, ne nécessitant ni
+`node-canvas` ni `jsdom` (les deux options déjà écartées plus tôt dans la session).
+
+`tests/unit/layerMacros.test.ts` (nouveau, 11 tests) : `FakeLayer` minimal (implémente `Layer`,
+méthodes `update`/`draw`/etc en no-op — `applyLayerMacrosToScene` ne lit que `.id` et écrit
+`.params`) combiné à la VRAIE classe `Scene`. Tests contre des chemins RÉELS de
+`LAYER_MACRO_CURVES` (pas une table synthétique) : chaque couche ne reçoit QUE les clés sous son
+propre préfixe (`particleField` n'hérite jamais de `rows`, qui appartient à `perspectiveGrid`) ; le
+préfixe est bien retiré de la clé assignée ; une couche sans aucune entrée reçoit `params = {}` —
+et non `undefined` ni un résidu d'un appel précédent (testé explicitement : un état `{ancienneValeur:
+42}` préexistant est bien écrasé, pas fusionné) ; une même couche peut recevoir des clés de
+PLUSIEURS macros différentes (`spectrumBars` : `gap` de densité, `riseTau` de mouvement, `fallTau`
+de douceur, simultanément) ; un `layerId` identique sous un AUTRE `styleId` n'est PAS contaminé
+(`pulseRings` sous `'field'` — qui n'a aucune entrée réelle pour cet id — reste vide) ; les valeurs
+aux extrêmes (`density=0`/`density=1`) correspondent exactement aux `at0`/`at1` déclarés pour deux
+chemins réels distincts (`field.particleField.spawnCountMul`, `pulse.pulseRings.maxActiveRings`) ;
+deux appels successifs avec des macros différentes REMPLACENT `params`, ne fusionnent jamais ;
+`scene.layers` vide ne lève pas.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **522/522** verts (511 + 11 nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — identique aux
+étapes précédentes, `layerMacros.ts` lui-même non modifié, uniquement des tests ajoutés autour.
+Pas de vérification navigateur : même raison qu'aux Étapes 31-33.
+
+Limites connues : aucune nouvelle. Le risque documenté dans l'en-tête du fichier source (« deux
+macros écrivant le même chemin se marqueraient silencieusement l'une l'autre ») reste un risque de
+MAINTENANCE FUTURE (ajouter une entrée dupliquée par erreur) plutôt qu'un bug actuel — la table
+actuelle ne contient aucun doublon (vérifié par relecture à l'Étape 20), mais rien dans ce lot ne
+détecte automatiquement une future violation ; envisageable comme test dédié dans une étape
+ultérieure si jugé utile.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
