@@ -1207,3 +1207,62 @@ premier plan) — à confirmer par Aaron s'il observe un figement similaire en u
 
 **Étapes 16 à 20 sont donc maintenant vérifiées au navigateur réel**, levant le "fait mais non
 vérifié" resté ouvert à chacune d'elles.
+
+## Étape 21 — hors roadmap : le vrai bloom
+
+**Hors de docs/00a.** Suite directe du choix d'Aaron entre les 5 dimensions de qualité restées
+inertes depuis P14 (voir survol technique avant cette étape) : `bloom` était la seule à demander une
+vraie nouvelle fonctionnalité de rendu plutôt qu'un branchement — construite ici, sur plan validé par
+Aaron avant tout code.
+
+Fait et vérifié : `render/Renderer.ts` — interface `BloomConfig` (déclarée séparément de celle de
+`perf/qualityLevels.ts`, structurellement identique : `render/` n'a pas le droit d'importer `perf/`,
+le typage structurel de TypeScript suffit) et méthode `setBloomConfig()`. `render/canvas2d/
+bloomMath.ts` (nouveau) : fonctions PURES testables en Node — `computeSmallDimensions`,
+`computeBlurRadiusPx`, `extractHighlights` (seuil doux sur `max(r,g,b)`, pas une luma perceptuelle).
+`render/canvas2d/Canvas2DRenderer.ts::applyBloom()` : sous-échantillonnage (`drawImage` vers un petit
+buffer réduit, redimensionné à la demande comme `feedbackBuffer`) → extraction des hautes lumières
+(`getImageData`/`putImageData` UNIQUEMENT sur ce petit buffer, jamais l'image pleine résolution,
+même principe que `FlashLimiter` à 32×18) → flou natif `ctx.filter = 'blur()'` (rayon fonction de
+`passes`) → composition additive par-dessus l'image d'origine. Appelé dans `endFrame()`, après le
+`ctx.restore()` qui annule `applyShake` (le bloom travaille en espace écran, pas transformé).
+`tests/unit/testSupport/FakeRenderer.ts` : `setBloomConfig()` enregistre l'appel (comme les autres
+méthodes). Câblage : `ui/App.ts` (`applyActiveConfiguration()` et `applyQualityLevel()`) pousse
+`QUALITY_LEVEL_CONFIGS[niveau].bloom` dans le renderer de preview ; `ExportPipeline.ts::runExport()`
+fige le bloom à `EXPORT_QUALITY_LEVEL` (HIGH) **dans le pipeline lui-même**, indépendamment de
+l'appelant — même règle non négociable #2 que pour les particules (Étape 16), appliquée à un second
+point pour ne pas dépendre qu'un futur appelant s'en souvienne. 12 nouveaux tests (`bloomMath.test.ts`)
+— total **67 fichiers/426 tests**. `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **426/426**
+verts. `npm run test:arch` : 1/1 (l'import `export/` → `perf/` est déjà autorisé). `npm run build` :
+succès, 163 modules, 309,18 ko (gzip 84,71 ko).
+
+**Vérifié au navigateur réel** (accès débloqué depuis la fin de l'Étape 20) : style Field, LOW
+(bloom désactivé) vs ULTRA (1/2 résolution, 2 passes) comparés côte à côte — halo net et visible
+autour de chaque particule en ULTRA, absent en LOW, capture zoomée à l'appui. Style Pulse également
+vérifié visuellement, halo cohérent autour de l'anneau, aucun artefact. Balayage de robustesse : 3
+styles × 4 niveaux de qualité (12 combinaisons, donc `bloom.enabled` et `resolutionScale`/`passes`
+tous exercés), **zéro erreur JavaScript**, FPS stable à 60.
+
+Deux écarts documentés par rapport à la description littérale de docs/07 (dans le code et ici,
+décision tranchée sans mandat — coût d'erreur faible, réversible) : (1) `ctx.filter = 'blur()'`
+natif au lieu d'une convolution séparable écrite à la main en 2 passes — supporté par toute la
+matrice navigateurs de docs/11 (Chrome 52+, Firefox 35+, Safari 9.1+), même résultat visuel
+documenté (un halo qui s'étale), bien plus simple ; `passes` élargit le RAYON plutôt que de répéter
+une vraie passe. (2) Seuil de hautes lumières sur `max(r,g,b)`, pas une luma perceptuelle pondérée —
+une particule d'une seule couleur saturée (rouge pur, palettes de ce projet) doit être détectée
+comme un point chaud même si sa luma serait faible.
+
+Fait mais non chiffré : le coût réel en millisecondes du pipeline bloom n'est pas mesuré (pas de
+`<canvas>` en environnement Node, même limite que tout `Canvas2DRenderer` depuis l'origine) — le
+budget de docs/07 (« ≈2,5 ms en 1080p ») reste à confirmer par Aaron avec un vrai profileur
+navigateur. Le seuil de luminosité (200/255), le rayon de flou par passe et l'alpha de composition
+additive sont auto-choisis (aucune valeur donnée par docs/07 au-delà de la description de la chaîne)
+— ajustables sans changer la forme de l'API si l'usage au navigateur révèle un besoin de calibrage.
+Limites connues : `feedback`/`chromaticAberration`/`internalResolutionScale`/`spectrumBands`
+restent inertes (voir docs/10_PERFORMANCE.md) — `feedback` est un branchement trivial (effet déjà
+existant), les trois autres exigeraient une fonctionnalité nouvelle comme le bloom, chacune à son
+propre chantier.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu. Restent ouverts, sans lien avec ce chantier : le
+corpus annoté (Étape 2), les quatre dimensions de qualité encore inertes ci-dessus, et les cinq
+décisions produit/business de l'Étape 18.

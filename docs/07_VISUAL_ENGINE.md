@@ -254,6 +254,23 @@ choix Canvas 2D parfaitement défendable.
 À 1/4 de résolution, le coût est divisé par 16 et le flou est de toute façon invisible en détail.
 Budget mesuré : ≈ 2,5 ms en 1080p.
 
+**Implémenté à l'Étape 21** (`src/render/Renderer.ts` — `BloomConfig`/`setBloomConfig()`,
+`src/render/canvas2d/Canvas2DRenderer.ts::applyBloom()`, `src/render/canvas2d/bloomMath.ts` pour la
+partie testable en Node). Sur l'image COMPOSITE finale de la frame (dans `endFrame()`, jamais par
+couche individuelle), pas sur un canvas hors écran séparé dès l'étape 1 : le rendu direct existant
+sert déjà de source pour l'étape 2, un canvas hors écran supplémentaire pour l'étape 1 n'aurait rien
+apporté. Deux écarts assumés et documentés dans le code : (1) `ctx.filter = 'blur()'` natif plutôt
+que « deux passes de flou séparable » écrites à la main — supporté par toute la matrice navigateurs
+de docs/11, même résultat visuel, bien plus simple ; `passes` (docs/10) élargit le RAYON du flou
+plutôt que de répéter une vraie convolution. (2) Seuil des hautes lumières sur `max(r,g,b)`, pas une
+luma perceptuelle — une particule d'une seule couleur saturée doit être détectée comme un point
+chaud. `getImageData`/`putImageData` uniquement sur le petit buffer réduit, jamais l'image pleine
+résolution — même principe que `FlashLimiter` (32×18). Câblé sur le niveau de qualité courant
+(`ui/App.ts`) et figé à HIGH pendant tout export (`ExportPipeline.ts::runExport()`, indépendamment
+de l'appelant). Coût réel en millisecondes non mesuré (pas de `<canvas>` en Node) — à confirmer par
+Aaron au navigateur ; vérifié visuellement : halo net et attendu autour des particules/anneaux en
+HIGH/ULTRA, absent en LOW, aucune erreur sur 3 styles × 4 niveaux de qualité.
+
 ### 3. Les particules : atlas et tableau typé
 
 ```

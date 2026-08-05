@@ -7,6 +7,7 @@ import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import type { Scene } from '../visual/scene/Scene';
 import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
+import { EXPORT_QUALITY_LEVEL, QUALITY_LEVEL_CONFIGS } from '../perf/qualityLevels';
 import type { FrameEncoder } from './encoders/FrameEncoder';
 import { drawWatermark } from './watermark';
 import { yieldToEventLoop } from './yieldToEventLoop';
@@ -79,6 +80,11 @@ export async function runExport(
   const behaviourEngine = new BehaviourEngine(config.timeline, config.mapping);
   const scene = config.createScene();
   scene.init({ renderer: target.renderer, palette: config.palette });
+  // docs/10 règle non négociable #2 : l'export fige TOUJOURS le bloom au niveau HIGH, quel que
+  // soit le niveau courant de la preview — figé ICI plutôt que délégué à l'appelant (`ExportDialog`
+  // gèle déjà `getStyleFactory` de la même façon, mais un second point d'application indépendant,
+  // dans le pipeline lui-même, ne dépend pas de ce qu'un futur appelant pourrait oublier de faire).
+  target.renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom);
 
   const totalFrames = Math.max(0, Math.round(config.durationSec * config.fps));
   const startedAt = performance.now();

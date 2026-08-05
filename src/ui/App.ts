@@ -224,6 +224,7 @@ function applyActiveConfiguration(): void {
     scene.init({ renderer, palette: currentPalette });
   }
   applyLayerMacros();
+  renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom);
 
   if (currentTimeline) {
     behaviourEngine = new BehaviourEngine(currentTimeline, currentMapping);
@@ -254,6 +255,7 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
   currentQualityLevel = level;
   qualityChangeReason = reason;
   advancedPanel.selectQuality(level);
+  renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[level].bloom);
 
   if (currentStyleId === 'field' && sceneStyleId === 'field' && currentPalette) {
     scene = STYLE_FACTORIES.field(QUALITY_LEVEL_CONFIGS[level].maxParticles);

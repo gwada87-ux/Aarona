@@ -1,4 +1,4 @@
-import type { Color, Renderer, SpriteHandle, SpriteTransform } from '../../../src/render/Renderer';
+import type { BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../../../src/render/Renderer';
 import type { Viewport } from '../../../src/render/Viewport';
 
 export type RecordedCall =
@@ -13,6 +13,7 @@ export type RecordedCall =
   | { type: 'applyShake'; dx: number; dy: number }
   | { type: 'drawFeedback'; scale: number; alpha: number }
   | { type: 'captureFeedback' }
+  | { type: 'setBloomConfig'; config: BloomConfig }
   | { type: 'endFrame' };
 
 /**
@@ -84,6 +85,10 @@ export class FakeRenderer implements Renderer {
   captureFeedback(): void {
     this.feedbackCaptured = true;
     this.calls.push({ type: 'captureFeedback' });
+  }
+
+  setBloomConfig(config: BloomConfig): void {
+    this.calls.push({ type: 'setBloomConfig', config });
   }
 
   endFrame(): void {

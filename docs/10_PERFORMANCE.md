@@ -63,11 +63,18 @@ qualité. Le plafond est le seul étage autorisé à varier en preview.
 
 **Implémenté à l'Étape 16/P14** (`src/perf/qualityLevels.ts`) : la table ci-dessus est reprise
 intégralement (`QUALITY_LEVEL_CONFIGS`, `FIXED_SIMULATION_DT` séparé — jamais par niveau, voir la
-règle #1). Écart assumé : seul `maxParticles` a un consommateur réel aujourd'hui
+règle #1). Écart assumé à l'origine : seul `maxParticles` avait un consommateur réel
 (`ParticleField`/`ui/App.ts`) — `bloom`/`feedback`/`chromaticAberration`/`internalResolutionScale`/
-`spectrumBands` sont déclarés mais sans effet (pas de consommateur dans `visual/`/`render/`). L'étage
-« modulé par la macro `density` » n'existe pas non plus : `density` reste une macro inerte depuis
-l'Étape 13/P11 (docs/JOURNAL.md). Voir docs/16_STRUCTURE_ET_RISQUES.md, §"État réel — Étape 16/P14".
+`spectrumBands` étaient déclarés sans effet. **`bloom` câblé à l'Étape 21** (`render/Renderer.ts::
+setBloomConfig()`, voir §"Techniques Canvas 2D" de docs/07) : reste `feedback`/`chromaticAberration`/
+`internalResolutionScale`/`spectrumBands`, toujours sans consommateur (`feedback` est le seul des
+quatre à réutiliser un effet déjà existant — `FrameFeedback`, câblage trivial ; les trois autres
+exigeraient de construire une fonctionnalité de rendu ou d'analyse entièrement nouvelle). L'étage
+« modulé par la macro `density` » (résolution du nombre de particules ci-dessus) n'existe toujours
+pas : `density` agit bien sur les couches visuelles depuis l'Étape 20 (`presets/layerMacros.ts`,
+`spawnCountMul` de `ParticleField`), mais PAS sur `preset.layers.particles.count` selon l'ordre de
+résolution à trois étages décrit plus haut — deux mécanismes parallèles, pas le même chemin. Voir
+docs/16_STRUCTURE_ET_RISQUES.md, §"État réel — Étape 16/P14".
 
 ---
 

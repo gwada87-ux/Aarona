@@ -1,5 +1,6 @@
-import type { Color, Renderer, SpriteHandle, SpriteTransform } from '../Renderer';
+import type { BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../Renderer';
 import type { Viewport } from '../Viewport';
+import { BLOOM_COMPOSITE_ALPHA, computeBlurRadiusPx, computeSmallDimensions, extractHighlights } from './bloomMath';
 
 /**
  * Backend Canvas 2D de `Renderer`. Convertit l'espace normalisé (Loi 4) en
@@ -36,6 +37,12 @@ export class Canvas2DRenderer implements Renderer {
   private halfHeight = 0;
   private feedbackBuffer: OffscreenCanvas | null = null;
   private feedbackCtx: OffscreenCanvasRenderingContext2D | null = null;
+  /** `enabled: false` par défaut — un `Canvas2DRenderer` jamais configuré via `setBloomConfig` rend exactement comme avant l'Étape 21. */
+  private bloomConfig: BloomConfig = { enabled: false, resolutionScale: 1, passes: 0 };
+  private bloomExtractBuffer: OffscreenCanvas | null = null;
+  private bloomExtractCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private bloomBlurBuffer: OffscreenCanvas | null = null;
+  private bloomBlurCtx: OffscreenCanvasRenderingContext2D | null = null;
 
   constructor(private readonly canvas: Canvas2DLike) {
     // `getContext('2d')` sur l'union HTMLCanvasElement|OffscreenCanvas perd la
@@ -193,8 +200,74 @@ export class Canvas2DRenderer implements Renderer {
     this.feedbackCtx!.drawImage(this.canvas, 0, 0);
   }
 
+  setBloomConfig(config: BloomConfig): void {
+    this.bloomConfig = config;
+  }
+
   endFrame(): void {
+    // `restore()` D'ABORD : annule le décalage de `applyShake()` avant que le bloom ne lise les
+    // pixels du canvas — le bloom travaille en espace écran, pas dans l'espace transformé de la frame.
     this.ctx.restore();
+    if (this.bloomConfig.enabled) this.applyBloom();
+  }
+
+  /**
+   * Bloom d'ensemble (docs/07 §"Le bloom d'ensemble", Étape 21) : sous-échantillonnage → extraction
+   * des hautes lumières → flou → composition additive, sur l'image COMPOSITE finale de la frame
+   * (jamais par couche individuelle — une couche ne sait pas ce que les autres ont dessiné).
+   *
+   * Écart assumé par rapport à « deux passes de flou séparable » (docs/07) : `ctx.filter =
+   * 'blur()'` natif (supporté par toute la matrice navigateurs de docs/11 — Chrome 52+, Firefox
+   * 35+, Safari 9.1+) plutôt qu'une convolution séparable écrite à la main. `passes` (docs/10)
+   * élargit le RAYON du flou plutôt que de répéter une vraie passe de convolution : un flou gaussien
+   * de rayon R et N flous successifs de rayon R/N produisent un résultat visuellement très proche
+   * pour un halo stylisé — la différence ne justifie pas la complexité d'un buffer ping-pong pour
+   * ce produit. Même résultat DOCUMENTÉ (un halo qui s'étale), mécanisme plus simple.
+   *
+   * `getImageData`/`putImageData` uniquement sur le PETIT buffer réduit (jamais l'image pleine
+   * résolution) — même principe que `FlashLimiter`, qui échantillonne déjà à 32×18 pour la même
+   * raison de coût (docs/07 §"Canvas 2D" : `ctx.getImageData()` par image est listé comme un piège,
+   * la parade documentée est justement le sous-échantillonnage AVANT lecture des pixels).
+   */
+  private applyBloom(): void {
+    const fullW = this.canvas.width;
+    const fullH = this.canvas.height;
+    const { width: smallW, height: smallH } = computeSmallDimensions(fullW, fullH, this.bloomConfig.resolutionScale);
+
+    if (!this.bloomExtractBuffer || this.bloomExtractBuffer.width !== smallW || this.bloomExtractBuffer.height !== smallH) {
+      this.bloomExtractBuffer = new OffscreenCanvas(smallW, smallH);
+      this.bloomExtractCtx = this.bloomExtractBuffer.getContext('2d');
+      this.bloomBlurBuffer = new OffscreenCanvas(smallW, smallH);
+      this.bloomBlurCtx = this.bloomBlurBuffer.getContext('2d');
+    }
+    const extractCtx = this.bloomExtractCtx!;
+    const blurCtx = this.bloomBlurCtx!;
+
+    // 1. Sous-échantillonnage : image composite pleine résolution -> petit buffer (rééchantillonnage
+    //    bilinéaire gratuit via drawImage, même s'il s'agit du même `this.canvas` en source).
+    extractCtx.clearRect(0, 0, smallW, smallH);
+    extractCtx.drawImage(this.canvas, 0, 0, fullW, fullH, 0, 0, smallW, smallH);
+
+    // 2. Extraction des hautes lumières, en place, sur le petit buffer.
+    const imageData = extractCtx.getImageData(0, 0, smallW, smallH);
+    extractHighlights(imageData.data);
+    extractCtx.putImageData(imageData, 0, 0);
+
+    // 3. Flou natif, rayon fonction du nombre de passes du niveau de qualité.
+    const radiusPx = computeBlurRadiusPx(smallW, smallH, this.bloomConfig.passes);
+    blurCtx.clearRect(0, 0, smallW, smallH);
+    blurCtx.filter = radiusPx > 0 ? `blur(${radiusPx}px)` : 'none';
+    blurCtx.drawImage(this.bloomExtractBuffer, 0, 0);
+    blurCtx.filter = 'none';
+
+    // 4. Composition additive par-dessus l'image d'origine, remise à l'échelle réelle.
+    const prevComposite = this.ctx.globalCompositeOperation;
+    const prevAlpha = this.ctx.globalAlpha;
+    this.ctx.globalCompositeOperation = 'lighter';
+    this.ctx.globalAlpha = BLOOM_COMPOSITE_ALPHA;
+    this.ctx.drawImage(this.bloomBlurBuffer!, 0, 0, smallW, smallH, 0, 0, fullW, fullH);
+    this.ctx.globalCompositeOperation = prevComposite;
+    this.ctx.globalAlpha = prevAlpha;
   }
 }
 

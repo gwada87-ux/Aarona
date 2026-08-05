@@ -27,6 +27,23 @@ export interface SpriteTransform {
 }
 
 /**
+ * Configuration du bloom d'ensemble (docs/07_VISUAL_ENGINE.md §"Le bloom
+ * d'ensemble", docs/10_PERFORMANCE.md — table des 4 niveaux de qualité).
+ * Forme structurellement identique à `perf/qualityLevels.ts::BloomConfig`
+ * (même champs), mais déclarée séparément ici plutôt qu'importée : `render/`
+ * n'a pas le droit d'importer `perf/` (docs/02, tableau des dépendances) —
+ * le typage structurel de TypeScript suffit à faire interopérer les deux
+ * sans import, `ui/App.ts` (qui a le droit d'importer les deux) faisant le
+ * pont en passant directement une valeur de l'un à l'autre.
+ */
+export interface BloomConfig {
+  readonly enabled: boolean;
+  /** Fraction de la résolution native pour le buffer d'extraction/flou — sans objet si `enabled` est faux. */
+  readonly resolutionScale: number;
+  readonly passes: number;
+}
+
+/**
  * Interface de dessin (docs/02_ARCHITECTURE.md §Renderer). Complétée en P7
  * avec exactement ce que le style Pulse requiert : `strokeCircle`/`strokePath`
  * (anneaux, forme d'onde circulaire), `fillRadialGradient` (fond), `createSprite`/
@@ -110,6 +127,18 @@ export interface Renderer {
    * `update()` seul après un seek.
    */
   captureFeedback(): void;
+
+  /**
+   * Bloom d'ensemble (docs/07 §"Le bloom d'ensemble", Étape 21) : appliqué
+   * en post-traitement dans `endFrame()`, sur l'image COMPOSITE finale —
+   * jamais par couche individuelle. `enabled: false` restaure exactement le
+   * comportement d'avant cette étape (aucun appel = déjà `false` par défaut
+   * dans `Canvas2DRenderer`). Appelée par `ui/App.ts` à chaque changement de
+   * niveau de qualité, et par `ExportPipeline.ts::runExport()` pour figer le
+   * niveau HIGH pendant toute la durée d'un export (docs/10, règle non
+   * négociable #2).
+   */
+  setBloomConfig(config: BloomConfig): void;
 
   endFrame(): void;
 }
