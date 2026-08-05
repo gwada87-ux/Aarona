@@ -2151,3 +2151,44 @@ production modifié.
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 42 — hors roadmap : premiers tests de yieldToEventLoop.ts et TypedEmitter.ts
+
+**Hors de docs/00a.** Deux candidats mis en réserve par le 4e audit (Étape 41) : `export/
+yieldToEventLoop.ts` (jamais testé, valeur de test jugée plus faible mais réelle) et `core/bus/
+TypedEmitter.ts` (signalé mort — 0 référence hors de son propre fichier — dès l'Étape 36,
+reconfirmé à l'Étape 41 : de la scaffolding réservée à de futurs événements applicatifs, docs/16,
+pas encore câblée). Les deux restent des unités de logique réelle, autonomes, testables sans
+nouvelle dépendance.
+
+`tests/unit/yieldToEventLoop.test.ts` (nouveau, 3 tests) : le seul comportement à vraie valeur de
+non-régression, documenté par le commentaire source (« piège #4 », docs/09) — que la promesse
+traverse une VRAIE frontière de macrotâche, pas seulement la file de microtâches. Vérifié en
+faisant la course entre `yieldToEventLoop()` et une chaîne de TROIS microtâches imbriquées : si
+la fonction n'était qu'un wrapper autour de `Promise.resolve()`/`queueMicrotask` (une microtâche),
+elle pourrait s'intercaler avant l'une d'elles ; l'ordre observé confirme qu'elle résout bien
+APRÈS que toute la chaîne se soit vidée. Complété par : résolution effective vers `undefined` (ne
+bloque pas indéfiniment), deux appels indépendants (deux `MessageChannel` distincts) résolvent
+tous les deux.
+
+`tests/unit/typedEmitter.test.ts` (nouveau, 10 tests) : `on()`/`emit()` de base (payload exact,
+plusieurs listeners tous appelés dans l'ordre d'abonnement, emit() sans listener ne lève pas,
+payload objet transmis PAR RÉFÉRENCE) ; isolation entre clés d'événement (`emit('foo')` n'atteint
+jamais un listener de `'bar'`) ; `off()` (retire un listener précis, les autres restent actifs ;
+off() d'un listener/événement inconnu ne lève pas) ; la closure renvoyée par `on()` équivaut à
+`off()` pour ce listener précis ; un détail d'implémentation à VRAIE valeur de non-régression — le
+stockage interne est un `Set`, pas un `Array` : un même listener enregistré deux fois via `on()`
+n'est appelé qu'UNE SEULE fois par `emit()` (une implémentation naïve par tableau l'aurait appelé
+deux fois) ; et un listener qui se désabonne LUI-MÊME pendant `emit()` (mutation du `Set` en cours
+d'itération) n'empêche pas les autres listeners de s'exécuter et ne se ré-exécute pas à l'appel
+suivant.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **642/642** verts (629 + 13 nouveaux, 13/13 du
+premier coup). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip
+86,02 ko) — ni `yieldToEventLoop.ts` ni `TypedEmitter.ts` modifiés. `git status --short` : 2
+fichiers, tous des tests, aucun fichier de production. Pas de vérification navigateur : zéro code
+de production modifié.
+Limites connues : aucune nouvelle. `TypedEmitter` reste non câblée dans l'application (limite déjà
+documentée, pas nouvelle) — cette étape en couvre le comportement avant tout premier câblage futur.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
