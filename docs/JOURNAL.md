@@ -2110,3 +2110,44 @@ Limites connues : aucune nouvelle. Le lot de couverture visuelle/harnais ouvert 
 cible.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 41 — hors roadmap : premiers tests de percentile.ts et trackSampling.ts
+
+**Hors de docs/00a.** Le 3e audit (couches visuelles/harnais) étant épuisé, un 4e audit (agent de
+recherche, lecture seule) a été dispatché pour trouver le prochain lot. Résultat : `core/math/
+percentile.ts` (`percentile()`/`median()`) et `analysis/trackSampling.ts` (`sampleAt()`/
+`averageOverInterval()`) — deux utilitaires numériques sous le pipeline d'analyse RÉEL (`normalize.
+ts`, `macro.ts`, `structure.ts`), exercés seulement INDIRECTEMENT et uniquement dans leurs cas
+« confortables » (p=0,05/0,95 fixes pour percentile ; intervalles non dégénérés pour
+`averageOverInterval`) — jamais les cas limites (n=0/n=1, clampage, repli sur échantillon unique).
+Une régression silencieuse dans l'un ou l'autre corromprait les données de visualisation sans jamais
+lever d'exception. Candidats explicitement écartés par l'agent : `core/bus/TypedEmitter.ts` (déjà
+signalé mort à l'Étape 36, toujours 0 référence hors de son propre fichier) et `export/
+yieldToEventLoop.ts` (valeur de test plus faible, gardé en réserve).
+
+`tests/unit/percentile.test.ts` (nouveau, 13 tests) : cas limites `n=0` (renvoie 0 quel que soit p)
+et `n=1` (renvoie l'unique valeur, quel que soit p) ; clamp de `p` hors `[0,1]` (`p<0` ≡ `p=0`,
+`p>1` ≡ `p=1`) ; interpolation à position ENTIÈRE (aucune interpolation, `sorted[pos]` exact) et
+FRACTIONNAIRE (poids asymétrique vérifié par calcul direct, pas seulement le point médian 0,5) ;
+confirmation que la fonction TRIE réellement l'entrée (ordre aléatoire = même résultat qu'une entrée
+déjà triée) sans la MUTER ; `median()` vérifié comme délégation exacte à `percentile(data, 0.5)`
+(n pair et impair).
+
+`tests/unit/trackSampling.test.ts` (nouveau, 12 tests) : `sampleAt()` — lecture directe avec
+arrondi, arrondi à 0,5 pile (vers le haut, `Math.round`), décalage `t0` pris en compte ; clampage
+aux deux bornes (`t` très négatif -> premier échantillon, très grand -> dernier) ; piste VIDE ->
+0 (repli `??`) sans lever. `averageOverInterval()` — intervalle normal (moyenne exacte vérifiée par
+calcul), intervalle couvrant toute la piste, `tStart` avant `t0` (i0 clampé à 0) ; intervalle SOUS-
+TRAME en plage (dégénère en la moyenne d'un seul échantillon, sans passer par le repli) ; et le
+VRAI repli sur `sampleAt` — `tStart` au-delà de la fin de la piste (`i0 > data.length-1`), seul cas
+où `i1 < i0` peut se produire dans le code source, vérifié en comparant directement au résultat de
+`sampleAt(track, tStart)` plutôt qu'à une valeur supposée.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **629/629** verts (604 + 25 nouveaux, 25/25 du
+premier coup). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip
+86,02 ko) — ni `percentile.ts` ni `trackSampling.ts` modifiés. `git status --short` : 2 fichiers,
+tous des tests, aucun fichier de production. Pas de vérification navigateur : zéro code de
+production modifié.
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
