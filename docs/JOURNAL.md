@@ -2583,3 +2583,47 @@ Limites connues : aucune nouvelle — le bug 3 reste un risque théorique résid
 connaissance de cause.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 51 — hors roadmap : premiers tests de features.ts
+
+**Hors de docs/00a.** 6e audit de couverture, sur demande explicite. Contrairement aux rounds 1-5,
+celui-ci a explicitement RE-VÉRIFIÉ la conclusion « pool épuisé » du round 5 plutôt que de la tenir
+pour acquise — et l'a réfutée : `analysis/features.ts::computeFrameFeatures()` (79 lignes, logique
+DSP réelle) était passé inaperçu des 5 audits précédents, probablement parce que le fichier EST
+importé par des tests existants (`onsetDescriptors.test.ts`, via `computeFrameFeatureTracks`) sans
+que ses valeurs de sortie soient jamais directement assertées — un faux négatif pour un grep
+superficiel par nom de fichier. Vérifié par moi-même avant d'écrire quoi que ce soit : seul `.peak`
+transite réellement dans les tests existants, vers `computeOnsetDescriptor` qui recalcule son PROPRE
+centroïde indépendamment (`spectralCentroid`) — `centroid`/`flatness`/`rolloff85`/`rms`/`energy` de
+`features.ts` n'étaient jamais exercés.
+
+`tests/unit/features.test.ts` (nouveau, 16 tests). `rms`/`peak` (domaine temporel, signal brut) :
+valeurs connues, `peak` en valeur ABSOLUE, segment silencieux → 0. `energy` : somme des carrés de
+magnitude. `centroid` (moyenne pondérée par fréquence) : une seule bande non nulle tombe pile sur sa
+fréquence, distribution symétrique tombe sur le bin médian, trame silencieuse → repli sur 0 (pas de
+division par zéro/NaN, la garde `magSum > 0 ? ... : 0`). `flatness` (ratio moyenne géométrique/
+arithmétique) : spectre plat → proche de 1, pic dominant unique → proche de 0, toujours borné à 1
+(`Math.min(1, ...)`) — noté par honnêteté : par l'inégalité arithmético-géométrique, ce clampage est
+mathématiquement redondant en arithmétique exacte (la moyenne géométrique de `(m+ε)` est TOUJOURS
+≤ la moyenne arithmétique de `(m+ε)`), il ne protège que contre un dépassement d'arrondi flottant —
+pas testé comme un cas atteignable en pratique, seulement vérifié comme une garantie qui tient.
+`rolloff85` (seuil cumulatif à 85% de l'énergie) : franchissement au bon bin sur une distribution
+uniforme, franchissement immédiat quand l'énergie est concentrée au premier bin, cas à un seul bin.
+`rawFrameSegment()` (extraction de segment) et `computeFrameFeatureTracks()` (boucle par trame,
+vérifiée par comparaison directe à un appel manuel de `computeFrameFeatures()`).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run tests/unit/features.test.ts` : 16/16 verts, 16/16 du
+premier coup. `npx vitest run` (suite complète) : 1 échec au premier lancement — `pipeline.test.ts`
+§"AnalysisPipeline — intégration", SANS RAPPORT avec `features.test.ts` (aucun état partagé,
+fonctions pures) ; passait seul en isolation (2/2) ; relancé sans aucun changement, **672/672**
+verts (91/91 fichiers) — confirmé comme un flake ponctuel PRÉEXISTANT (probablement contention de
+threads de test en parallèle sur cette intégration coûteuse), signalé pour transparence plutôt que
+tu, hors du périmètre de cette étape. `npm run test:arch` : 1/1. `npm run build` : succès, 165
+modules, 315,69 ko (gzip 86,26 ko) — `features.ts` non modifié. `git status --short` : 1 fichier,
+un test, aucun fichier de production. Pas de vérification navigateur : zéro code de production
+modifié.
+Limites connues : un flake préexistant et intermittent a été observé dans `pipeline.test.ts` (voir
+ci-dessus) — pas nouveau, pas causé par cette étape, mais noté pour une investigation future si la
+récurrence devient gênante.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
