@@ -2552,3 +2552,34 @@ ouvert, non corrigé — fenêtre de déclenchement non garantie à tracer, conf
 impact mineur (juste une image de prévisualisation, pas les données du projet).
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 50 — hors roadmap : réévaluation et clôture du bug 3 (vignette d'auto-sauvegarde)
+
+**Hors de docs/00a.** Retraçage complet du mécanisme du bug 3 (laissé ouvert, confiance faible, aux
+Étapes 48-49) avant toute proposition de correctif — conclusion : ne pas corriger, choix confirmé
+avec l'utilisateur.
+
+**Retraçage :** `saveCurrentProject()` (`App.ts:735-747`) capture `project` (métadonnées :
+`projectId`/`audioHash`/`currentDoc`, etc.) de façon SYNCHRONE via `buildCurrentProject()`, puis
+`await captureThumbnail()` — un `canvas.toBlob()`, encodage JPEG asynchrone mais typiquement de
+l'ordre de quelques dizaines de millisecondes, pas plus. Pour que la vignette capturée dépeigne un
+AUTRE projet que les métadonnées déjà figées dans `project`, il faudrait qu'un import COMPLET
+(décodage + analyse Worker intégrale) se termine ENTIÈREMENT dans cette fenêtre de quelques
+dizaines de ms. Or les mesures réelles des Étapes 48/49 (au navigateur, sur de vrais appels à
+`runAnalysisWithProgress`) montrent une analyse Worker qui prend de plusieurs centaines de
+millisecondes à plusieurs secondes, même pour un contenu synthétique court — un ordre de grandeur
+au-dessus de la fenêtre de `captureThumbnail()`. Contrairement aux bugs 1 et 2 (déclenchables par un
+simple import isolé, sans aucun timing particulier), le bug 3 demanderait une coïncidence de timing
+non atteignable par une utilisation normale. Et même déclenché, l'impact resterait mineur : une
+image de prévisualisation légèrement fausse dans le panneau Projets — les données réelles du projet
+(référence audio, cache d'analyse, preset, macros) restent, elles, correctes et cohérentes.
+
+**Décision (confirmée avec l'utilisateur) :** ne pas corriger. Clôt le fil des 3 pistes remontées
+par l'audit adversarial de `ui/App.ts` (Étape 48) — 2 corrigées (bugs 1 et 2, Étapes 48-49), 1
+documentée comme acceptée après réévaluation (bug 3, cette étape).
+
+Aucun fichier de code touché — réévaluation et documentation seules.
+Limites connues : aucune nouvelle — le bug 3 reste un risque théorique résiduel, accepté en
+connaissance de cause.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
