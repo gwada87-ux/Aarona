@@ -68,8 +68,8 @@ describe('analysis/AnalysisPipeline — intégration (docs/03 FLUX 1, étapes 0-
       expect(e.confidence).toBeLessThanOrEqual(1);
     }
 
-    // features : 5 pistes globales + 6 bandes.
-    expect(result.pmdi.features?.length).toBe(11);
+    // features : 5 pistes globales + 6 bandes sémantiques + 96 bandes du spectre visuel fin (Étape 25).
+    expect(result.pmdi.features?.length).toBe(11 + 96);
     for (const track of result.pmdi.features ?? []) {
       expect(track.hz).toBeCloseTo(22050 / 128, 6);
       expect(Number.isInteger(track.hz)).toBe(false); // jamais arrondi, docs/03 l.256-266

@@ -484,13 +484,16 @@ qualité/effort, et c'est le style que la plupart des utilisateurs choisiront po
 **Implémenté à l'Étape 11/P9** (`src/visual/layers/{background,spectrum,waveform}/`,
 `src/visual/styles/spectrum-pro/`) — PÉRIMÈTRE RÉDUIT ET DOCUMENTÉ, décidé sans mandat d'Aaron
 (coût d'erreur : corrigible en une étape dédiée si besoin) :
-- **6 bandes RÉELLES, pas 64.** Le spectrogramme est explicitement jeté après l'analyse hors-ligne
-  (docs/03_DATA_FLOW.md : « le spectrogramme est traité par blocs et libéré au fur et à mesure ») —
-  aucune donnée plus fine que les 6 `step.bands` n'atteint `visual/`. Un vrai spectre log-scale à
-  64 bandes exigerait de conserver une résolution spectrale plus fine en sortie d'analyse (P4),
-  un chantier séparé et plus gros que celui-ci. Les largeurs de barres restent non uniformes
+- **6 bandes RÉELLES par défaut, pas 64.** Le chemin par défaut (`params.bandCount` absent) reste
+  câblé sur les 6 `step.bands` — inchangé depuis P9, byte-identique.
+- **Chantier P4 réalisé à l'Étape 25** (`params.bandCount`, voir §"Le spectre visuel fin —
+  résolution configurable" plus bas) : un second chemin, complètement séparé, lit désormais un
+  spectre à 96 bandes log-espacées réelles (`StepContext.spectrum`) et le regroupe en 32/48/64/96
+  barres selon le niveau de qualité. Les largeurs de barres restent non uniformes
   (proportionnelles à `log(hauteHz/basseHz)` par bande, dupliquées depuis `analysis/bands.ts` —
-  `visual/` ne peut pas l'importer) pour garder l'esprit « plus d'espace pour le grave ».
+  `visual/` ne peut pas l'importer) UNIQUEMENT sur le chemin par défaut à 6 bandes ; le chemin
+  `bandCount` utilise des largeurs égales (un spectre log-espacé uniforme n'a pas de raison
+  sémantique de varier en largeur, contrairement aux 6 bandes nommées d'origine).
 - Lissage par bande via `Continuous` (behaviour/signals, déjà existant) — une instance par bande,
   montée 0,05s / descente 0,35s.
 - Chapeaux de pics à chute gravitaire : accélération constante, rattrapés (vitesse remise à 0)
@@ -514,6 +517,63 @@ petit à-coup de vitesse aléatoire, parfois un léger rebond, à la retombée d
 Le lissage par bande n'utilise plus `Continuous` (behaviour/signals) : sa décroissance est recopiée
 à la main, `Continuous.riseTau`/`fallTau` étant fixés au constructeur — même raison que `ScreenShake`
 en Pulse.
+
+### Le spectre visuel fin — résolution configurable
+
+```
+1. analyse (analyse/spectrumBands.ts) : 96 bandes log-espacées, calculées UNE FOIS à la
+   résolution max, pendant que le spectrogramme complet est déjà en mémoire
+2. StepContext.spectrum : les 96 valeurs, exposées à chaque pas comme step.bands (mais
+   toujours à pleine résolution — pas de version « allégée »)
+3. SpectrumBars (visual/) : regroupe ces 96 valeurs en bandCount barres (32/48/64/96,
+   spectrumGrouping.ts) SEULEMENT si params.bandCount est fourni — sinon chemin d'origine
+   (6 bandes, step.bands), byte-identique à avant cette étape
+```
+
+**Implémenté à l'Étape 25** — le chantier P4 mentionné plus haut. TROIS couches traversées (pas
+seulement `render/` comme le bloom/décalage chromatique/résolution interne des Étapes 21/23/24) :
+`analysis/spectrumBands.ts` (bandes log-espacées génériques, `computeLogSpacedBinRanges`/
+`computeSpectrumEnergyTracks` — DIFFÉRENT de `bands.ts`, qui reste dédié aux 6 bandes sémantiques
+utilisées par toute la détection d'onsets/comportement, inchangée), `music/StepContext.ts` (nouveau
+champ `spectrum: Float32Array`, 96 valeurs, construit comme `bands` mais JAMAIS `Object.freeze()`
+— lève `TypeError` sur un `TypedArray` non vide, piège trouvé à l'exécution), `visual/layers/
+spectrum/spectrumGrouping.ts` (regroupement pur, testable, découpage par index — le spectre étant
+déjà log-espacé uniformément, regrouper des tranches d'index égales revient à regrouper des
+tranches égales en log(Hz)).
+
+Le spectrogramme N'EST PAS retenu plus longtemps qu'avant (toujours « libéré au fur et à mesure »,
+docs/03) : les 96 bandes sont calculées DANS `AnalysisPipeline.ts`, au même point que les 6 bandes
+sémantiques existantes (`bandEnergyTracks`/`bandFluxTracks`), pendant que le tableau `frames` (le
+spectrogramme complet de la trame) est déjà en mémoire pour ce calcul — aucun changement de la
+stratégie de rétention mémoire, juste un second calcul sur les mêmes données déjà présentes.
+Mémoire : ≈16× le coût actuel des `FeatureTracks` (≈2 Mo → ≈12 Mo), large dans le budget
+(≤700 Mo/10 min, docs/03). CPU : mesuré, pas supposé — `bench:analysis` passe de 5 666 ms
+(Étape 19) à **6 842 ms**, toujours sous le budget de 8 s (docs/11) avec ≈1,16 s de marge ; le
+surcoût est concentré dans l'étage « features » (929 ms), cohérent avec l'ajout d'un second calcul
+d'énergie par bande sur le même spectrogramme.
+
+`params.bandCount` (`SpectrumBars.ts`) : chemin séparé du défaut, largeurs de barres ÉGALES (pas
+`BAND_WIDTH_WEIGHTS`), même physique de lissage/pics que le chemin par défaut (`updateBars`/
+`drawBars`, factorisées pour ne pas dupliquer la logique). Câblé depuis `perf/qualityLevels.ts::
+spectrumBands` via `ui/App.ts::applyLayerMacros()` (injecté après les macros de couche, ce n'est
+pas un macro-curseur) et `ExportPipeline.ts::runExport()` (point d'application indépendant, comme
+le bloom). **Limite préexistante découverte en cours de route, pas introduite ici** : les 6 macros
+de couche de l'Étape 20 (densité/mouvement/...) ne sont JAMAIS appliquées à l'export
+(`applyLayerMacros()` n'est appelé que depuis `ui/App.ts`, jamais depuis `ExportPipeline.ts`) — un
+gap déjà existant, hors périmètre de cette étape ; `bandCount` a son propre point d'application
+dédié dans `runExport()` pour ne pas hériter de ce gap.
+
+Vérifié : 451/451 tests verts (21 nouveaux — `spectrumBands.test.ts`, `spectrumGrouping.test.ts`,
+5 cas `bandCount` dans `spectrumBars.test.ts`), `test:arch` 1/1 (aucune nouvelle arête de dépendance
+hors du tableau autorisé), build OK, `bench:analysis` sous le budget (ci-dessus). Navigateur : les
+4 niveaux de qualité sur Spectrum Pro rendent sans erreur console avec de vraies données analysées
+(pas seulement les fixtures synthétiques des tests unitaires). **Limite honnête** : une différence
+visuelle directe entre 32 et 96 barres n'a pas été isolée de façon concluante par échantillonnage de
+pixels automatisé (le halo/glow tend à fondre les barres voisines à ce niveau d'intensité) — la
+preuve du bon nombre de barres et de leur regroupement correct repose sur les tests unitaires
+(comptage exact des appels `fillPath`/`drawSprite` par `bandCount` via `FakeRenderer`), pas sur une
+confirmation visuelle directe. Même limite déjà rencontrée et signalée à l'Étape 22 (traînée de
+feedback).
 
 ---
 

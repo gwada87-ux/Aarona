@@ -43,6 +43,22 @@ function stepperWithDroppingBands(): StepContextBuilder {
   return new StepContextBuilder(buildMusicTimeline(doc), 1);
 }
 
+/** Toutes les 96 pistes `spectrum.N` constantes à `value` — chemin `params.bandCount` (Étape 25). */
+function stepperWithConstantSpectrum(value: number): StepContextBuilder {
+  const doc: PmdiDocument = {
+    pmdi: '1.0',
+    source: { kind: 'analysis', generator: 'test@1.0', createdAt: '2026-01-01T00:00:00.000Z' },
+    audio: { duration: 10, sampleRate: 48000, channels: 2, ref: { kind: 'none' } },
+    tempo: { global: 120, confidence: 1, map: [{ t: 0, bpm: 120 }] },
+    meter: { map: [{ t: 0, num: 4, den: 4 }] },
+    events: [],
+    features: Array.from({ length: 96 }, (_, i) => ({ id: `spectrum.${i}`, hz: 1, t0: 0, data: Array(11).fill(value) })),
+    confidence: { tempo: 1, grid: 1, classification: 1, structure: 1 },
+  };
+  expect(validatePmdi(doc).ok).toBe(true);
+  return new StepContextBuilder(buildMusicTimeline(doc), 1);
+}
+
 function fillPathCalls(renderer: FakeRenderer) {
   return renderer.calls.filter((c): c is Extract<typeof c, { type: 'fillPath' }> => c.type === 'fillPath');
 }
@@ -221,6 +237,85 @@ describe('SpectrumBars — params (Étape 20, macros densité/mouvement/profonde
       return fillPathCalls(renderer)[2]!.ys[2]!;
     }
     expect(run()).toBe(run());
+  });
+});
+
+describe('SpectrumBars — params.bandCount (Étape 25, résolution du spectre)', () => {
+  it('absent : chemin par défaut inchangé (6 barres, step.bands)', () => {
+    const bars = new SpectrumBars();
+    bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    const stepper = stepperWithConstantBands(0.5);
+    bars.update(stepper.build(0), makeSignals());
+
+    const renderer = new FakeRenderer();
+    bars.draw(renderer, testViewport);
+    expect(fillPathCalls(renderer)).toHaveLength(BAND_IDS.length * 3);
+  });
+
+  it('présent : dessine bandCount barres (pas 6), à partir de step.spectrum', () => {
+    for (const bandCount of [32, 48, 64, 96]) {
+      const bars = new SpectrumBars();
+      bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+      bars.params = { bandCount };
+      const stepper = stepperWithConstantSpectrum(0.5);
+      bars.update(stepper.build(0), makeSignals());
+
+      const renderer = new FakeRenderer();
+      bars.draw(renderer, testViewport);
+      expect(fillPathCalls(renderer)).toHaveLength(bandCount * 3);
+      const sprites = renderer.calls.filter((c): c is Extract<typeof c, { type: 'drawSprite' }> => c.type === 'drawSprite');
+      expect(sprites).toHaveLength(1);
+      expect(sprites[0]!.count).toBe(bandCount);
+    }
+  });
+
+  it('converge vers la valeur constante de step.spectrum avec assez de temps', () => {
+    const bars = new SpectrumBars();
+    bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    bars.params = { bandCount: 32 };
+    const stepper = stepperWithConstantSpectrum(0.8);
+
+    let step = stepper.build(0);
+    for (let t = 1 / 120; t <= 2.0; t += 1 / 120) {
+      step = stepper.build(t);
+      bars.update(step, makeSignals());
+    }
+
+    const renderer = new FakeRenderer();
+    bars.draw(renderer, testViewport);
+    const mainBarYs = fillPathCalls(renderer)[0]!.ys;
+    const height = Math.max(...Array.from(mainBarYs)) - (-0.05);
+    expect(height).toBeCloseTo(0.8 * 0.42, 1);
+  });
+
+  it('barres de largeur ÉGALE (pas de BAND_WIDTH_WEIGHTS) — contrairement au chemin par défaut', () => {
+    const bars = new SpectrumBars();
+    bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    bars.params = { bandCount: 8 };
+    const stepper = stepperWithConstantSpectrum(0.5);
+    bars.update(stepper.build(0), makeSignals());
+
+    const renderer = new FakeRenderer();
+    bars.draw(renderer, testViewport);
+    const widths = fillPathCalls(renderer)
+      .filter((_, i) => i % 3 === 0) // une barre principale sur 3 fillPath (barre, reflet, pic)
+      .map((c) => Math.max(...Array.from(c.xs)) - Math.min(...Array.from(c.xs)));
+    for (const w of widths) expect(w).toBeCloseTo(widths[0]!, 5); // Float32Array (toPx/xs) — précision simple, pas 9 décimales
+  });
+
+  it('changement de bandCount entre deux updates : redimensionne sans planter, nouveau compte correct', () => {
+    const bars = new SpectrumBars();
+    bars.init({ renderer: new FakeRenderer(), palette: defaultPalette });
+    const stepper = stepperWithConstantSpectrum(0.5);
+
+    bars.params = { bandCount: 32 };
+    bars.update(stepper.build(0), makeSignals());
+    bars.params = { bandCount: 64 };
+    bars.update(stepper.build(1 / 120), makeSignals());
+
+    const renderer = new FakeRenderer();
+    bars.draw(renderer, testViewport);
+    expect(fillPathCalls(renderer)).toHaveLength(64 * 3);
   });
 });
 

@@ -87,6 +87,14 @@ export async function runExport(
   target.renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom);
   target.renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].chromaticAberration);
   target.renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].internalResolutionScale);
+  // `bandCount` (Étape 25) : un `layer.params`, pas un réglage de `Renderer` — `ui/App.ts` le
+  // câble via `applyLayerMacros()`, qui n'est JAMAIS appelé pour la Scene d'export (les 6 macros
+  // de couche, Étape 20, ne le sont pas non plus aujourd'hui — limite préexistante, hors périmètre
+  // ici). Point d'application indépendant, ne dépend pas de ce qu'un futur appelant pourrait oublier.
+  const spectrumBarsLayer = scene.layers.find((l) => l.id === 'spectrumBars');
+  if (spectrumBarsLayer) {
+    spectrumBarsLayer.params = { bandCount: QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].spectrumBands };
+  }
 
   const totalFrames = Math.max(0, Math.round(config.durationSec * config.fps));
   const startedAt = performance.now();

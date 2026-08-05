@@ -75,10 +75,13 @@ traitement neuf, contrairement à `bloom`/`feedback` qui réutilisaient une méc
 voir §"La résolution interne" de docs/07) — le plus invasif des trois post-traitements du `Renderer`
 (bloom, décalage chromatique, résolution interne) : contrairement aux deux autres, ce n'est pas un
 ajout en périphérie de `endFrame()`, mais un changement de cible pour TOUTES les méthodes de dessin
-pendant la frame (`fillCircle`, `clear`, `captureFeedback`/`drawFeedback`…). Restent `spectrumBands`,
-toujours sans consommateur — exigerait de construire une fonctionnalité d'analyse entièrement
-nouvelle (touche le pipeline d'analyse en amont, pas seulement `render/`), contrairement aux trois
-post-traitements ci-dessus qui restent entièrement dans `render/`. L'étage
+pendant la frame (`fillCircle`, `clear`, `captureFeedback`/`drawFeedback`…). **`spectrumBands` câblé
+à l'Étape 25** (`SpectrumBars.ts::params.bandCount`, voir §"Le spectre visuel fin" de docs/07) — le
+seul des quatre à toucher `analysis/`/`music/` en plus de `visual/`, pas seulement `render/` : un
+spectre à 96 bandes log-espacées, calculé une fois pendant l'analyse hors ligne (coût mesuré :
+`bench:analysis` 5 666 ms → 6 842 ms, toujours sous le budget de 8 s), regroupé en 32/48/64/96
+barres côté visuel selon le niveau. Les 4 dimensions de qualité de la table ci-dessus sont
+maintenant TOUTES câblées. L'étage
 « modulé par la macro `density` » (résolution du nombre de particules ci-dessus) n'existe toujours
 pas : `density` agit bien sur les couches visuelles depuis l'Étape 20 (`presets/layerMacros.ts`,
 `spawnCountMul` de `ParticleField`), mais PAS sur `preset.layers.particles.count` selon l'ordre de

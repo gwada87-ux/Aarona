@@ -1418,3 +1418,87 @@ Export non testé au navigateur spécifiquement : structurellement sans effet, `
 l'export, comportement provablement identique à avant cette étape plutôt que vérifié empiriquement.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 25 — hors roadmap : le spectre visuel fin (spectrumBands)
+
+**Hors de docs/00a.** Dernière des 4 dimensions de qualité inertes — choisie par Aaron après
+confirmation explicite du plan (le plus gros chantier des quatre, seul à traverser `analysis/`/
+`music/` en plus de `render/`/`visual/`, `spectrumBands` étant écarté d'abord au profit
+d'`internalResolutionScale` pour rester dans `render/` à l'Étape 24). Chantier P4 mentionné depuis
+P9 (docs/07 : « un vrai spectre log-scale à 64 bandes exigerait de conserver une résolution
+spectrale plus fine en sortie d'analyse, un chantier séparé et plus gros »).
+
+**Architecture en 3 couches, présentée à Aaron avant tout code** :
+1. `analysis/spectrumBands.ts` (nouveau) : `computeLogSpacedBinRanges`/`computeSpectrumEnergyTracks`
+   — 96 bandes log-espacées génériques, réutilisent `BinRange`/`bandEnergy` de `bands.ts` (déjà
+   génériques sur n'importe quelle plage de bins). DIFFÉRENT de `bands.ts`, qui reste dédié aux 6
+   bandes sémantiques (sub/bass/lowmid/mid/himid/high) utilisées par toute la détection d'onsets/
+   comportement — inchangé, pas de conflit.
+2. `AnalysisPipeline.ts` : les 96 bandes calculées AU MÊME ENDROIT que `bandEnergyTracks`/
+   `bandFluxTracks` existants, sur le même `frames` (spectrogramme complet) déjà en mémoire à ce
+   stade — AUCUN changement de la stratégie de rétention mémoire (« libéré au fur et à mesure »,
+   docs/03, toujours vrai). 96 nouveaux `FeatureTrack` (`spectrum.0`..`spectrum.95`), même
+   mécanisme que les `band.*` existants. `validatePmdi.ts::KNOWN_FEATURE_ID_PATTERN` étendu pour
+   les reconnaître (sinon avertissement « id inconnu », pas une erreur, mais autant l'éviter).
+3. `music/StepContext.ts` : nouveau champ `spectrum: Float32Array` (96 valeurs), construit comme
+   `bands` (`SPECTRUM_BAND_COUNT` dupliqué depuis `analysis/`, `music/` ne peut pas l'importer,
+   même raison que `BAND_IDS`). Toujours calculé, même si le style courant ne le consomme pas —
+   même convention que `bands`/`energy` (`StepContext` générique, pas spécifique à un style).
+4. `visual/layers/spectrum/spectrumGrouping.ts` (nouveau, pur, testable) : `groupBinsIntoBars`,
+   regroupe par INDEX (le spectre étant déjà log-espacé uniformément, regrouper des tranches
+   d'index égales = regrouper des tranches égales en log(Hz), pas besoin de refaire le calcul log).
+5. `SpectrumBars.ts` : SECOND chemin complet, gated par `params.bandCount` — absent (défaut) :
+   chemin D'ORIGINE intact (6 bandes, `step.bands`, `BAND_WIDTH_WEIGHTS`), byte-identique à avant
+   cette étape. Présent (32/48/64/96, depuis `perf/qualityLevels.ts::spectrumBands`) :
+   `step.spectrum` regroupé, largeurs ÉGALES (pas de raison sémantique de varier pour un spectre
+   log-espacé uniforme, contrairement aux 6 bandes nommées). Les deux chemins partagent la même
+   physique de lissage/pics (`updateBars`/`drawBars`, factorisées) — seules les données source et
+   les tableaux d'état diffèrent.
+
+Bug trouvé et corrigé à l'exécution (pas par relecture) : `Object.freeze()` sur `StepContext
+.spectrum` (un `Float32Array` non vide) lève `TypeError: Cannot freeze array buffer views with
+elements` — piège JS connu (les éléments indexés d'un TypedArray ne peuvent pas devenir
+individuellement non-inscriptibles). Corrigé en ne freezant PAS `spectrum`, cohérent avec la
+convention déjà en vigueur ailleurs dans ce backend (`Float32Array` de `strokePath`/`fillPath`,
+jamais frozen non plus).
+
+Câblage : `ui/App.ts::applyLayerMacros()` injecte `params.bandCount` pour la couche `spectrumBars`
+spécifiquement (pas un macro-curseur — une source différente, `QUALITY_LEVEL_CONFIGS`) juste avant
+`layer.params = params`. `ExportPipeline.ts::runExport()` fait de même indépendamment, sur sa propre
+Scene. **Limite préexistante découverte en cours de route, pas introduite ici** : les 6 macros de
+couche de l'Étape 20 (densité/mouvement/profondeur/glow/chaos/douceur) ne sont JAMAIS appliquées à
+l'export — `applyLayerMacros()` n'est appelé que depuis `ui/App.ts`, jamais depuis
+`ExportPipeline.ts`, un gap déjà là avant cette étape, hors périmètre ici (signalé, pas corrigé).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **451/451** verts (430 + 21 nouveaux —
+`spectrumBands.test.ts` 8, `spectrumGrouping.test.ts` 8, 5 cas `bandCount` ajoutés à
+`spectrumBars.test.ts`). `npm run test:arch` : 1/1 (aucune nouvelle arête de dépendance hors du
+tableau autorisé — `analysis` importait déjà `music`, `visual` importait déjà `music`, rien de
+neuf). `npm run build` : succès, 165 modules, 313,61 ko (gzip 85,66 ko).
+
+**`bench:analysis` — coût mesuré, pas supposé** : 5 666 ms (Étape 19) → **6 842 ms**, détail par
+étage : `features` 929 ms (l'étage qui porte le nouveau calcul), le reste inchangé dans l'ordre de
+grandeur. Toujours sous le budget de 8 s (docs/11) avec ≈1,16 s de marge — le risque annoncé avant
+de coder (« retoucher le budget déjà difficilement optimisé à l'Étape 19 ») s'est concrétisé en
+partie (+1,18 s) mais reste dans les clous.
+
+Vérifié au navigateur : style Spectrum Pro, démo réelle (pas seulement les fixtures synthétiques des
+tests unitaires), les 4 niveaux de qualité (32/48/64/96 barres) rendent sans erreur console.
+**Limite honnête** : une différence visuelle directe entre 32 et 96 barres n'a pas été isolée de
+façon concluante par échantillonnage de pixels automatisé (le halo/glow tend à fondre les barres
+voisines à ce niveau d'intensité, une ligne de balayage horizontale ne détecte qu'une seule
+transition allumé/éteint dans les deux cas). La preuve du bon nombre de barres et de leur
+regroupement correct repose sur les tests unitaires (comptage EXACT des appels `fillPath`/
+`drawSprite` par `bandCount`, via `FakeRenderer`), pas sur une confirmation visuelle directe — même
+limite déjà rencontrée et signalée à l'Étape 22 (traînée de feedback), signalée ici pour la même
+raison plutôt que de prétendre une vérification plus forte qu'elle ne l'est.
+
+**Les 4 dimensions de qualité de docs/10 sont maintenant TOUTES câblées** (`maxParticles` P14,
+`bloom` Étape 21, `feedback` Étape 22, `chromaticAberration` Étape 23, `internalResolutionScale`
+Étape 24, `spectrumBands` ici) — plus aucune dimension de la table de docs/10 n'est déclarée sans
+consommateur.
+Limites connues : coût en ms du regroupement `groupBinsIntoBars` par image non mesuré séparément du
+reste du rendu (négligeable en principe — une boucle O(96), pas de flou/getImageData — mais pas
+chronométré isolément). Le gap macros-de-couche-absentes-à-l'export (voir plus haut) reste ouvert.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

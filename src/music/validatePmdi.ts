@@ -10,7 +10,7 @@ const SUPPORTED_MAJOR = 1;
 const SUPPORTED_MINOR = 0;
 
 /** Exemples cités par la spec (doc 12, ligne 122) — non exhaustif, extensible sans MAJEUR. */
-const KNOWN_FEATURE_ID_PATTERN = /^(energy|centroid|flatness|band\..+)$/;
+const KNOWN_FEATURE_ID_PATTERN = /^(energy|centroid|flatness|band\..+|spectrum\..+)$/;
 
 /** Vocabulaire de base observé dans les exemples de la spec — un type hors de cette liste
  * n'est PAS une erreur (principe #3 : tolérance à l'inconnu), seulement un avertissement. */

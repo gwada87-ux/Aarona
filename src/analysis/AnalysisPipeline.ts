@@ -20,6 +20,7 @@
  */
 import type { PmdiDocument, MusicEvent, FeatureTrack, NoteEvent } from '../music/pmdi';
 import { BAND_IDS, bandBinRanges, bandEnergyTracks, bandFluxTracks, type BandId } from './bands';
+import { computeLogSpacedBinRanges, computeSpectrumEnergyTracks, SPECTRUM_BAND_COUNT } from './spectrumBands';
 import { extractBassContour } from './bassContour';
 import { trackBeats } from './beats';
 import { computeFrameFeatureTracks } from './features';
@@ -105,6 +106,11 @@ export function runAnalysisPipeline(opts: RunAnalysisPipelineOptions): AnalysisR
   const bandEnergy = bandEnergyTracks(frames, ranges);
   const bandFlux = bandFluxTracks(frames, ranges);
   const fullSpectrumFlux = spectralFlux(frames);
+  // Spectre visuel fin (docs/07 §"Spectrum", Étape 25) : 96 bandes log-espacées, calculées ICI
+  // pendant que `frames` (le spectrogramme complet) est déjà en mémoire pour bandEnergy/bandFlux —
+  // jamais retenu au-delà de cette fonction (voir docs/03 : « libéré au fur et à mesure »).
+  const spectrumRanges = computeLogSpacedBinRanges(SPECTRUM_BAND_COUNT, sampleRate, WINDOW_SIZE);
+  const spectrumEnergy = computeSpectrumEnergyTracks(frames, spectrumRanges);
   report(onProgress, 'features');
 
   // Étape 4 : onsets, indépendamment par bande.
@@ -225,6 +231,7 @@ export function runAnalysisPipeline(opts: RunAnalysisPipelineOptions): AnalysisR
     toFeatureTrack('flatness', Float64Array.from(frameFeatures, (f) => f.flatness)), // déjà 0..1
     toFeatureTrack('rolloff85', normalizeTrack(Float64Array.from(frameFeatures, (f) => f.rolloff85))),
     ...BAND_IDS.map((band) => toFeatureTrack(`band.${band}`, normalizeTrack(bandEnergy[band]))),
+    ...spectrumEnergy.map((track, i) => toFeatureTrack(`spectrum.${i}`, normalizeTrack(track))),
   ];
 
   // RMS en dBFS BRUT (non normalisé par percentile) — nécessaire à SILENCE (docs/05 §7 : seuil

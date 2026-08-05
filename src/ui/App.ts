@@ -286,6 +286,14 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
  * apparaître l'effet dès l'image suivante, pool de particules et traînée de
  * feedback intacts. `energy`/`reactivity` restent sur `WIRED_MACRO_CURVES` →
  * `mapping.*` → `BehaviourEngine` (`resolvePreset`, inchangé).
+ *
+ * `bandCount` (Étape 25, `spectrumBars` uniquement) : injecté ICI plutôt que
+ * via `layerMacros.ts`, ce n'est pas un macro-curseur mais un réglage du
+ * niveau de qualité (`QUALITY_LEVEL_CONFIGS[...].spectrumBands`) — même
+ * source que `bloom`/`chromaticAberration`/`internalResolutionScale`, mais
+ * c'est un `layer.params`, pas un réglage de `Renderer`, donc câblé ici où
+ * `layer.params` est déjà reconstruit à chaque appel plutôt que comme un
+ * appel `renderer.setXxx()` séparé.
  */
 function applyLayerMacros(): void {
   if (!scene) return;
@@ -296,6 +304,9 @@ function applyLayerMacros(): void {
     const params: Record<string, number> = {};
     for (const [path, value] of Object.entries(flat)) {
       if (path.startsWith(paramPrefix)) params[path.slice(paramPrefix.length)] = value;
+    }
+    if (layer.id === 'spectrumBars') {
+      params.bandCount = QUALITY_LEVEL_CONFIGS[currentQualityLevel].spectrumBands;
     }
     layer.params = params;
   }
