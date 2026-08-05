@@ -156,21 +156,32 @@ export class AudioEngine implements Transport {
 
   private startSource(offset: number): void {
     if (!this.decoded) return;
+    // Clamp défensif (Étape 27) : `offset` peut arriver légèrement négatif via
+    // `play()` → `this.offsetSeek`, lui-même dérivé de `pause()` → `currentRawT()`
+    // (`ctx.currentTime − tStart + offsetSeek − outputLatency`) — sur un cycle
+    // play/pause très rapproché (quasi aucun temps réel écoulé), la soustraction
+    // de `outputLatency` suffit à faire passer le résultat sous 0. `node.start(0,
+    // offset)` lève alors un `RangeError` natif (bug réellement observé au
+    // navigateur, Étape 24 : « offset provided (-0.0267) is less than the minimum
+    // bound (0) »). Même clamp que `seek()` (`Math.max(0, Math.min(t, duration))`),
+    // appliqué ici au seul point d'appel de `node.start()` — protège TOUS les
+    // appelants (`play()`/`seek()`), pas seulement celui qui a déclenché le bug.
+    const clamped = Math.max(0, Math.min(offset, this.decoded.buffer.duration));
     this.stopSource();
     const node = this.ctx.createBufferSource();
     node.buffer = this.decoded.buffer;
     node.loop = this.looping;
     node.connect(this.gainNode);
-    node.start(0, offset);
+    node.start(0, clamped);
     this.source = node;
     this.tStart = this.ctx.currentTime;
-    this.offsetSeek = offset;
+    this.offsetSeek = clamped;
     // predictedT doit démarrer déjà compensé de la latence, sinon il part de
     // `offset` pendant que currentRawT() (dans le premier tick) part de
     // `offset − outputLatency` : l'écart initial (~outputLatency) doit alors
     // être rattrapé à 2 ms/image, ce qui fige un retard transitoire de
     // plusieurs centaines de ms à chaque play()/seek() en lecture.
-    this.predictedT = offset - this.outputLatencySeconds + this.calibrationOffsetSeconds;
+    this.predictedT = clamped - this.outputLatencySeconds + this.calibrationOffsetSeconds;
   }
 
   private stopSource(): void {

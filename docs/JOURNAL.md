@@ -1550,3 +1550,47 @@ Limites connues : aucune nouvelle. Le correctif ne couvre QUE les 6 macros de co
 point d'application à l'export depuis leurs étapes respectives, non affectés par ce gap.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 27 — hors roadmap : corrige l'offset négatif d'AudioEngine (cycles play/pause rapprochés)
+
+**Hors de docs/00a.** Bug réellement rencontré à l'exécution (Étape 24, mon propre harnais de
+test), signalé pour transparence sans être corrigé (« un module non touché par cette étape »).
+Repris ici comme prochaine unité de travail autonome, après une revue ciblée des « limites
+connues » ouvertes des Étapes 19-26 (bug déjà reproduit, isolé, petit — meilleur rapport risque/
+valeur des candidats trouvés).
+
+**Ordre de travail imposé : reproduire AVANT de corriger.** `tests/unit/testSupport/
+FakeAudioContext.ts` (nouveau — aucun test `AudioEngine` n'existait avant cette étape, la classe
+exige un `AudioContext` réel, absent de Node ; `AudioEngineOptions.context` injectable le permet).
+`FakeAudioBufferSourceNode.start()` reproduit fidèlement le comportement natif : lève `RangeError`
+sur un offset négatif, même message que celui observé au navigateur. `tests/unit/
+audioEngine.test.ts` (nouveau) écrit et exécuté AVANT le correctif : 2 des 4 tests échouent bien,
+avec le message EXACT observé à l'Étape 24 (« offset provided (-0.0267) is less than the minimum
+bound (0) ») — confirme la reproduction avant de toucher au code source.
+
+**Cause racine** : `AudioEngine.pause()` fixe `this.offsetSeek = this.currentRawT()`
+(`ctx.currentTime − tStart + offsetSeek − outputLatency + calibrationOffset`). Sur un cycle play/
+pause très rapproché (quasi aucun temps réel écoulé, `ctx.currentTime − tStart ≈ 0`), la
+soustraction de `outputLatency` (quelques dizaines de ms) suffit à rendre le résultat négatif. Le
+`play()` suivant appelle `startSource(this.offsetSeek)` → `node.start(0, offset négatif)` → lève.
+
+**Correctif** : clamp défensif dans `startSource()` (`Math.max(0, Math.min(offset, duration))`),
+même principe que le clamp déjà présent dans `seek()` — appliqué au SEUL point d'appel de
+`node.start()`, protège tous les appelants (`play()` ET `seek()`) plutôt que de corriger
+`pause()` isolément (`offsetSeek` négatif, transitoire, n'est lu nulle part ailleurs dans le
+fichier — vérifié par grep — donc pas besoin d'un second clamp à la source).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **457/457** verts (453 + 4 nouveaux —
+`audioEngine.test.ts`, premiers tests de ce module). `npm run test:arch` : 1/1. `npm run build` :
+succès, 165 modules, 313,88 ko (gzip 85,75 ko).
+
+Vérifié au navigateur : reproduction EXACTE du scénario de l'Étape 24 (3 styles × 4 niveaux de
+qualité, `play()`/`step()`×20/`pause()` en boucle serrée, 12 cycles sans délai réaliste) — 0 erreur
+console (contre 11 `RangeError` à l'identique avant ce correctif).
+Limites connues : `AudioEngine` reste autrement non couvert par des tests (`play()`/`pause()`/
+`seek()`/`tick()` au-delà de ce scénario précis — `FakeAudioContext` ouvre la voie, pas un audit
+complet du module). `currentRawT()`'s `if (!this.playing) return this.offsetSeek` (l.150) reste du
+code mort par construction (tous les appelants actuels appellent cette méthode alors que `playing`
+est encore vrai) — observé en marge, pas touché, hors périmètre de ce correctif.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
