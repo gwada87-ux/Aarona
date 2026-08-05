@@ -1949,3 +1949,43 @@ navigateur : même raison qu'aux étapes précédentes de cette série (zéro co
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 37 — hors roadmap : premiers tests des couches background/
+
+**Hors de docs/00a.** Trois couches `background/` (`DeepVignette` — style Field, `RadialBackground`
+— style Pulse, `AnimatedDuotone` — style Spectrum Pro) restaient sans aucun test, malgré une logique
+réelle (interpolation de couleur pilotée par `brightness` ou par `step.t`) et un pattern de test déjà
+éprouvé sur des couches structurellement proches (`CentralGlow`, `PulseRings`, `SpectrumBars`) :
+`FakeRenderer` + `defaultPalette` + `stepContextFixture`, aucune dépendance nouvelle. Dernier lot
+restant du 3e audit de couverture avec les couches `waveform/`, les fabriques de style
+(`createFieldStyle`/`createSpectrumProStyle`) et `ui/demoDoc.ts` — ces trois derniers repoussés à
+une étape ultérieure pour garder ce lot focalisé sur un thème cohérent (les fonds).
+
+`tests/unit/deepVignette.test.ts` (nouveau, 4 tests) : couche la plus simple des trois — ni palette
+ni signal ni état, un seul dégradé constant. Rayons `[0, 1.1]`, couleurs fixes (`{r:8,g:8,b:10,a:1}`
+centre / noir bord) reprises en dur depuis le fichier source (non exportées) ; indépendance totale
+du temps et des signaux vérifiée en comparant deux dessins avec des `update()` opposés ;
+`reset()`/`dispose()` ne lèvent pas.
+
+`tests/unit/radialBackground.test.ts` (nouveau, 8 tests) : rayons fixes `[0, 1.0]` (distincts de
+`DeepVignette`, assertion ciblée) ; teinte intérieure exactement `bg[0]` à `brightness=0`, `bg[1]` à
+`brightness=1`, point médian exact à `brightness=0.5` ; la couleur EXTÉRIEURE reste toujours `bg[1]`
+quel que soit `brightness` ; `reset()` ne réinitialise PAS `brightness` en mémoire — l'état n'est
+reconstruit que par le prochain `update()` (documenté explicitement en commentaire source, vérifié
+par un test dédié).
+
+`tests/unit/animatedDuotone.test.ts` (nouveau, 5 tests) : rayons `[0, 1.1]`, bord toujours `bg[1]` ;
+`t=0` donne exactement le facteur `0.4` attendu (`sin(0)=0` → `drift=0.5` → `0.3+0.2×0.5`) ; les
+extrêmes de l'animation (`facteur=0.5` au pic du sinus, `facteur=0.3` au creux) vérifiés à des `t`
+calculés analytiquement ; PÉRIODICITÉ exacte vérifiée (`t` et `t + période` donnent EXACTEMENT le
+même résultat — confirme que c'est une fonction pure de `step.t`, jamais de l'horloge réelle, Loi 1
+de docs/00b) ; deux `update()` à des `t` différents changent bien la couleur dessinée.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **559/559** verts (542 + 17 nouveaux, 17/17 du
+premier coup). `npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip
+86,02 ko) — aucune des trois couches source modifiée. `git status --short` : 3 fichiers touchés,
+tous des tests, aucun fichier de production. Pas de vérification navigateur : zéro code de
+production modifié.
+Limites connues : aucune nouvelle.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
