@@ -536,12 +536,13 @@ async function loadFile(file: File): Promise<void> {
   importAbortController = controller;
 
   try {
-    await audioEngine.load(file);
+    await audioEngine.load(file, controller.signal);
   } catch (err) {
     importErrorEl.textContent =
       err instanceof AudioValidationError ? err.message : `Impossible de lire ce fichier : ${err instanceof Error ? err.message : String(err)}`;
     return;
   }
+  if (controller.signal.aborted) return; // piège #11 (AudioEngine.ts) : un import plus récent a déjà pris le dessus
 
   const audioBuffer = audioEngine.decodedBuffer;
   if (!audioBuffer) return;
@@ -568,9 +569,12 @@ async function loadFile(file: File): Promise<void> {
 async function loadDemo(): Promise<void> {
   importErrorEl.textContent = '';
   importAbortController?.abort();
+  const controller = new AbortController();
+  importAbortController = controller;
 
   const file = buildDemoAudioFile(60);
-  await audioEngine.load(file);
+  await audioEngine.load(file, controller.signal);
+  if (controller.signal.aborted) return; // piège #11 (AudioEngine.ts) : un import plus récent a déjà pris le dessus
   const audioBuffer = audioEngine.decodedBuffer;
   if (!audioBuffer) return;
   currentAudioBuffer = audioBuffer;
@@ -806,11 +810,12 @@ async function restoreProject(stored: { id: string; project: Project }, provided
 
   const file = new File([audioBlob], ref.name, { type: audioBlob.type || 'audio/mpeg' });
   try {
-    await audioEngine.load(file);
+    await audioEngine.load(file, controller.signal);
   } catch (err) {
     projectsStatus.textContent = `Impossible de charger l'audio : ${err instanceof Error ? err.message : String(err)}`;
     return;
   }
+  if (controller.signal.aborted) return; // piège #11 (AudioEngine.ts) : un import plus récent a déjà pris le dessus
   const audioBuffer = audioEngine.decodedBuffer;
   if (!audioBuffer) return;
 

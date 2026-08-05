@@ -2447,3 +2447,63 @@ succès, 165 modules, 315,50 ko (gzip 86,22 ko). `git status --short` : 1 fichie
 Limites connues : aucune nouvelle.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 48 — hors roadmap : deux imports qui se chevauchent ne corrompent plus l'audio joué
+
+**Hors de docs/00a.** Un second agent de recherche adversarial, dédié cette fois à `ui/App.ts`
+(jamais audité — l'audit statique précédent avait explicitement exclu l'orchestration DOM, docs/16),
+a remonté trois pistes de concurrence. Validation directe du code source par moi-même (pas
+seulement le rapport de l'agent) : deux confirmées, la première plus grave que décrite par l'agent.
+Portée retenue avec l'utilisateur : le bug 1 (le plus sévère, le mieux circonscrit) — les bugs 2
+(scrub pendant analyse) et 3 (vignette désynchronisée) restent ouverts, non corrigés.
+
+**Le bug :** `AudioEngine.load()` (`audio/AudioEngine.ts:62-71`) n'a aucune protection de
+concurrence : `this.decoded = await decodeAudioFile(...)` écrase l'état interne SANS CONDITION,
+quel que soit l'ordre de RÉSOLUTION (pas l'ordre d'appel) des deux décodages. `loadFile()`
+(`ui/App.ts`) ne vérifiait par ailleurs jamais `controller.signal.aborted` avant d'agir. Scénario
+concret : déposer un gros fichier A (décodage lent), puis avant qu'il ne termine, déposer un petit
+fichier B (décodage rapide). B se charge et s'affiche correctement en premier — mais quand le
+décodage de A finit ENFIN (plus tard), `this.decoded` bascule silencieusement sur A à l'intérieur
+du moteur audio, alors que la timeline/l'analyse affichées restent celles de B. Conséquence directe,
+vérifiée en traçant `startSource()` (`AudioEngine.ts:157-172`, `node.buffer = this.decoded.buffer`) :
+cliquer Lecture joue l'audio de A pendant que la grille de battements/sections vient de B — un vrai
+désynchronisme audio/visuel qui persiste jusqu'au prochain import, pas seulement un risque au moment
+d'une sauvegarde. Trois points d'appel touchés : `loadFile()`, `loadDemo()` (l'agent avait noté
+qu'un import réel suivi d'un clic sur « Charger une démo » déclenche le même mécanisme) et un
+troisième, `restoreProject()` (`App.ts:807-819`), repéré par moi en cherchant tous les appels à
+`audioEngine.load()` — non signalé par l'agent, même défaut exact (un `AbortController` déjà créé,
+mais son `signal` jamais transmis à `load()`, jamais vérifié après résolution).
+
+**Correctif :** `AudioEngine.load()` accepte désormais un `signal?: AbortSignal` optionnel
+(piège #11, numéroté à la suite du piège #10 déjà documenté dans ce fichier) — vérifié APRÈS la
+résolution du décodage, AVANT toute affectation à `this.decoded`/le reste de l'état ; un signal déjà
+annulé à ce moment précis fait ignorer silencieusement le résultat périmé (pas d'erreur — même
+convention que le reste du pipeline face à un abandon), sans jamais toucher l'état interne, qui
+reste celui du chargement gagnant. Les trois appelants (`loadFile`, `loadDemo`, `restoreProject`)
+transmettent désormais leur `controller.signal` et vérifient `controller.signal.aborted` juste après
+la résolution, avant de faire quoi que ce soit d'autre (identité de projet, cache, etc.).
+
+**Reproduction AVANT correctif (discipline du projet) :** `tests/unit/audioEngine.test.ts`, nouveau
+test simulant précisément la course — ordonnancement piloté par ORDRE D'APPEL de
+`decodeAudioData()` (pas par timing de réassignation synchrone, un premier essai s'est révélé
+insensible au bug à cause d'un tick de microtâche introduit par `file.arrayBuffer()` avant que
+`decodeAudioFile()` n'atteigne effectivement `decodeAudioData()` — corrigé avant le run final).
+Lancé avec la garde temporairement commentée : échec confirmé, `expected 100 to be 42` — le
+résultat périmé de A écrasait bien celui de B. Remis en place : passe.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run tests/unit/audioEngine.test.ts` : 6/6 verts (2
+nouveaux). `npx vitest run` (suite complète) : **656/656** verts (654 + 2). `npm run test:arch` :
+1/1. `npm run build` : succès, 165 modules, 315,67 ko (gzip 86,25 ko). `git status --short` : 3
+fichiers (`AudioEngine.ts`, `App.ts`, `audioEngine.test.ts`). Pas de vérification navigateur
+supplémentaire : le mécanisme exact (deux `decodeAudioData()` qui se chevauchent, résolution hors
+ordre) est un comportement standard et documenté de la Web Audio API, pas une particularité du
+navigateur à confirmer — le test unitaire, qui exerce le VRAI `decodeAudioFile()` de production
+avec uniquement le contexte simulé, capture entièrement le mécanisme ; même raisonnement que les
+correctifs numériques des Étapes 27/43.
+Limites connues : le bug 2 (scrub de la frise pendant une analyse en cours — `handleSeek()` ne
+vérifie que la nullité de `currentTimeline`/`scene`, pas leur fraîcheur) et le bug 3 (vignette
+d'auto-sauvegarde potentiellement désynchronisée si `captureThumbnail()` résout après le début d'un
+nouveau chargement) restent ouverts, non corrigés — portée exclue par choix explicite de
+l'utilisateur.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

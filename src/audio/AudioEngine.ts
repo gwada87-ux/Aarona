@@ -59,9 +59,20 @@ export class AudioEngine implements Transport {
     return this.ctx.outputLatency ?? this.ctx.baseLatency ?? 0;
   }
 
-  async load(file: File): Promise<void> {
+  /**
+   * `signal` optionnel : piège #11 — deux `load()` qui se chevauchent (import lent puis import
+   * rapide avant que le premier ne finisse) n'ont aucune garantie d'ordre de résolution, le
+   * décodage le plus LENT peut résoudre en dernier et écraser silencieusement `this.decoded` avec
+   * un fichier qui n'est déjà plus celui affiché. Un `signal` déjà annulé au moment où CE décodage
+   * précis se termine signale que l'appelant a depuis démarré un autre chargement : le résultat est
+   * alors ignoré (pas d'erreur — même convention que le reste du pipeline face à un abandon), sans
+   * toucher à `this.decoded` ni au reste de l'état, qui restent ceux du chargement gagnant.
+   */
+  async load(file: File, signal?: AbortSignal): Promise<void> {
     this.stopSource();
-    this.decoded = await decodeAudioFile(file, this.ctx);
+    const decoded = await decodeAudioFile(file, this.ctx);
+    if (signal?.aborted) return;
+    this.decoded = decoded;
     this.playing = false;
     this.offsetSeek = 0;
     this.predictedT = 0;
