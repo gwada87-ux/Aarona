@@ -66,3 +66,25 @@ describe('validateProject', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('validateProject — visual.customPreset (Étape 29)', () => {
+  it('accepte un projet SANS customPreset (comportement inchangé, cas courant)', () => {
+    const project = makeProject();
+    expect('customPreset' in project.visual).toBe(false);
+    expect(validateProject(project).ok).toBe(true);
+  });
+
+  it('accepte un projet AVEC customPreset (objet quelconque — la forme exacte de Preset est validée ailleurs, presets/schema.ts)', () => {
+    const project = makeProject();
+    const withCustom = { ...project, visual: { ...project.visual, customPreset: { id: 'edited', style: 'pulse', macros: {} } } };
+    expect(validateProject(withCustom).ok).toBe(true);
+  });
+
+  it('rejette customPreset qui n\'est pas un objet', () => {
+    const project = makeProject();
+    const broken = { ...project, visual: { ...project.visual, customPreset: 'pas un objet' } };
+    const result = validateProject(broken);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.includes('visual.customPreset'))).toBe(true);
+  });
+});

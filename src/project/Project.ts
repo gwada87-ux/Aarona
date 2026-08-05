@@ -68,6 +68,25 @@ export interface ProjectVisual {
   readonly presetVersion: number;
   readonly overrides: PresetDiff;
   readonly palette?: string | PaletteOverride;
+  /**
+   * Copie COMPLÈTE du preset actif quand il vient de l'éditeur JSON (Étape 29,
+   * corrige la limite connue depuis l'Étape 15/P13) — `overrides` (diff
+   * ci-dessus) ne représente que des primitives (docs/13 §"les surcharges
+   * sont un diff"), donc ne peut pas capturer fidèlement `mapping`/`palette`/
+   * `classification`, qui contiennent des tableaux (`from: EventType[]`,
+   * `bg: [string, string]`...) : `computePresetDiff` (project/diff.ts) les
+   * ignore délibérément plutôt que d'écrire une valeur qui ne se
+   * rechargerait pas correctement.
+   *
+   * Typé en objet opaque ICI : `project/` n'a pas le droit d'importer
+   * `presets/` pour connaître la forme exacte de `Preset` (docs/02, tableau
+   * des dépendances — `project: ['music']` seulement). Validé par
+   * `presets/schema.ts::validatePreset()` au point de consommation
+   * (`ui/App.ts`, seule couche qui importe les deux). `undefined` = preset du
+   * catalogue + macros, comportement inchangé, restauré via `overrides`
+   * comme avant cette étape.
+   */
+  readonly customPreset?: Readonly<Record<string, unknown>>;
 }
 
 export interface ProjectExport {
@@ -147,6 +166,12 @@ function checkVisual(visual: unknown, errors: string[]): void {
   if (!isNonEmptyString(visual.presetId)) errors.push('"visual.presetId" doit être une chaîne non vide');
   if (!isFiniteNumber(visual.presetVersion)) errors.push('"visual.presetVersion" doit être un nombre');
   if (!isRecord(visual.overrides)) errors.push('"visual.overrides" doit être un objet (diff chemin -> valeur)');
+  // Vérification structurelle SEULEMENT — la forme exacte d'un `Preset` est validée par
+  // `presets/schema.ts::validatePreset()`, hors de portée ici (voir le commentaire de
+  // `ProjectVisual.customPreset`, `project/` n'a pas le droit d'importer `presets/`).
+  if (visual.customPreset !== undefined && !isRecord(visual.customPreset)) {
+    errors.push('"visual.customPreset" doit être un objet quand présent');
+  }
 }
 
 function checkExport(exp: unknown, errors: string[]): void {

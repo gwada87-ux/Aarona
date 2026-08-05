@@ -1642,3 +1642,60 @@ l'Étape 14/P12 encore ouverte (les deux autres, numérotées (2) et (3) plus ha
 concernent l'éditeur de preset JSON et la priorité style-local-sur-preset, non affectées ici).
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 29 — hors roadmap : sauvegarde fidèle d'un preset édité (mapping/palette/classification)
+
+**Hors de docs/00a.** Reprend la limite connue depuis l'Étape 15/P13 : `buildCurrentProject()`
+(`ui/App.ts`) ne capturait dans le diff `visual.overrides` que macros/style/sécurité — un preset
+édité via l'éditeur JSON (`customPreset`, mapping/palette/classification) n'était jamais restauré
+fidèlement après sauvegarde/rechargement. Choisi comme prochaine unité de travail autonome après
+une revue des candidats restants (le seuil CI pour `bench:analysis` s'est avéré peu actionnable —
+ce dépôt n'a AUCUNE CI configurée, rien à quoi accrocher un seuil ; celui-ci était concret et
+bien scopé une fois investigué).
+
+**Cause racine, confirmée avant de coder** : `project/diff.ts::computePresetDiff` ignore
+DÉLIBÉRÉMENT les valeurs non primitives (« un tableau n'a pas de représentation dans ce format...
+mieux vaut ne rien écrire de faux que d'écrire quelque chose qui ne se recharge pas correctement »)
+— `mapping.impact.from` (`EventType[]`) et `palette.bg` (`[string,string]`) contiennent des
+tableaux, donc ne peuvent structurellement pas survivre au mécanisme de diff existant, quelle que
+soit la manière de le solliciter. Étendre le format de diff pour supporter les tableaux aurait été
+un changement de FORMAT PERSISTÉ (`.pvproj`) avec des implications de compatibilité plus lourdes —
+écarté au profit d'un correctif additif.
+
+**Correctif : un champ complémentaire, pas une extension du diff.** `ProjectVisual.customPreset?:
+Readonly<Record<string, unknown>>` (nouveau, optionnel — `project/Project.ts`) : copie ENTIÈRE du
+preset actif quand il vient de l'éditeur JSON, en plus de `overrides` (toujours calculé, inchangé).
+Typé en objet opaque : `project/` n'a pas le droit d'importer `presets/` (docs/02) pour connaître la
+forme exacte de `Preset` — validé par `presets/schema.ts::validatePreset()` au point de
+consommation (`ui/App.ts`, seule couche qui importe les deux), même principe de séparation que
+`BAND_IDS`/`BloomConfig`/`SPECTRUM_BAND_COUNT` dupliqués ailleurs entre couches. `restoreProject()`
+privilégie `customPreset` quand présent et VALIDE (`validatePreset().ok`), retombe sur le mécanisme
+diff existant sinon (absent → cas courant, preset catalogue + macros, comportement inchangé ;
+invalide → défense en profondeur, un fichier corrompu ou d'une version future ne doit jamais
+planter la restauration).
+
+Fait et vérifié : `npx tsc --noEmit` : 0 erreur. `npx vitest run` : **466/466** verts (463 + 3
+nouveaux dans `project.test.ts` — accepte un projet sans `customPreset` (inchangé), accepte un objet
+quelconque avec (la forme exacte est du ressort de `validatePreset`, hors de portée de
+`validateProject`), rejette une valeur qui n'est pas un objet). `npm run test:arch` : 1/1 (aucune
+nouvelle arête — `project/` n'importe toujours que `music`). `npm run build` : succès, 165 modules,
+314,50 ko (gzip 85,92 ko).
+
+Vérifié au navigateur avec les modules RÉELS compilés par Vite (import dynamique, même technique que
+les Étapes 24/26/27) : (1) preuve que le bug était réel — `computePresetDiff` sur un preset édité
+(palette.primary et mapping.impact modifiés, `from: ['KICK','CLAP']`) produit un diff VIDE (les
+champs modifiés n'apparaissent nulle part, confirmant qu'ils étaient bien silencieusement perdus
+avant cette étape) ; (2) le nouveau chemin : preset édité → `JSON.parse(JSON.stringify(...))`
+(round-trip identique à ce que fait réellement `pvproj.ts`) → `validateProject` accepte →
+`validatePreset(project.visual.customPreset)` reconstruit le `Preset` — `palette.primary`,
+`mapping.impact.from` (le tableau) et `mapping.impact.decay` tous préservés exactement. Aucune
+erreur console.
+Limites connues : le câblage RÉEL dans `ui/App.ts` (`buildCurrentProject`/`restoreProject`,
+orchestration couplée à l'IndexedDB/aux dialogues) n'a pas été exercé de bout en bout via l'UI
+réelle (édition dans le dialogue, sauvegarde, rechargement de page, restauration depuis le panneau
+Projets) — vérifié par relecture de code + tsc, et par un test isolé qui exerce exactement la même
+séquence de fonctions réelles (`validatePreset`/`validateProject`) sur les mêmes données, mais pas
+le chemin DOM/IndexedDB complet. Cohérent avec le reste de cette étape et des précédentes : `ui/
+App.ts` reste la seule couche jamais couverte par des tests unitaires directs.
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

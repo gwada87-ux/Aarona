@@ -29,7 +29,7 @@ import { createSpectrumProStyle } from '../visual/styles/spectrum-pro/createSpec
 import type { Scene } from '../visual/scene/Scene';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
-import { PRESET_CATALOG, resolvePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
+import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
 import type { MacroName } from '../presets/schema';
 import { applyLayerMacrosToScene } from '../presets/layerMacros';
 import { importTrack, type ImportedTrack } from './pipeline';
@@ -656,10 +656,13 @@ function visualStateBase(presetId: string | null): PersistedVisualState {
 }
 
 /**
- * Limite connue : ne capture que macros/style/sécurité dans le diff, pas les
- * champs propres à un preset édité via l'éditeur JSON (mapping/palette/
- * classification) — `customPreset` n'est pas restauré fidèlement par cette
- * voie. Voir docs/JOURNAL.md, Étape 15/P13.
+ * `customPreset` (Étape 29, corrige la limite connue depuis l'Étape 15/P13) :
+ * sauvé EN ENTIER dans `visual.customPreset` quand actif — `overrides` seul
+ * (diff, calculé ci-dessous comme avant, toujours présent pour compatibilité)
+ * ne peut pas capturer fidèlement `mapping`/`palette`/`classification`
+ * (tableaux, hors du format diff — voir `ProjectVisual.customPreset`,
+ * `project/Project.ts`). `restoreProject` privilégie `customPreset` quand
+ * présent et valide, sinon retombe sur le mécanisme diff existant.
  */
 function buildCurrentProject(): Project | null {
   if (!currentDoc || !audioHash || !audioFileName) return null;
@@ -674,7 +677,12 @@ function buildCurrentProject(): Project | null {
     meta: { id: projectId, name: projectName, createdAt: projectCreatedAt, modifiedAt: new Date().toISOString(), app: 'pulsar-visualizer@0.0.0-p0' },
     audio: { ref: { kind: 'file', name: audioFileName, size: audioFileSize, hash: audioHash }, duration: currentDoc.audio.duration },
     music: { mode: 'analysis', analysisProfile: 'balanced', cacheKey: analysisCacheKeyValue ?? undefined },
-    visual: { presetId: selectedPresetId ?? 'none', presetVersion: catalogPreset?.version ?? 1, overrides },
+    visual: {
+      presetId: selectedPresetId ?? 'none',
+      presetVersion: catalogPreset?.version ?? 1,
+      overrides,
+      ...(customPreset ? { customPreset: customPreset as unknown as Record<string, unknown> } : {}),
+    },
     export: { format: '16:9', resolution: [1920, 1080], fps: 30, bitrateMbps: 12, codec: 'h264' },
     // `prefs.quality` (type déjà anticipé en P13, câblé au vrai `QualityGovernor` en P14/Étape 16) :
     // 'auto' si le niveau courant vient du gouverneur, sinon le niveau choisi manuellement — restauré
@@ -819,12 +827,26 @@ async function restoreProject(stored: { id: string; project: Project }, provided
   }
 
   selectedPresetId = project.visual.presetId === 'none' ? null : project.visual.presetId;
-  customPreset = null;
-  const base = visualStateBase(selectedPresetId);
-  const restored = applyPresetDiff(base as unknown as Record<string, unknown>, project.visual.overrides) as unknown as PersistedVisualState;
-  currentMacros = restored.macros;
-  currentStyleId = restored.style;
-  reducedFlashing = restored.reducedFlashing;
+  // Étape 29 : `customPreset` (preset édité via l'éditeur JSON, sauvé EN ENTIER) restauré en
+  // priorité quand présent et valide — capture mapping/palette/classification, que le diff
+  // `overrides` seul ne peut pas représenter fidèlement (voir `buildCurrentProject`). Repli sur
+  // le mécanisme diff existant si absent (projet catalogue + macros, cas courant) ou invalide
+  // (défense en profondeur : un fichier corrompu/d'une version future ne doit jamais planter la
+  // restauration, juste dégrader vers le comportement d'avant cette étape).
+  const restoredCustomPreset = project.visual.customPreset ? validatePreset(project.visual.customPreset) : null;
+  if (restoredCustomPreset?.ok) {
+    customPreset = restoredCustomPreset.preset;
+    currentMacros = customPreset.macros;
+    currentStyleId = customPreset.style;
+    reducedFlashing = customPreset.safety.reducedFlashing;
+  } else {
+    customPreset = null;
+    const base = visualStateBase(selectedPresetId);
+    const restored = applyPresetDiff(base as unknown as Record<string, unknown>, project.visual.overrides) as unknown as PersistedVisualState;
+    currentMacros = restored.macros;
+    currentStyleId = restored.style;
+    reducedFlashing = restored.reducedFlashing;
+  }
   simplePanel.selectPreset(selectedPresetId);
 
   applyDocCore(doc, waveformPeaks);
