@@ -1778,3 +1778,42 @@ suppression réelle (tailles de test bien sous les limites).
 Dette introduite : aucune connue — première dépendance de dev ajoutée depuis le début du projet
 (hors `mediabunny`, dépendance de production), décidée explicitement par Aaron.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 32 — hors roadmap : premiers tests de MediabunnyEncoder.ts et detectSupport.ts
+
+**Hors de docs/00a.** Derniers fichiers d'`export/encoders/` encore sans test (`FrameEncoder.ts`
+est une pure interface, `MediaRecorderFallback.ts` déjà testé depuis P8). Contrairement à
+`project/storage/db.ts` (Étape 31), AUCUNE décision d'infrastructure n'a été nécessaire ici : `mediabunny`
+est une bibliothèque JS normale (pas une API navigateur globale comme `indexedDB`), donc `vi.mock
+('mediabunny', ...)` — mécanisme déjà intégré à `vitest`, aucune dépendance supplémentaire —
+suffit à intercepter ses exports sans avoir besoin de polyfill WebCodecs.
+
+**`detectSupport.ts`** (`tests/unit/detectSupport.test.ts`, 6 tests) : les 4 combinaisons de la
+table de vérité (vidéo/audio supportés ou non → `'webcodecs'`/`'media-recorder'`), les paramètres
+exacts transmis à `canEncodeVideo('avc', {width,height,bitrate})`/`canEncodeAudio('aac')`, et
+confirmation que les deux vérifications sont lancées en PARALLÈLE (`Promise.all`, pas
+séquentiellement — observable via l'ordre d'entrelacement de deux implémentations mockées
+asynchrones).
+
+**`MediabunnyEncoder.ts`** (`tests/unit/mediabunnyEncoder.test.ts`, 8 tests) : `mediabunny` mocké
+EN ENTIER (classes `Output`/`CanvasSource`/`AudioBufferSource`/`BufferTarget`/`Mp4OutputFormat`/
+`Quality`, factices mais fonctionnellement fidèles — n'encodent rien, mais enregistrent leurs
+appels) — vérifie que `MediabunnyEncoder` construit ses pistes avec les bons codecs
+(`'avc'`/`'aac'`) et bitrates (celui demandé pour la vidéo, `AUDIO_BITRATE_BPS` fixe pour l'audio),
+que chaque méthode (`start`/`addVideoFrame`/`addAudio`/`cancel`) délègue fidèlement à la classe
+Mediabunny correspondante, que `finish()` ferme les DEUX sources AVANT `finalize()` (ordre vérifié
+explicitement) et lève une erreur explicite si le buffer de sortie reste vide après `finalize()`
+(un échec silencieux de Mediabunny ne doit jamais produire un `Blob` vide sans le signaler).
+Esprit du test conforme à `FakeRenderer`/`FakeFrameEncoder` déjà en place dans ce dépôt : vérifier
+que CE module appelle correctement sa dépendance, pas réimplémenter la dépendance elle-même.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : **500/500** verts (486 + 14 nouveaux). `npm run
+test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — identique à
+l'Étape 31, aucun fichier de production touché (uniquement 2 nouveaux fichiers de test). Pas de
+vérification navigateur : même raison qu'à l'Étape 31.
+
+Limites connues : aucune nouvelle. `export/encoders/` est maintenant intégralement couvert (les 3
+fichiers avec logique propre : `MediaRecorderFallback.ts`, `MediabunnyEncoder.ts`, `detectSupport
+.ts` — `FrameEncoder.ts` reste une interface pure, rien à tester).
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.
