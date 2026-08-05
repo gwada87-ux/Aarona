@@ -2192,3 +2192,53 @@ Limites connues : aucune nouvelle. `TypedEmitter` reste non câblée dans l'appl
 documentée, pas nouvelle) — cette étape en couvre le comportement avant tout premier câblage futur.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 43 — hors roadmap : correction d'un vrai bug dans bassCoherenceScore (tempo.ts)
+
+**Hors de docs/00a.** Le 5e audit de couverture ayant conclu à un gisement épuisé (12 fichiers
+restants tous déjà exclus ou du boilerplate trop trivial), un agent de recherche adversarial a été
+dispatché pour chercher un vrai bug plutôt que de la couverture. Deux pistes solides remontées ;
+sur validation directe du code source par moi-même (pas seulement le rapport de l'agent), l'une
+d'elles s'est confirmée être un vrai défaut avec effet observable. L'autre (les anneaux secondaires
+de `PulseRings` ne se déclenchent jamais sur un morceau importé, car `AnalysisPipeline.ts`/
+`finalize.ts` ne convertissent jamais `grid.downbeats` en `MusicEvent`s `DOWNBEAT`) est mise en
+réserve pour une étape séparée — portée plus large, nécessite un plan.
+
+**Le bug :** `bassCoherenceScore()` (`analysis/tempo.ts`, fonction privée utilisée par
+`resolveOctaveAmbiguity()`) parcourt une piste d'énergie basse par pas de `periodFrames` et lit
+`bassEnergyTrack[Math.round(pos)]` — mais la condition de boucle ne garantit que `pos < length`,
+alors que `Math.round(pos)` peut arrondir À `length` (hors limites) quand `pos` tombe dans
+`[length-0,5, length)`. La lecture hors tableau renvoie `undefined`, et `sum += undefined`
+corrompt la somme en `NaN` pour le reste de cette phase — silencieusement écartée du `max()` (`NaN
+> best` est toujours faux), donc la phase potentiellement la MEILLEURE peut être ignorée sans que
+rien ne le signale. Cette fonction alimente `resolveOctaveAmbiguity()`, l'arbitrage ×2/÷2 utilisé
+précisément dans le cas déjà délicat où la courbe primaire hésite (écart < 15 %, docs/05 l.45-65) —
+une corruption y peut faire élire le mauvais tempo (BPM erroné, grille de battements faussée pour
+tout le reste du pipeline visuel).
+
+**Reproduction AVANT correctif (discipline du projet) :** ajouté à `tests/unit/tempo.test.ts` un
+test appelant directement `resolveOctaveAmbiguity()` (API publique exportée) avec une piste
+d'énergie basse construite pour placer un pic d'énergie EXACTEMENT sur la grille de `rawBpm=70`
+(frameRate STFT réaliste 22050/128, piste de 6 s) — valeurs trouvées par recherche exhaustive sur
+des combinaisons (durée, BPM) réalistes jusqu'à localiser un cas où la corruption change
+RÉELLEMENT le vainqueur de l'arbitrage (pas seulement le score interne d'un candidat isolé — un
+premier essai avec `rawBpm=60` s'est révélé accidentellement insensible au bug : les DEUX candidats
+étaient corrompus à la même valeur, laissant le bon résultat gagner par coïncidence). Lancé seul
+contre le code non corrigé : échec confirmé, `expected 140 to be 70` — le grave parfaitement aligné
+sur 70 BPM perdait l'arbitrage face à son octave 140.
+
+**Correctif :** un seul `Math.min(bassEnergyTrack.length - 1, Math.round(pos))`, même schéma que
+le clamp déjà en place dans `analysis/trackSampling.ts::sampleAt()`. Un hunk.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run tests/unit/tempo.test.ts` : 3/3 verts (le nouveau
+test passe désormais). `npx vitest run` (suite complète) : **643/643** verts (642 + 1 nouveau).
+`npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 314,92 ko (gzip 86,02 ko) — taille
+identique, seuls les hash de fichiers changent (contenu de `tempo.ts` modifié). Pas de vérification
+navigateur : le bug n'affecte que des cas limites d'ambiguïté d'octave (écart < 15 % sur la courbe
+primaire) difficiles à provoquer de façon fiable et visible via l'UI avec un fichier audio
+quelconque — même raisonnement que le clamp d'`AudioEngine` à l'Étape 27, vérifié par test
+unitaire reproduisant le mécanisme exact plutôt qu'au navigateur.
+Limites connues : le second bug trouvé (PulseRings/DOWNBEAT) reste ouvert, mis en réserve pour une
+étape séparée (portée à trancher : DOWNBEAT seul vs BEAT+DOWNBEAT+BAR+PHRASE, docs/06).
+Dette introduite : aucune connue.
+Bloque la suite : aucun blocage technique connu.

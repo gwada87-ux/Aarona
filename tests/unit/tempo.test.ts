@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bandBinRanges, bandEnergyTracks, bandFluxTracks } from '../../src/analysis/bands';
 import { detectBandOnsets } from '../../src/analysis/onsets';
-import { estimateTempo } from '../../src/analysis/tempo';
+import { estimateTempo, resolveOctaveAmbiguity } from '../../src/analysis/tempo';
 import { stft, WINDOW_SIZE, HOP } from '../../src/analysis/stft';
 
 const SAMPLE_RATE = 22050;
@@ -93,5 +93,39 @@ describe('analysis/tempo — estimateTempo (docs/05 §1, docs/11)', () => {
     });
 
     expect(Math.abs(result.bpm - 70)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('analysis/tempo — resolveOctaveAmbiguity (bassCoherenceScore, régression Étape 43)', () => {
+  it("un grave PARFAITEMENT aligné sur rawBpm doit le faire gagner, même quand une phase de test touche pile la fin du tableau (piège d'arrondi)", () => {
+    // frameRate/durationSec/rawBpm choisis (par recherche exhaustive sur des valeurs réalistes)
+    // pour que la corruption round-hors-limites de bassCoherenceScore change RÉELLEMENT le
+    // vainqueur de l'arbitrage — pas seulement le score interne d'un candidat.
+    const frameRate = 22050 / 128; // hop STFT réaliste
+    const rawBpm = 70; // -> competitor = 140 (pickOctaveCompetitor : ÷2=35 hors plage, ×2=140 dans la plage)
+    const durationSec = 6;
+    const length = Math.round(durationSec * frameRate);
+    const periodFramesA = (60 / rawBpm) * frameRate;
+
+    const bassEnergyTrack = new Float64Array(length).fill(0.1);
+    for (let pos = 0; pos < length; pos += periodFramesA) {
+      const idx = Math.min(length - 1, Math.round(pos));
+      bassEnergyTrack[idx] = 1.0;
+    }
+
+    const result = resolveOctaveAmbiguity({
+      rawBpm,
+      rawBpmScore: 1, // égal au concurrent : force l'arbitrage à 3 tests (écart < 15%, docs/05 l.45-65)
+      competitorScore: 1,
+      frameRate,
+      durationSec,
+      bassEnergyTrack,
+      highOnsetCount: 0, // neutralise subdivisionScore (= 1 des deux côtés, ne doit pas trancher ici)
+    });
+
+    // Le grave est parfaitement en phase avec rawBpm (70) : c'est lui qui doit gagner l'arbitrage,
+    // pas son octave (140). Avec le bug, la phase correcte est corrompue en NaN et silencieusement
+    // écartée du max() -> l'octave gagne à tort.
+    expect(result.bpm).toBe(rawBpm);
   });
 });

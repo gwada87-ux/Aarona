@@ -192,7 +192,8 @@ function bassCoherenceScore(bassEnergyTrack: Float64Array, frameRate: number, pe
     let sum = 0;
     let count = 0;
     for (let pos = phase; pos < bassEnergyTrack.length; pos += periodFrames) {
-      sum += bassEnergyTrack[Math.round(pos)]!;
+      const idx = Math.min(bassEnergyTrack.length - 1, Math.round(pos));
+      sum += bassEnergyTrack[idx]!;
       count++;
     }
     const mean = count > 0 ? sum / count : 0;
