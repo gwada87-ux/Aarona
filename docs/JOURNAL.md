@@ -2627,3 +2627,120 @@ ci-dessus) — pas nouveau, pas causé par cette étape, mais noté pour une inv
 récurrence devient gênante.
 Dette introduite : aucune connue.
 Bloque la suite : aucun blocage technique connu.
+
+## Étape 52 — hors roadmap : pont audio postMessage pour embarquement en iframe
+
+**Hors de docs/00a.** Demande d'Aaron : intégrer le visualizer dans son générateur de beats (Beat
+Studio CDJ, projet séparé) via une iframe plein espace, avec le beat courant chargé automatiquement
+— pas de ré-import manuel. Ajouté dans `src/ui/App.ts` : un listener `window.addEventListener(
+'message', ...)`, actif seulement en contexte iframe (`window !== window.top`, aucun effet en usage
+autonome), qui reçoit `{ type: 'pulsar:load-audio', buffer: ArrayBuffer, filename?: string }`,
+construit un `File` et appelle `loadFile()` telle quelle — le MÊME chemin que l'import glisser-
+déposer/sélecteur de fichier, aucune nouvelle logique d'analyse/décodage. Aucune vérification
+d'origine sur le message : le pire cas (une page tierce embarque le visualizer et poste un faux
+fichier) est équivalent à un import utilisateur normal, sans privilège particulier accordé.
+
+Testé de bout en bout via Playwright + `file://` contre le fichier réel de Beat Studio CDJ (côté
+émetteur, hors de ce dépôt) : rendu du beat courant en WAV côté Beat Studio (réutilisation de son
+pipeline d'export existant, `_renderOfflineBars`/`audioBufferToWav`, aucune duplication), envoyé par
+`postMessage` ciblé sur l'origine exacte du visualizer (jamais `'*'`), reçu et chargé automatiquement
+— confirmé visuellement (écran d'import vide → écran d'analyse), sans ré-import manuel.
+
+**Limite découverte à l'exécution, pas à la lecture** : le premier essai envoyait le beat ENTIER
+(32 mesures) — 70,7 s réelles avant que le visualizer reçoive l'audio (pipeline par tranches côté
+Beat Studio, chunké pour ne pas geler l'UI, mais pas plus rapide en temps total). Corrigé côté Beat
+Studio (hors de ce dépôt) : extrait de 8 mesures au lieu du beat complet → 8,8 s, revérifié par le
+même test de bout en bout.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 672/672 verts (91/91 fichiers), aucune régression.
+`npm run test:arch` : 1/1. `npm run build` : succès, 165 modules, 315,95 ko (gzip 86,35 ko).
+Vérification navigateur : bout en bout via Playwright (voir ci-dessus), le seul canal réaliste ici
+puisque le comportement dépend d'un vrai contexte iframe cross-document.
+Limites connues : pas de vérification d'origine sur les messages entrants (voir ci-dessus, risque
+jugé nul) ; l'extrait envoyé est toujours les 8 premières mesures, jamais un passage plus
+représentatif du morceau (ex. le refrain) — accepté comme suffisant pour une réaction visuelle,
+pas comme une garantie de représentativité.
+Dette introduite : aucune connue côté PULSAR VISUALIZER.
+Bloque la suite : nécessite un redéploiement du `dist/` buildé vers l'hébergement (Netlify) pour que
+le pont soit actif en production — fait manuellement par Aaron après cette étape, pas automatisé.
+
+## Étape 53 — hors roadmap : pont audio EN DIRECT (WebRTC) vers Beat Studio CDJ
+
+**Hors de docs/00a.** Retour d'Aaron sur l'Étape 52 : le pont fichier « capture un extrait puis
+relit » ne « bouge pas au rythme » de ce qu'il entend réellement dans Beat Studio — deux lectures
+indépendantes sur deux horloges différentes, pas un miroir en direct. But : un vrai flux audio
+continu, pour que le visuel réagisse exactement à ce qui joue, sans jamais relancer le beat.
+
+Contrainte dure confirmée par lecture du code avant toute décision : le moteur visuel existant
+(presets « Trap Dark » etc., `Transport`/`AudioEngine`/`StepContext`/`BehaviourEngine`/`Scene`,
+protégés par « Loi 1 » — rendu = fonction pure du temps) repose entièrement sur une analyse
+complète et différée du morceau (autocorrélation globale pour le tempo, DP sur la fonction de
+détection d'attaques complète pour la grille de battements, matrice d'auto-similarité globale pour
+la structure) — rien de tout ça n'est incrémental, donc inutilisable sur un flux dont la fin n'est
+pas connue. Déjà documenté comme non fait dans PULSAR (« Mode C », V3 future). Choix confirmé avec
+Aaron après un compromis proposé et refusé (capture répétée conservant les presets) : vrai WebRTC en
+direct, quitte à un visuel plus simple pendant le mode direct.
+
+Nouveau, additif, n'importe jamais dans le moteur existant :
+- `src/audio/LiveAudioSource.ts` (couche `audio`) : réception WebRTC côté réponse. `handleOffer(sdp)`
+  → `setRemoteDescription`/`createAnswer`/`setLocalDescription`, attend la collecte ICE (non-trickle,
+  bornée ~500 ms), retourne l'answer en objet simple `{type, sdp}` (un `RTCSessionDescription` natif
+  n'est pas clonable par `postMessage` — `DataCloneError` rencontré et corrigé à l'exécution, des
+  deux côtés du pont). `attachAnalysis()` branche un `AnalyserNode` sur le flux reçu, jamais sur
+  `ctx.destination` (Beat Studio joue déjà le son, un second chemin créerait un écho). Piège Chrome
+  rencontré et corrigé à l'exécution : un flux WebRTC distant connecté à un `AnalyserNode` via
+  `createMediaStreamSource()` seul ne produit AUCUNE donnée, même `connectionState:'connected'` et
+  octets RTP réellement reçus confirmés par `getStats()` — il faut AUSSI un élément `<audio>` (muet,
+  jamais ajouté au DOM) consommant le flux pour que le pipeline audio de Chrome s'active. Ne réutilise
+  pas `RealtimeProbe.ts` (explicitement « décorative », contrat différent).
+- `src/ui/live/LiveVisualPanel.ts` (couche `ui`) : `<canvas id="live-canvas">` dédié, propre boucle
+  `requestAnimationFrame`, dessin 2D brut (barres de fréquence radiales via `computeLogSpacedBinRanges`
+  réutilisée de `spectrumBands.ts`, anneau pulsant sur l'énergie, étiquette « EN DIRECT »). Passe par
+  une instance DÉDIÉE de `FlashLimiter` (garde anti-flash WCAG 2.3.1 même en direct), séparée de
+  celle du mode fichier pour ne pas mélanger temps musical et temps réel dans la même fenêtre de
+  débit.
+- `src/ui/App.ts` : le listener `message` existant (Étape 52) reçoit une branche pour
+  `pulsar:live-offer` — pas de second listener. `ontrack` attache l'analyse et démarre le panneau ;
+  `onconnectionstatechange` sur `closed`/`failed`/`disconnected` arrête le panneau — vraie source de
+  vérité pour la coupure, pas un message qui pourrait ne jamais arriver si l'iframe est retirée du
+  DOM. Aucune modification de `loop()`/`raf()`/`loadFile()`/tout ce qui touche au moteur existant.
+
+Côté Beat Studio CDJ (hors de ce dépôt, édition chirurgicale directe sur le fichier SOURCE) :
+nouveaux flags `_VIZ_LIVE_V1`/`_VIZ_LIVE_TIMEOUT_MS`, tap additif sur `_master` (même motif que
+`exportVideo()`), `RTCPeerConnection` sans serveur STUN/TURN (les deux pairs sont dans le même
+onglet — candidats hôtes suffisants, garde l'app hors-ligne), garde dédiée `_vizPc` distincte de
+`_exportInProgress` (un export WAV/vidéo ne doit pas être bloqué par le visualizer ouvert, et
+réciproquement).
+
+Vérifié en 6 étapes Playwright + `file://` distinctes (jamais de serveur HTTP pour le fichier Beat
+Studio — bug de rendu déjà documenté, sans rapport) : (1) référence — chemin fichier existant
+inchangé ; (2) signalisation + livraison du flux seule, `pc.getStats()` confirme des octets reçus,
+lecture Beat Studio jamais interrompue, fermeture ramène les deux `RTCPeerConnection` à `closed` ;
+(3) `getFrequencyData()`/`getEnergy()` varient réellement dans le temps (corrigé après le piège
+Chrome ci-dessus — figés à zéro avant le correctif) ; (4) rendu réel — deux captures d'écran à
+~700 ms d'écart, pixels différents confirmés ; (5) repli au premier échec — connexion simulée sans
+réponse jamais reçue, offre envoyée à +0,26 s, `_VIZ_LIVE_TIMEOUT_MS` (4 s) déclenche le repli sur
+`_sendCurrentBeatToVisualizer`, audio livré via `pulsar:load-audio` à +11 s (cohérent avec les
+7-11 s de capture réelle documentées), jamais d'écran vide, lecture Beat Studio jamais interrompue ;
+(6) cycle complet — ouvrir/fermer/rouvrir deux fois de suite (chaque cycle reconnecte proprement),
+régénérer un beat pendant que l'overlay reste ouvert (connexion vérifiée persistante : `bytesReceived`
+passe de 5001 à 13539 sans jamais quitter `connected`, donc pas de reconnexion), déclencher un
+export WAV réel pendant que le direct tourne (téléchargement confirmé, non bloqué, connexion en
+direct toujours `connected` après — la garde dédiée fonctionne dans les deux sens).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 672/672 verts (91/91 fichiers). `npm run test:arch` :
+1/1 — `layerOf()` classe `src/audio/LiveAudioSource.ts` en couche `audio` et
+`src/ui/live/LiveVisualPanel.ts` en couche `ui` par le seul premier segment du chemin, toutes deux
+déjà autorisées, aucune modification du tableau `ALLOWED_LAYERS` nécessaire. `npm run build` :
+succès, 168 modules, `index-DkyCcwSD.js` 321,43 ko (gzip 88,25 ko), 1,33 s.
+Deux bugs réels trouvés uniquement par exécution, aucun par lecture (voir ci-dessus : `DataCloneError`
+et l'analyse figée à zéro) — confirme une fois de plus que ce projet ne se vérifie pas à la lecture
+seule.
+Limites connues : sans serveur STUN/TURN, ce pont ne fonctionnerait pas si les deux pages étaient un
+jour servies depuis des machines différentes (hors périmètre actuel — même onglet/même machine
+uniquement). Une coupure en cours de session n'affiche qu'un message, sans retentative automatique
+(choix confirmé avec Aaron).
+Dette introduite : aucune connue côté PULSAR VISUALIZER.
+Bloque la suite : nécessite un redéploiement du `dist/` buildé vers l'hébergement (Netlify) pour que
+le pont EN DIRECT soit actif en production — fait manuellement par Aaron après cette étape, pas
+automatisé (même geste que l'Étape 52 : glisser-déposer `dist/` sur le site Netlify existant).

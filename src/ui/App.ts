@@ -33,6 +33,8 @@ import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type Preset
 import type { MacroName } from '../presets/schema';
 import { applyLayerMacrosToScene } from '../presets/layerMacros';
 import { importTrack, type ImportedTrack } from './pipeline';
+import { LiveAudioSource } from '../audio/LiveAudioSource';
+import { LiveVisualPanel } from './live/LiveVisualPanel';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
 import { computeWaveformPeaks } from '../analysis/waveformPeaks';
@@ -1159,6 +1161,84 @@ if (import.meta.env.DEV) {
     loadDemo: () => void loadDemo(),
     get t() {
       return simT;
+    },
+  };
+}
+
+/**
+ * Étape 52 (hors roadmap) : pont audio depuis un hôte parent qui embarque ce
+ * visualizer dans une iframe (ex. un séquenceur qui veut afficher son beat
+ * courant sans que l'utilisateur ait à ré-importer un fichier). Le parent
+ * poste `{ type: 'pulsar:load-audio', buffer: ArrayBuffer, filename?: string }`
+ * — converti en `File` puis passé tel quel à `loadFile()`, le MÊME chemin que
+ * l'import glisser-déposer/sélecteur de fichier : aucune nouvelle logique
+ * d'analyse/décodage. N'écoute qu'en contexte iframe (`window !== window.top`)
+ * pour ne rien changer à l'usage autonome de l'application.
+ *
+ * Étape 53 (hors roadmap) : `pulsar:live-offer` — pont audio EN DIRECT (WebRTC)
+ * sur le MÊME listener plutôt qu'un second `addEventListener`. `LiveAudioSource`
+ * répond à l'offre, puis `pc.ontrack` branche l'analyse et démarre
+ * `LiveVisualPanel` — un chemin de rendu entièrement séparé du moteur
+ * StepContext/BehaviourEngine/Scene (Loi 1), jamais touché ici.
+ * `event.source === window.parent` : seule vérification faite, cohérente avec
+ * `pulsar:load-audio` ci-dessus — le parent peut être `file://`
+ * (`event.origin === "null"`), donc pas de vérification stricte d'origine.
+ */
+let liveAudioSource: LiveAudioSource | null = null;
+let liveCtx: AudioContext | null = null;
+let liveVisualPanel: LiveVisualPanel | null = null;
+
+if (window !== window.top) {
+  window.addEventListener('message', (event) => {
+    if (event.source !== window.parent) return;
+    const data = event.data as { type?: unknown; buffer?: unknown; filename?: unknown; sdp?: unknown } | null;
+    if (!data) return;
+
+    if (data.type === 'pulsar:load-audio' && data.buffer instanceof ArrayBuffer) {
+      const filename = typeof data.filename === 'string' ? data.filename : 'beat.wav';
+      void loadFile(new File([data.buffer], filename, { type: 'audio/wav' }));
+      return;
+    }
+
+    if (data.type === 'pulsar:live-offer' && data.sdp) {
+      void (async () => {
+        liveAudioSource?.dispose();
+        liveVisualPanel?.stop();
+        const wrap = document.querySelector<HTMLElement>('#preview-wrap');
+        if (!wrap) return;
+        if (!liveVisualPanel) liveVisualPanel = new LiveVisualPanel(wrap);
+        const source = new LiveAudioSource({
+          onConnectionStateChange: (state) => {
+            if (state === 'closed' || state === 'failed' || state === 'disconnected') {
+              liveVisualPanel?.stop();
+            }
+          },
+          onTrack: (stream) => {
+            if (!liveCtx) liveCtx = new AudioContext();
+            source.attachAnalysis(liveCtx, stream);
+            liveVisualPanel?.start(source, liveCtx.sampleRate, 1024);
+          },
+        });
+        liveAudioSource = source;
+        const answer = await source.handleOffer(data.sdp as RTCSessionDescriptionInit);
+        (event.source as Window).postMessage({ type: 'pulsar:live-answer', sdp: answer }, '*');
+      })();
+      return;
+    }
+  });
+}
+
+/** Dev uniquement — accès direct pour la vérification Playwright du pont en direct (Étape 53). */
+if (import.meta.env.DEV) {
+  (window as unknown as { __pulsarLiveDebug: unknown }).__pulsarLiveDebug = {
+    get source() {
+      return liveAudioSource;
+    },
+    get panelActive() {
+      return liveVisualPanel?.active ?? false;
+    },
+    get ctxState() {
+      return liveCtx?.state ?? null;
     },
   };
 }
