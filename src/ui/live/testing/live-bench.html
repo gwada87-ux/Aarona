@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Banc d'essai - moteur d'analyse live</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08080e;
+        color: #e6e1ff;
+        font: 13px/1.5 'IBM Plex Mono', ui-monospace, monospace;
+        padding: 16px;
+      }
+      h1 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+      .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+      label { display: flex; gap: 6px; align-items: center; }
+      input[type='number'] { width: 70px; background: #14141f; color: inherit; border: 1px solid #3a3a52; padding: 3px 6px; }
+      button { background: #241f3d; color: inherit; border: 1px solid #5b4a9c; padding: 5px 14px; cursor: pointer; }
+      button:hover { background: #322a52; }
+      canvas { background: #0b0b12; border: 1px solid #2a2a3c; display: block; }
+      pre { background: #101018; border: 1px solid #2a2a3c; padding: 10px; margin: 12px 0 0; white-space: pre; }
+      .note { color: #8a86a8; max-width: 720px; }
+    </style>
+  </head>
+  <body>
+    <h1>Banc d'essai &mdash; moteur d'analyse live (etape 1)</h1>
+    <div class="row">
+      <label>BPM <input id="bpm" type="number" value="128" min="60" max="200" step="1" /></label>
+      <label>gigue % <input id="jitter" type="number" value="0" min="0" max="10" step="0.5" /></label>
+      <label><input id="audible" type="checkbox" checked /> son audible</label>
+      <button id="start">demarrer</button>
+      <button id="stop">arreter</button>
+    </div>
+    <canvas id="view" width="640" height="300"></canvas>
+    <pre id="readout">arrete</pre>
+    <p class="note">
+      Fleches haut / bas : reglage de <code>userTrimMs</code>. La pastille change de couleur sur le
+      premier temps de chaque mesure. Pour mesurer la latence son &rarr; image reelle, filmer l'ecran
+      et le son a 240 fps sur un BPM connu : c'est le seul point de &sect;8 qui ne peut pas etre
+      automatise.
+    </p>
+    <script type="module" src="./live-bench.ts"></script>
+  </body>
+</html>

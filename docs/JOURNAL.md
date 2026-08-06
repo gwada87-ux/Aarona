@@ -2744,3 +2744,63 @@ Dette introduite : aucune connue côté PULSAR VISUALIZER.
 Bloque la suite : nécessite un redéploiement du `dist/` buildé vers l'hébergement (Netlify) pour que
 le pont EN DIRECT soit actif en production — fait manuellement par Aaron après cette étape, pas
 automatisé (même geste que l'Étape 52 : glisser-déposer `dist/` sur le site Netlify existant).
+
+## Étape 54 — hors roadmap : moteur d'analyse temps réel pour le mode EN DIRECT (étape 1/2)
+
+**Hors de docs/00a.** Suite de l'Étape 53 : Aaron veut un visuel de meilleure qualité pour le mode
+direct. Premier des deux volets d'un « PROMPT-live-visual-upgrade v2 » externe : le moteur d'analyse
+temps réel (tempo, phase de battement, downbeat) qui alimentera le rendu. **Le rendu lui-même n'est
+pas touché dans cette étape** — pipeline visuel (palettes OKLCH, scènes, director, overlays) reporté
+à l'étape 2, journalisé par avance dans `src/ui/live/NOTES.md` comme hors périmètre ici.
+
+Nouveau, sous `src/ui/live/` (choix assumé : pas de `live/` à la racine comme suggéré par le prompt
+externe, pour rester dans le périmètre surveillé par `tests/unit/architecture.test.ts` qui ne
+parcourt que `src/`) : `LiveConfig.ts` (constantes de réglage), `audio/bins.ts` (conversions Hz/bin
+dérivées de `sampleRate`, aucune fréquence en dur), `audio/AnalysisGrid.ts` (rééchantillonnage à
+50 Hz), `audio/AudioFeatures.ts` (bandes spectrales, centroïde, platitude, AGC), `audio/OnsetDetector.ts`
+(détection d'attaques par blanchiment adaptatif + seuil adaptatif), `audio/TempoEstimator.ts`
+(autocorrélation avec recherche fractionnaire), `audio/BeatClock.ts` (PLL de phase), `audio/
+LiveAnalysisEngine.ts` (machine à états BOOT/IDLE/REACTIVE/LOCKED), `DebugHud.ts` (overlay de debug),
+`testing/` (banc d'essai synthétique sans navigateur). Ajouts uniquement (liste blanche respectée)
+dans `src/audio/LiveAudioSource.ts` (second `AnalyserNode`, accès aux données flottantes) et
+`src/ui/App.ts` (signature de `start()` étendue en param optionnel, accesseurs de debug) — aucune
+signature existante supprimée.
+
+**Sept défauts trouvés par l'exécution sur signaux synthétiques, aucun par la lecture** (documentés
+en détail dans `NOTES.md`) : seuil de détection empoisonné au démarrage (variance nulle → seuil
+explosif) ; recherche d'harmoniques sur des lags entiers alors que le vrai pic est fractionnaire
+(verrouillait à 63,8 BPM au lieu de 128) ; interpolation linéaire de l'autocorrélation qui renvoie
+toujours un nœud entier (5,5 BPM de quantum) ; absence d'acquisition de phase initiale (le PLL
+rejetait 77 kicks sur 77 et restait bloqué) ; quantification des instants d'onsets au pas de grille
+(biais systématique sur signal périodique) ; flux spectral calculé par trame plutôt qu'intégré sur le
+pas de grille (127,9 BPM à 60 fps contre 63,9 à 120 fps sur le même signal — dépendait du framerate) ;
+hésitation d'octave confondue avec un changement de morceau (perte du tempo toutes les 8 s). Chacun
+corrigé et verrouillé par un test dédié.
+
+Deux écarts assumés par rapport au prompt externe, documentés avec dérivation complète dans
+`NOTES.md` : le signe de la correction de phase du PLL (le prompt l'avait inversé, ce qui aurait fait
+diverger l'horloge — dérivation dans l'en-tête de `BeatClock.ts`) ; une double compensation du même
+retard entre la rétro-datation des onsets et le calcul de `syncOffsetMs` (~43 ms en trop), neutralisée
+par un drapeau `sync.onsetBackdatingApplied` réglable, avec les cinq termes affichés séparément au HUD
+pour vérification à l'œil — le réglage fin final (`sync.userTrimMs`) reste à trancher par Aaron à
+l'oreille/à l'œil, pas mesurable en isolation.
+
+Mesures (`npx vitest run tests/unit/live`, 22 tests) : verrouillage à 128 BPM en ±0,34 BPM à t=4s,
+phase RMS 5,9 ms sur 60 s ; comportement correct testé à 90/140/174 BPM, avec gigue 2 %, sur rampe de
+tempo, en silence, et sur changement de morceau. Vérifié aussi au navigateur (`live-bench.html` via
+`npm run dev`, click track synthétisé par de vrais `OscillatorNode`/`AnalyserNode`) : état LOCKED,
+tempo 127,96 BPM, aucune erreur console.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 694/694 verts (93/93 fichiers, +22 par rapport à
+l'Étape 53). `npm run test:arch` : 1/1. `npm run build` : succès, 176 modules, `index-Ctfq0icd.js`
+367,45 ko (gzip 101,55 ko).
+Limites connues : le rendu visuel n'a pas encore changé (étape 2 requise pour que ce moteur soit
+visible à l'écran) ; la confiance du vote de downbeat reste basse sur un motif de test simpliste
+(pas de ligne de basse) — à réévaluer sur de la vraie musique ; la latence son→image réelle n'est pas
+mesurée en conditions réelles (nécessiterait un filmage écran+son à 240 fps), le réglage `userTrimMs`
+au HUD est prévu pour cette calibration manuelle.
+Dette introduite : aucune connue.
+Bloque la suite : étape 2 (pipeline de rendu) nécessaire pour que ce moteur d'analyse pilote
+effectivement le visuel. Redéploiement Netlify fait après cette étape malgré l'absence de changement
+visuel visible, pour garder le dépôt distant et la production synchronisés avec le code réellement
+en place.

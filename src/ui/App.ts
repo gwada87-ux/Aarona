@@ -1215,8 +1215,13 @@ if (window !== window.top) {
           },
           onTrack: (stream) => {
             if (!liveCtx) liveCtx = new AudioContext();
+            // Tailles de FFT et plage dB : defauts de `LiveAudioSource`
+            // (2048 / 8192, lissage 0, -90/0 dB), alignes sur `LiveConfig`.
             source.attachAnalysis(liveCtx, stream);
-            liveVisualPanel?.start(source, liveCtx.sampleRate, 1024);
+            liveVisualPanel?.start(source);
+            // APRÈS `start()` : celui-ci commence par `stop()`, qui relâche la
+            // référence au contexte audio (il appartient à App, pas au panneau).
+            liveVisualPanel?.attachAudioContext(liveCtx);
           },
         });
         liveAudioSource = source;
@@ -1239,6 +1244,13 @@ if (import.meta.env.DEV) {
     },
     get ctxState() {
       return liveCtx?.state ?? null;
+    },
+    /** Étape 1 de la refonte live : état du moteur d'analyse et tempo verrouillé. */
+    get engineState() {
+      return liveVisualPanel?.engineState ?? 'STOPPED';
+    },
+    get bpm() {
+      return liveVisualPanel?.bpm ?? 0;
     },
   };
 }

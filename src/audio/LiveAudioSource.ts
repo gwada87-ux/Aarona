@@ -16,12 +16,43 @@ export interface LiveAudioSourceCallbacks {
   readonly onTrack: (stream: MediaStream) => void;
 }
 
+/**
+ * Reglages d'analyse du mode direct. Passes en parametres et non lus depuis
+ * `ui/live/LiveConfig` : la couche `audio` n'a pas le droit d'importer `ui`
+ * (docs/02, `tests/unit/architecture.test.ts`).
+ */
+export interface LiveAnalysisOptions {
+  /** FFT de l'analyseur d'ONSETS. Petit = reactif. */
+  readonly fftSizeOnset?: number;
+  /** FFT de l'analyseur de NIVEAUX. Grand = bandes graves resolues. */
+  readonly fftSizeBands?: number;
+  /** Lissage interne. 0 : tout le lissage est fait par bande et par usage cote analyse. */
+  readonly smoothingTimeConstant?: number;
+  readonly minDecibels?: number;
+  readonly maxDecibels?: number;
+}
+
+const DEFAULT_ANALYSIS: Required<LiveAnalysisOptions> = {
+  fftSizeOnset: 2048,
+  fftSizeBands: 8192,
+  smoothingTimeConstant: 0,
+  minDecibels: -90,
+  maxDecibels: 0,
+};
+
 export class LiveAudioSource {
   private readonly pc: RTCPeerConnection;
+  /** Analyseur d'ONSETS. Reste `this.analyser` : c'est lui que servent les accesseurs octet historiques. */
   private analyser: AnalyserNode | null = null;
+  /** Second analyseur, dedie aux niveaux de bandes. */
+  private bandsAnalyser: AnalyserNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private freqData: Uint8Array<ArrayBuffer> | null = null;
   private timeData: Uint8Array<ArrayBuffer> | null = null;
+  private floatFreqData: Float32Array<ArrayBuffer> | null = null;
+  private floatBandsData: Float32Array<ArrayBuffer> | null = null;
+  private floatTimeData: Float32Array<ArrayBuffer> | null = null;
+  private sampleRate = 0;
   // Piège Chrome confirmé à l'exécution (Étape 53) : un flux WebRTC distant
   // connecté à un AnalyserNode via createMediaStreamSource() seul ne produit
   // AUCUNE donnée (getByteFrequencyData/getByteTimeDomainData figés à zéro),
@@ -79,7 +110,11 @@ export class LiveAudioSource {
    * Branche l'analyse sur le flux reçu. Ne connecte JAMAIS `ctx.destination` :
    * l'hôte joue déjà ce son lui-même, un second chemin créerait un écho.
    */
-  attachAnalysis(ctx: AudioContext, stream: MediaStream, fftSize = 1024): void {
+  attachAnalysis(ctx: AudioContext, stream: MediaStream, options: LiveAnalysisOptions | number = {}): void {
+    const opts: Required<LiveAnalysisOptions> = {
+      ...DEFAULT_ANALYSIS,
+      ...(typeof options === 'number' ? { fftSizeOnset: options } : options),
+    };
     this.detachAnalysis();
     this.wakeupAudioEl = document.createElement('audio');
     this.wakeupAudioEl.muted = true;
@@ -90,22 +125,43 @@ export class LiveAudioSource {
       // pas d'erreur à propager, le mode direct dégrade proprement (aucun
       // impact sur le reste de l'appli).
     });
+    this.sampleRate = ctx.sampleRate;
     this.sourceNode = ctx.createMediaStreamSource(stream);
+
     this.analyser = ctx.createAnalyser();
-    this.analyser.fftSize = fftSize;
-    this.analyser.smoothingTimeConstant = 0.6;
+    this.analyser.fftSize = opts.fftSizeOnset;
+    this.analyser.smoothingTimeConstant = opts.smoothingTimeConstant;
+    this.analyser.minDecibels = opts.minDecibels;
+    this.analyser.maxDecibels = opts.maxDecibels;
     this.sourceNode.connect(this.analyser);
+
+    this.bandsAnalyser = ctx.createAnalyser();
+    this.bandsAnalyser.fftSize = opts.fftSizeBands;
+    this.bandsAnalyser.smoothingTimeConstant = opts.smoothingTimeConstant;
+    this.bandsAnalyser.minDecibels = opts.minDecibels;
+    this.bandsAnalyser.maxDecibels = opts.maxDecibels;
+    this.sourceNode.connect(this.bandsAnalyser);
+
     this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
     this.timeData = new Uint8Array(this.analyser.fftSize);
+    this.floatFreqData = new Float32Array(this.analyser.frequencyBinCount);
+    this.floatBandsData = new Float32Array(this.bandsAnalyser.frequencyBinCount);
+    this.floatTimeData = new Float32Array(this.analyser.fftSize);
   }
 
   private detachAnalysis(): void {
     this.sourceNode?.disconnect();
     this.analyser?.disconnect();
+    this.bandsAnalyser?.disconnect();
     this.sourceNode = null;
     this.analyser = null;
+    this.bandsAnalyser = null;
     this.freqData = null;
     this.timeData = null;
+    this.floatFreqData = null;
+    this.floatBandsData = null;
+    this.floatTimeData = null;
+    this.sampleRate = 0;
     if (this.wakeupAudioEl) {
       this.wakeupAudioEl.pause();
       this.wakeupAudioEl.srcObject = null;
@@ -129,6 +185,57 @@ export class LiveAudioSource {
       sum += Math.abs((this.timeData[i] ?? 128) - 128);
     }
     return sum / this.timeData.length / 128;
+  }
+
+  /**
+   * Spectre de l'analyseur d'ONSETS, en dBFS flottants.
+   *
+   * MUST §2.0 : c'est la version flottante qu'il faut consommer, pas les
+   * octets. Un octet couvre `[minDecibels, maxDecibels]` sur 256 pas, et sur
+   * un master moderne la difference entre deux trames devient nulle dans les
+   * graves. A appeler UNE SEULE FOIS par trame, le buffer etant partage.
+   */
+  getFloatFrequencyData(): Float32Array<ArrayBuffer> | null {
+    if (!this.analyser || !this.floatFreqData) return null;
+    this.analyser.getFloatFrequencyData(this.floatFreqData);
+    return this.floatFreqData;
+  }
+
+  /** Spectre de l'analyseur de NIVEAUX (8192), en dBFS flottants. Un seul appel par trame. */
+  getFloatBandsFrequencyData(): Float32Array<ArrayBuffer> | null {
+    if (!this.bandsAnalyser || !this.floatBandsData) return null;
+    this.bandsAnalyser.getFloatFrequencyData(this.floatBandsData);
+    return this.floatBandsData;
+  }
+
+  /**
+   * Bloc temporel flottant. La version octet est en 8 bits, soit un plancher
+   * de l'ordre de -42 dBFS : inutilisable sur un passage doux.
+   */
+  getFloatTimeDomainData(): Float32Array<ArrayBuffer> | null {
+    if (!this.analyser || !this.floatTimeData) return null;
+    this.analyser.getFloatTimeDomainData(this.floatTimeData);
+    return this.floatTimeData;
+  }
+
+  /** Frequence d'echantillonnage reelle de l'`AudioContext`. 0 si l'analyse n'est pas branchee. */
+  getSampleRate(): number {
+    return this.sampleRate;
+  }
+
+  /** Taille de FFT de l'analyseur d'onsets. */
+  get fftSizeOnset(): number {
+    return this.analyser?.fftSize ?? 0;
+  }
+
+  /** Taille de FFT de l'analyseur de niveaux. */
+  get fftSizeBands(): number {
+    return this.bandsAnalyser?.fftSize ?? 0;
+  }
+
+  /** L'analyse est-elle branchee ? */
+  get analysisReady(): boolean {
+    return this.analyser !== null && this.bandsAnalyser !== null;
   }
 
   get frequencyBinCount(): number {

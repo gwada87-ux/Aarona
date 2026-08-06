@@ -2,6 +2,7 @@ node_modules/
 dist/
 .vite/
 coverage/
+.netlify/
 
 # Destination des « suppressions » de l'agent de codage.
 # Rien n'est jamais supprimé : tout y est déplacé, et l'utilisateur décide.
