@@ -1,4 +1,5 @@
 import { clamp } from '../../core/math/clamp';
+import { easeInQuad } from '../../core/math/easing';
 import type { MusicTimeline } from '../../music/MusicTimeline';
 import type { EventType } from '../../music/pmdi';
 
@@ -17,10 +18,14 @@ export type AnticipationCurve = 'linear' | 'easeInQuad';
  * Uniquement les deux courbes attestées dans les docs (`linear` en exemple
  * docs/06, `easeInQuad` dans la table de câblage docs/07) — pas de
  * catalogue de courbes inventé sans plus de spécification.
+ *
+ * `easeInQuad` vient de `core/math/easing` depuis le chantier 2 : la courbe y
+ * était redéfinie sur place, et le module partagé existe précisément pour que
+ * deux endroits du moteur n'aient pas chacun leur version d'une même courbe.
  */
 const CURVES: Readonly<Record<AnticipationCurve, (x: number) => number>> = {
   linear: (x) => x,
-  easeInQuad: (x) => x * x,
+  easeInQuad,
 };
 
 export class Anticipation {

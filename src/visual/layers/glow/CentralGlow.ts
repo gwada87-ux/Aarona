@@ -1,4 +1,4 @@
-import type { Renderer, SpriteHandle } from '../../../render/Renderer';
+import type { Renderer, SpriteHandle, SpriteTransform } from '../../../render/Renderer';
 import type { Viewport } from '../../../render/Viewport';
 import type { StepContext } from '../../../music/StepContext';
 import type { VisualSignals } from '../../../behaviour/BehaviourEngine';
@@ -8,6 +8,15 @@ import type { Color } from '../../../render/Renderer';
 const SPRITE_SIZE = 128; // docs/07 §"Le glow : jamais shadowBlur" — 128×128, exemple donné
 const DEFAULT_GLOW_DIAMETER = 0.5; // taille de rendu, unités normalisées — non spécifié précisément
 const DEFAULT_INTENSITY_MUL = 1;
+/** Gonflement du halo au sommet d'une montée, en fraction du diamètre. */
+const TENSION_SWELL = 0.55;
+/**
+ * Dérive lente du halo, en unités normalisées. Petite mais non nulle : §8
+ * refuse qu'un élément reste rigoureusement centré, et un halo parfaitement
+ * immobile au milieu du cadre est la signature la plus reconnaissable d'un
+ * visualiseur bas de gamme.
+ */
+const LFO_DRIFT = 0.045;
 
 /**
  * Glow du style Pulse (docs/07) : « halo central, intensité = drive, teinte
@@ -32,6 +41,10 @@ export class CentralGlow implements Layer {
   private hotSprite!: SpriteHandle;
   private drive = 0;
   private brightness = 0;
+  private tension = 0;
+  private driftX = 0;
+  private driftY = 0;
+  private readonly transform: SpriteTransform[] = [{ x: 0, y: 0, scale: 1, alpha: 1 }];
 
   init(ctx: LayerInitContext): void {
     const cool = ctx.palette.temperature(0);
@@ -43,21 +56,40 @@ export class CentralGlow implements Layer {
   update(_step: StepContext, signals: VisualSignals): void {
     this.drive = signals.drive;
     this.brightness = signals.brightness;
+    this.tension = signals.tension;
+    // Deux LFO en QUADRATURE pour une dérive elliptique. Utiliser deux fois le
+    // même donnerait une diagonale, qui se lit comme un glissement et non comme
+    // une flottaison.
+    this.driftX = (signals.lfoC - 0.5) * 2 * LFO_DRIFT;
+    this.driftY = (signals.lfoB - 0.5) * 2 * LFO_DRIFT * 0.6;
   }
 
   draw(renderer: Renderer, _viewport: Viewport): void {
     const intensityRaw = this.params.intensityMul;
     const intensityMul = typeof intensityRaw === 'number' ? intensityRaw : DEFAULT_INTENSITY_MUL;
     const diameterRaw = this.params.diameter;
-    const diameter = typeof diameterRaw === 'number' ? diameterRaw : DEFAULT_GLOW_DIAMETER;
+    const baseDiameter = typeof diameterRaw === 'number' ? diameterRaw : DEFAULT_GLOW_DIAMETER;
+    // ANTICIPATION du drop sur le DIAMÈTRE, pas sur l'intensité : `drive` tient
+    // déjà l'intensité, et empiler les deux violerait « un instrument, un
+    // canal ». Le halo enfle sans s'éclaircir — le cadre se remplit avant que
+    // quoi que ce soit n'arrive, ce qui est exactement la sensation cherchée.
+    const diameter = baseDiameter * (1 + this.tension * TENSION_SWELL);
 
     const coolAlpha = Math.min(1, (1 - this.brightness) * this.drive * intensityMul);
     const hotAlpha = Math.min(1, this.brightness * this.drive * intensityMul);
+    // Tableaux de transformation MUTÉS en place : un littéral par image serait
+    // une allocation dans la boucle de rendu, interdite par CLAUDE.md.
+    const t = this.transform[0]!;
+    t.x = this.driftX;
+    t.y = this.driftY;
+    t.scale = diameter;
     if (coolAlpha > 0.001) {
-      renderer.drawSprite(this.coolSprite, [{ x: 0, y: 0, scale: diameter, alpha: coolAlpha }], 1);
+      t.alpha = coolAlpha;
+      renderer.drawSprite(this.coolSprite, this.transform, 1);
     }
     if (hotAlpha > 0.001) {
-      renderer.drawSprite(this.hotSprite, [{ x: 0, y: 0, scale: diameter, alpha: hotAlpha }], 1);
+      t.alpha = hotAlpha;
+      renderer.drawSprite(this.hotSprite, this.transform, 1);
     }
   }
 

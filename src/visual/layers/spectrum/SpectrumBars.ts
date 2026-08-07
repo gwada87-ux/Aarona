@@ -29,6 +29,24 @@ const DEFAULT_REFLECTION_ALPHA = 0.25; // docs/07 : « réflexion inférieure at
 const DEFAULT_GLOW_ALPHA_MUL = 1;
 const DEFAULT_PEAK_CHAOS_JITTER = 0;
 const GLOW_SPRITE_SIZE = 48;
+/** Soulèvement de la ligne de base sur un kick, en unités normalisées. */
+const IMPACT_BASELINE_LIFT = 0.03;
+/** Gain d'échelle verticale au sommet d'une montée. */
+const TENSION_HEIGHT_GAIN = 0.25;
+/**
+ * Poussée verticale des chapeaux de pics par le charley, en unités/s².
+ *
+ * Effet volontairement DISCRET, et insuffisant à lui seul : quand les barres
+ * montent, le chapeau est ré-épinglé à leur hauteur à chaque pas et la poussée
+ * disparaît. C'est pourquoi le charley agit AUSSI sur la taille du halo
+ * ci-dessous — mesuré, pas supposé : avec la seule poussée sur les chapeaux,
+ * couper le charley ne changeait pas l'image du style.
+ */
+const TICK_PEAK_KICK = 2.2;
+/** Grossissement du halo par le charley — le canal réellement visible. */
+const TICK_GLOW_SCALE = 0.45;
+/** Profondeur du scintillement du halo piloté par LFO, en fraction. */
+const LFO_GLOW_FLICKER = 0.3;
 
 /**
  * Spectrum du style Spectrum Pro (docs/07) : « 64 bandes en échelle
@@ -88,6 +106,10 @@ export class SpectrumBars implements Layer {
   private groupedPeakHeights = new Float32Array(0);
   private groupedPeakVelocities = new Float32Array(0);
   private groupedGlowTransforms: SpriteTransform[] = [];
+  private baselineLift = 0;
+  private heightScale = 1;
+  private glowFlicker = 1;
+  private glowScale = 1;
 
   init(ctx: LayerInitContext): void {
     this.palette = ctx.palette;
@@ -113,18 +135,41 @@ export class SpectrumBars implements Layer {
     return typeof v === 'number' ? v : fallback;
   }
 
-  update(step: StepContext, _signals: VisualSignals): void {
+  /**
+   * Chantier 2 : cette couche ne lisait AUCUN signal — elle allait directement
+   * chercher `step.bands` / `step.spectrum`. C'est légitime pour la FORME des
+   * barres (c'est un analyseur de spectre, sa source est le spectre), mais ça
+   * rendait tout le style `spectrum-pro` sourd à la table de câblage : modifier
+   * le `mapping` du preset lofi ne pouvait littéralement rien changer.
+   *
+   * Trois signaux sont branchés sur des paramètres qui ne sont PAS la hauteur
+   * des barres, pour ne pas fausser la lecture du spectre :
+   * `impact` sur le soulèvement de la ligne de base, `tick` sur l'à-coup des
+   * chapeaux de pics, `tension` sur l'échelle verticale d'ensemble.
+   */
+  update(step: StepContext, signals: VisualSignals): void {
     const riseTau = this.param('riseTau', DEFAULT_BAR_RISE_TAU);
     const fallTau = this.param('fallTau', DEFAULT_BAR_FALL_TAU);
     const peakChaosJitter = this.param('peakChaosJitter', DEFAULT_PEAK_CHAOS_JITTER);
     const bandCount = this.param('bandCount', 0);
 
+    this.baselineLift = signals.impact * IMPACT_BASELINE_LIFT;
+    this.heightScale = 1 + signals.tension * TENSION_HEIGHT_GAIN;
+    // Scintillement échantillonné-bloqué du halo : une valeur tenue par demi-
+    // mesure. C'est un LFO `random`, donc déterministe — pas un tirage par
+    // image, qui grouillerait et violerait la Loi 1.
+    this.glowFlicker = 1 - LFO_GLOW_FLICKER + signals.lfoD * LFO_GLOW_FLICKER;
+    this.glowScale = 1 + signals.tick * TICK_GLOW_SCALE;
+    // Le CHARLEY relance les chapeaux de pics vers le haut. Canal propre : la
+    // hauteur des barres reste au spectre, seuls les chapeaux réagissent.
+    const tickKick = signals.tick * TICK_PEAK_KICK;
+
     if (bandCount > 0) {
       const n = this.ensureGroupedCapacity(bandCount);
       const grouped = groupBinsIntoBars(step.spectrum, n);
-      this.updateBars(n, (i) => grouped[i]!, this.groupedHeights, this.groupedPeakHeights, this.groupedPeakVelocities, step, riseTau, fallTau, peakChaosJitter);
+      this.updateBars(n, (i) => grouped[i]!, this.groupedHeights, this.groupedPeakHeights, this.groupedPeakVelocities, step, riseTau, fallTau, peakChaosJitter, tickKick);
     } else {
-      this.updateBars(BAND_COUNT, (i) => step.bands[BAND_IDS[i]!], this.heights, this.peakHeights, this.peakVelocities, step, riseTau, fallTau, peakChaosJitter);
+      this.updateBars(BAND_COUNT, (i) => step.bands[BAND_IDS[i]!], this.heights, this.peakHeights, this.peakVelocities, step, riseTau, fallTau, peakChaosJitter, tickKick);
     }
   }
 
@@ -139,12 +184,15 @@ export class SpectrumBars implements Layer {
     riseTau: number,
     fallTau: number,
     peakChaosJitter: number,
+    tickKick: number,
   ): void {
     for (let i = 0; i < count; i++) {
       const target = source(i);
       const tau = target > heights[i]! ? riseTau : fallTau;
       heights[i]! += (target - heights[i]!) * (1 - Math.exp(-step.dt / tau));
 
+      // Le charley pousse le chapeau vers le haut (vélocité négative = montée).
+      if (tickKick > 0) peakVelocities[i]! -= tickKick * step.dt;
       peakVelocities[i]! += PEAK_GRAVITY * step.dt;
       peakHeights[i]! -= peakVelocities[i]! * step.dt;
       if (peakHeights[i]! < 0) peakHeights[i] = 0;
@@ -214,24 +262,33 @@ export class SpectrumBars implements Layer {
     const barColor: Color = this.palette.primary;
     const reflectionColor: Color = { ...barColor, a: barColor.a * reflectionAlpha };
 
+    // Le KICK soulève la ligne de base, l'ANTICIPATION étire l'échelle : deux
+    // canaux qui déplacent les barres sans toucher à leur hauteur relative, donc
+    // sans mentir sur le spectre.
+    const baseline = BASELINE + this.baselineLift;
+    const maxHeight = MAX_HEIGHT * this.heightScale;
+
     let cursor = left;
     for (let i = 0; i < count; i++) {
       const slotWidth = widthOf(i);
       const width = slotWidth - gap;
-      const height = heights[i]! * MAX_HEIGHT;
+      const height = heights[i]! * maxHeight;
       const cx = cursor + width / 2;
 
-      this.drawBar(renderer, cx, BASELINE, width, height, barColor);
-      this.drawBar(renderer, cx, BASELINE, width, -height * (1 - reflectionAlpha), reflectionColor);
+      this.drawBar(renderer, cx, baseline, width, height, barColor);
+      this.drawBar(renderer, cx, baseline, width, -height * (1 - reflectionAlpha), reflectionColor);
 
-      const peakY = BASELINE + peakHeights[i]! * MAX_HEIGHT;
+      const peakY = baseline + peakHeights[i]! * maxHeight;
       this.drawBar(renderer, cx, peakY, width, PEAK_HEIGHT, barColor);
 
       const t = glowTransforms[i]!;
       t.x = cx;
-      t.y = BASELINE + height;
-      t.scale = 0.12 + heights[i]! * 0.18;
-      t.alpha = Math.min(1, heights[i]! * 0.5 * glowAlphaMul);
+      t.y = baseline + height;
+      // Parenthèses nécessaires : sans elles, seul le terme dépendant de la
+      // hauteur serait mis à l'échelle, et une barre au repos ne réagirait pas
+      // du tout au charley.
+      t.scale = (0.12 + heights[i]! * 0.18) * this.glowScale;
+      t.alpha = Math.min(1, heights[i]! * 0.5 * glowAlphaMul * this.glowFlicker);
 
       cursor += slotWidth;
     }

@@ -9,6 +9,7 @@ import type { MusicTimeline } from '../music/MusicTimeline';
 import type { StepContext } from '../music/StepContext';
 import { resolve, type ResolvedMapping } from './mapping/resolve';
 import type { MappingSchema } from './mapping/MappingSchema';
+import { evaluateLfo } from './signals/Lfo';
 
 /**
  * Sous-ensemble de docs/03 (~20 valeurs prévues, `// …`) : les 11 signaux
@@ -30,6 +31,19 @@ export interface VisualSignals {
   readonly pulse: number;
   /** idem, sur la mesure. */
   readonly barPulse: number;
+  /**
+   * Quatre LFO verrouillés au tempo (§7.1, chantier 2). Configurables par la
+   * table de câblage sous les noms `lfoA`..`lfoD`, valeurs 0..1.
+   *
+   * Ils ne portent aucune information musicale : ce sont des mouvements. Leur
+   * rôle est de faire vivre l'image ENTRE les frappes, là où toutes les autres
+   * familles retombent au repos — c'est ce qui distingue une image qui respire
+   * d'une image qui clignote.
+   */
+  readonly lfoA: number;
+  readonly lfoB: number;
+  readonly lfoC: number;
+  readonly lfoD: number;
 }
 
 function pulseFromPhase(phase: number): number {
@@ -97,6 +111,15 @@ export class BehaviourEngine {
       return entry ? entry.primitive.valueFrom(this.timeline, entry.eventType, step.t) : 0;
     };
 
+    // Position musicale CONTINUE en mesures. C'est elle, et non `step.t`, qui
+    // verrouille les LFO au tempo : un morceau à 90 BPM et un morceau à 140 BPM
+    // font boucler un LFO « 2 mesures » en deux mesures dans les deux cas.
+    const barPosition = step.bar.index + step.bar.phase;
+    const lfoValue = (signal: string): number => {
+      const entry = this.resolved.lfos.get(signal);
+      return entry ? evaluateLfo(entry.waveform, barPosition, entry.bars, entry.phase) : 0;
+    };
+
     return Object.freeze({
       impact: impulseValue('impact'),
       subImpact: impulseValue('subImpact'),
@@ -109,6 +132,10 @@ export class BehaviourEngine {
       tension: anticipationValue('tension'),
       pulse: pulseFromPhase(step.beat.phase),
       barPulse: pulseFromPhase(step.bar.phase),
+      lfoA: lfoValue('lfoA'),
+      lfoB: lfoValue('lfoB'),
+      lfoC: lfoValue('lfoC'),
+      lfoD: lfoValue('lfoD'),
     });
   }
 

@@ -22,6 +22,10 @@ const DEFAULT_DRAG_PER_SEC = 0.6;
 const DEFAULT_SPAWN_COUNT_MUL = 1;
 const DEFAULT_GLOW_ALPHA_MUL = 1;
 const DEFAULT_CHAOS_MUL = 1;
+/** Accélération du champ sur un charley. Plafonnée bas : le kick reste l'accent principal (§8). */
+const TICK_SPEED_GAIN = 0.35;
+/** Amplitude du balancement latéral piloté par LFO, en unités normalisées/s. */
+const LFO_SWAY = 0.008;
 
 /**
  * Particles du style Field (docs/07) : « 2500 particules, pool fixe » avec
@@ -176,7 +180,17 @@ export class ParticleField implements Layer {
     const dragPerSec = this.param('drag', DEFAULT_DRAG_PER_SEC);
     const converging = step.t < this.convergeUntil;
     const pull = (converging ? CONVERGE_PULL : BASE_PULL) * signals.weight;
-    const speedMul = converging ? CONVERGE_SPEED_MUL : 1;
+    // Le CHARLEY accélère le champ — les particules filent sans changer de
+    // trajectoire. Canal distinct de `weight`, qui tient l'attraction centrale.
+    //
+    // Cette couche réagissait déjà à la musique, mais uniquement via
+    // `step.fired` : les naissances sont câblées en dur sur KICK/HAT/SNARE.
+    // Le `mapping` du preset ne pouvait donc rien y changer. Les deux entrées
+    // ci-dessous passent, elles, par la table de câblage.
+    const speedMul = (converging ? CONVERGE_SPEED_MUL : 1) * (1 + signals.tick * TICK_SPEED_GAIN);
+    // Balancement latéral très lent, pour que le champ ne se fige pas dans les
+    // passages sans frappe (Loi 3 : un morceau non analysable doit rester beau).
+    const driftX = (signals.lfoB - 0.5) * 2 * LFO_SWAY;
     const dt = step.dt;
     const drag = Math.max(0, 1 - dragPerSec * dt);
 
@@ -191,6 +205,7 @@ export class ParticleField implements Layer {
       this.vx[i]! += (-this.x[i]! / dist) * pull * dt;
       this.vy[i]! += (-this.y[i]! / dist) * pull * dt;
       this.vy[i]! += driftY * dt;
+      this.vx[i]! += driftX * dt;
       this.vx[i]! *= drag;
       this.vy[i]! *= drag;
 

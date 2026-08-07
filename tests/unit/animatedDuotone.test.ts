@@ -14,16 +14,28 @@ import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
 import { makeSignals, makeStepBuilder } from './testSupport/stepContextFixture';
 
 const ANIMATION_SPEED = 0.06;
+/**
+ * Part de la dérive cédée au LFO au chantier 2. Le contrat a changé : la
+ * dérive n'est plus pilotée par `step.t` SEUL, elle est à moitié verrouillée
+ * au tempo. Les tests d'extrêmes ci-dessous fixent donc explicitement `lfoA`
+ * pour isoler chaque composante.
+ */
+const LFO_SHARE = 0.5;
 const [bg0, bg1] = defaultPalette.bg;
 
 function gradientCalls(renderer: FakeRenderer) {
   return renderer.calls.filter((c): c is Extract<typeof c, { type: 'fillRadialGradient' }> => c.type === 'fillRadialGradient');
 }
 
-function drawAt(t: number): FakeRenderer {
+/** Facteur d'interpolation attendu pour une valeur libre et une valeur de LFO. */
+function expectedMix(free: number, lfo: number): number {
+  return 0.3 + 0.2 * (free * (1 - LFO_SHARE) + lfo * LFO_SHARE);
+}
+
+function drawAt(t: number, signals = makeSignals()): FakeRenderer {
   const layer = new AnimatedDuotone();
   layer.init({ renderer: new FakeRenderer(), palette: defaultPalette });
-  layer.update(makeStepBuilder().build(t), makeSignals());
+  layer.update(makeStepBuilder().build(t), signals);
   const renderer = new FakeRenderer();
   layer.draw(renderer, testViewport);
   return renderer;
@@ -41,21 +53,44 @@ describe('AnimatedDuotone — rayons et bord fixes', () => {
 });
 
 describe('AnimatedDuotone — animation pilotée par step.t (Loi 1)', () => {
-  it('t=0 : sin(0)=0 -> drift=0.5 -> facteur 0.4', () => {
+  it('t=0 : sin(0)=0 -> composante libre 0.5', () => {
     const renderer = drawAt(0);
-    expect(gradientCalls(renderer)[0]!.inner).toEqual(lerpColor(bg0, bg1, 0.4));
+    expect(gradientCalls(renderer)[0]!.inner).toEqual(lerpColor(bg0, bg1, expectedMix(0.5, 0.5)));
   });
 
-  it('t où sin(t*vitesse)=1 (pic) -> drift=1 -> facteur 0.5 (maximum)', () => {
+  it('t où sin(t*vitesse)=1 (pic) -> composante libre au maximum', () => {
     const t = Math.PI / 2 / ANIMATION_SPEED;
     const renderer = drawAt(t);
-    expect(gradientCalls(renderer)[0]!.inner).toEqual(lerpColor(bg0, bg1, 0.5));
+    expect(gradientCalls(renderer)[0]!.inner).toEqual(lerpColor(bg0, bg1, expectedMix(1, 0.5)));
   });
 
-  it('t où sin(t*vitesse)=-1 (creux) -> drift=0 -> facteur 0.3 (minimum)', () => {
+  it('t où sin(t*vitesse)=-1 (creux) -> composante libre au minimum', () => {
     const t = (3 * Math.PI) / 2 / ANIMATION_SPEED;
     const renderer = drawAt(t);
-    expect(gradientCalls(renderer)[0]!.inner).toEqual(lerpColor(bg0, bg1, 0.3));
+    expect(gradientCalls(renderer)[0]!.inner).toEqual(lerpColor(bg0, bg1, expectedMix(0, 0.5)));
+  });
+
+  /**
+   * Chantier 2 : le LFO doit vraiment atteindre l'image. Sans ce test, le
+   * blocage corrigé par ce chantier — un signal calculé puis jeté — pourrait
+   * revenir sans que rien ne le signale.
+   */
+  it('lfoA à 0 et à 1 donnent deux images DIFFÉRENTES, à t identique', () => {
+    const bas = gradientCalls(drawAt(0, makeSignals({ lfoA: 0 })))[0]!;
+    const haut = gradientCalls(drawAt(0, makeSignals({ lfoA: 1 })))[0]!;
+    expect(bas.inner).toEqual(lerpColor(bg0, bg1, expectedMix(0.5, 0)));
+    expect(haut.inner).toEqual(lerpColor(bg0, bg1, expectedMix(0.5, 1)));
+    expect(haut.inner).not.toEqual(bas.inner);
+  });
+
+  it('subImpact ouvre le rayon, sectionShift teinte le centre', () => {
+    const repos = gradientCalls(drawAt(0))[0]!;
+    const sub = gradientCalls(drawAt(0, makeSignals({ subImpact: 1 })))[0]!;
+    const section = gradientCalls(drawAt(0, makeSignals({ sectionShift: 1 })))[0]!;
+    expect(sub.outerRadius).toBeGreaterThan(repos.outerRadius);
+    expect(section.inner).not.toEqual(repos.inner);
+    // Le bord reste la couleur de fond : seul le CENTRE est teinté.
+    expect(section.outer).toEqual(bg1);
   });
 
   it('périodique : t et t + période (2π/vitesse) donnent EXACTEMENT le même résultat', () => {

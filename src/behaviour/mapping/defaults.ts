@@ -22,4 +22,14 @@ export const defaultMapping: MappingSchema = Object.freeze({
   weight: { from: 'feature:band.sub', rise: 0.05, fall: 0.3 },
   brightness: { from: 'feature:centroid', rise: 0.2, fall: 0.4 },
   tension: { from: 'anticipate:DROP', window: 4.0, curve: 'easeInQuad' },
+
+  // Quatre LFO par défaut (§7.1, chantier 2). Périodes volontairement PREMIÈRES
+  // entre elles — 1, 2, 4 et 0,5 mesure avec un décalage de phase sur le
+  // dernier : des périodes multiples l'une de l'autre se réaligneraient
+  // périodiquement, et le mouvement se lirait alors comme une seule oscillation
+  // au lieu de quatre indépendantes.
+  lfoA: { from: 'lfo:sine', bars: 4 },
+  lfoB: { from: 'lfo:triangle', bars: 2, phase: 0.25 },
+  lfoC: { from: 'lfo:sine', bars: 1, phase: 0.5 },
+  lfoD: { from: 'lfo:random', bars: 0.5 },
 });

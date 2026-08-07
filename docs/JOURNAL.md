@@ -3218,3 +3218,210 @@ garantie identique, le rendu en étant une fonction pure.
   pas rouvrir ce fichier au milieu d'un chantier sans rapport.
 - Le bloc `layers` retiré rend `trap-dark.json` légèrement plus court que les
   autres presets ne le laissaient supposer ; aucune conséquence fonctionnelle.
+
+---
+
+## Phase 2 — Chantier 2 : réactivité complète, LFO, easings
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 2 (§6.1, §7.1, §6.3).
+Objectif chiffré : atteindre le critère 11 — « changer le `mapping` d'un preset
+change visiblement l'image » — **avant** d'écrire le moindre style nouveau.
+
+### Correction du diagnostic : sept signaux morts, pas six
+
+`docs/17` §5.1 annonçait six signaux calculés puis jetés. Il y en avait **sept**.
+Le relevé initial comptait `pulse` comme consommé par `PerspectiveGrid`, alors
+que la seule occurrence de `signals.pulse` dans tout `src/visual/` était… une
+docstring expliquant qu'elle ne l'utilisait PAS :
+
+> « utilise `step.beat.index + step.beat.phase` directement, PAS `signals.pulse` »
+
+Une recherche textuelle ne distingue pas un usage d'un commentaire. Le test
+`signalCoverage.test.ts` retire donc les commentaires avant de chercher.
+
+Et la raison de cet abandon était légitime : `pulse` est une SINUSOÏDE, qui
+oscillerait avant/arrière et romprait le « jamais un saut » du défilement.
+Le signal n'était pas oublié, il était de la mauvaise forme pour son seul
+client possible. Il trouve ici son emploi juste — la sinusoïde pilote l'ALPHA
+des lignes de la grille, où osciller est exactement ce qu'on veut, pendant que
+la position brute continue de piloter le défilement.
+
+### Couverture avant / après
+
+| signal | source | avant | après |
+|---|---|---|---|
+| `impact` | KICK | PulseRings, ScreenShake | + SpectrumBars, FrameFeedback |
+| `weight` | bande sub | PulseRings, ParticleField | inchangé |
+| `brightness` | centroïde | RadialBackground, CentralGlow | inchangé |
+| `drive` | énergie | CentralGlow | inchangé |
+| `accent` | SNARE, CLAP | **aucune** | CircularWaveform, FlatWaveform, PerspectiveGrid |
+| `tick` | HAT, PERC | **aucune** | CircularWaveform, ParticleField, SpectrumBars |
+| `subImpact` | SUB_HIT | **aucune** | RadialBackground, DeepVignette, AnimatedDuotone |
+| `sectionShift` | SECTION | **aucune** | RadialBackground, DeepVignette, AnimatedDuotone |
+| `tension` | anticipation DROP | **aucune** | CentralGlow, FrameFeedback, SpectrumBars |
+| `barPulse` | phase de mesure | **aucune** | CircularWaveform, FlatWaveform |
+| `pulse` | phase de temps | **aucune** | PerspectiveGrid |
+| `lfoA`..`lfoD` | grille | *n'existaient pas* | AnimatedDuotone, ParticleField, CentralGlow, SpectrumBars |
+
+Les quinze signaux ont désormais au moins un consommateur, et chacun des trois
+styles en lit au moins quatre. `spectrum-pro` était le pire cas : ses trois
+couches ne lisaient RIEN, donc modifier le `mapping` de `lofi.json` ne pouvait
+littéralement rien changer.
+
+Règle tenue partout : **un instrument, un canal**. Chaque signal pilote un
+paramètre qu'aucun autre ne touche — `tension` prend le DIAMÈTRE du halo parce
+que `drive` tient déjà son intensité ; `impact` prend l'ÉCHELLE du feedback
+parce que `tension` en tient l'alpha.
+
+### LFO verrouillés au tempo
+
+Quatrième famille de la table de câblage, sur la même convention que les trois
+autres : la famille se déduit du préfixe de `from`, sans champ `kind`.
+
+```json
+"lfoA": { "from": "lfo:sine", "bars": 4 },
+"lfoD": { "from": "lfo:random", "bars": 0.5 }
+```
+
+Cinq formes (`sine`, `triangle`, `saw`, `square`, `random`), période en MESURES
+et non en secondes : à 90 comme à 140 BPM, « 2 mesures » boucle en deux mesures.
+
+Deux choix qui méritent d'être écrits :
+
+- **Aucune primitive à instancier.** La valeur est une fonction pure de
+  `bar.index + bar.phase`. Zéro état, zéro allocation, déterminisme par
+  construction (Loi 1). `setMapping` n'a donc rien à reporter pour les LFO,
+  contrairement aux impulsions et aux continus.
+- **`random` est échantillonné-bloqué par HACHAGE de l'index de période**, pas
+  par `step.rng`. Consommer un tirage déplacerait tous les tirages suivants, et
+  la Loi 1 interdit qu'un résultat dépende du nombre de tirages déjà consommés.
+  La graine est une constante, volontairement indépendante de `projectSeed` :
+  sinon le futur bouton « relancer » (§7.9) déplacerait aussi les LFO, ce qu'il
+  n'annonce pas.
+
+Périodes par défaut premières entre elles (4, 2, 1, 0,5 avec décalages) : des
+périodes multiples se réaligneraient et les quatre mouvements se liraient comme
+un seul. Un test le vérifie.
+
+### Ce que `Impulse` n'avait PAS besoin qu'on lui fasse
+
+`docs/17` §6.3 signalait qu'une décroissance exponentielle « ne revient jamais
+au repos », piège corrigé côté live à l'étape 6. Vérification faite, **le
+diagnostic ne s'applique pas ici** et `Impulse` n'a pas été touchée.
+
+Raison : côté live, `decayBeats` était une constante de temps τ, et la durée
+visible valait environ 3 τ — un kick réglé « 0,35 temps » restait allumé
+1,05 temps. Côté fichier, `Impulse.decay` est une **demi-vie en secondes**, et
+les valeurs choisies par les auteurs en tiennent compte : `impact` à 0,10 s
+passe sous 5 % en 0,43 s, soit 0,5 temps à 70 BPM — dans la bande 0,3-0,6 de
+§2.7.8. Remplacer l'exponentielle aurait changé le caractère de tous les presets
+pour corriger un défaut qui n'existait pas.
+
+**Point ouvert, à traiter au chantier 9** : `decay` est en SECONDES, donc la
+durée des réactions ne suit pas le tempo. Un preset réglé à 70 BPM ne se comporte
+pas pareil à 140. Le corriger touche le format de preset, hors périmètre ici.
+
+### Module de courbes partagé
+
+`src/core/math/easing.ts` : `easeOutCubic`, `easeOutQuint`, `easeInQuad`,
+`easeInOutSine`, `overshootLobe`, `impact`. Dans `core/` et non dans `visual/`
+parce que `behaviour/` en a besoin aussi, et que la règle de dépendance leur
+interdit de s'importer l'un l'autre.
+
+Consommateur immédiat : `Anticipation` redéfinissait `easeInQuad` sur place ;
+elle utilise désormais la version partagée.
+
+**Limite assumée** : les cinq autres fonctions n'ont pas encore de client. Ce
+sont les fondations des chantiers 3 (caméra), 5-6 (styles) et 8 (texte). Livrer
+du code sans consommateur est précisément le défaut que ce chantier corrige —
+il est donc au minimum entièrement TESTÉ (`easing.test.ts`, 9 tests), pour que
+personne n'ait à découvrir plus tard s'il fonctionne.
+
+### Trois défauts trouvés en écrivant les tests
+
+1. **`field` ne lisait `impact` NULLE PART.** Le style du trap et du drill —
+   celui dont le kick est l'élément central. Ses particules ne réagissent qu'à
+   `step.fired`, en contournant la table de câblage : régler `impact.decay` dans
+   un preset n'y changeait rien. Corrigé, le kick pilote désormais l'échelle du
+   feedback.
+
+2. **Le charley n'était pas visible dans `spectrum-pro`.** Il poussait les
+   chapeaux de pics vers le haut, mais quand les barres montent le chapeau est
+   ré-épinglé à leur hauteur à chaque pas et la poussée disparaît. Mesuré, pas
+   supposé : couper le charley ne changeait pas l'image. Un second canal a été
+   ajouté — la taille du halo.
+
+3. **Une faute de priorité d'opérateurs** dans ce même correctif :
+   `0.12 + h * 0.18 * scale` ne met à l'échelle que le second terme, donc une
+   barre au repos ne réagissait pas du tout. Parenthèses ajoutées.
+
+### Deux angles morts de mes propres tests
+
+À signaler, parce que les deux m'ont fait conclure à tort à un défaut du code :
+
+- L'empreinte de rendu ignorait la POSITION des sprites (`x`/`y`). Or c'est
+  exactement là qu'agissent le charley sur les particules et les LFO sur le
+  halo. Le test annonçait « `field` ne réagit pas au charley » alors qu'il
+  réagissait.
+- `FakeRenderer.drawFeedback` est volontairement inerte tant qu'aucune
+  `captureFeedback` n'a eu lieu — fidèle à `Canvas2DRenderer`. Créer un
+  renderer neuf par image ne capturait donc JAMAIS le feedback. L'empreinte
+  utilise maintenant un seul renderer pour toute la séquence, ce qui est aussi
+  plus fidèle puisque le feedback s'accumule.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 103 fichiers, 826 tests (796 -> 826, +30)
+npm run test:arch   -> 1 test
+npm run build       -> 451,63 kB (gzip 126,35 kB), 1,55 s
+```
+
+Navigateur (`http://localhost:5174/`), après rechargement : **aucune erreur
+console**, catalogue de styles toujours peuplé, canvas dimensionné.
+
+**Critère 11 atteint et verrouillé par test** (`mappingChangesImage.test.ts`,
+5 tests) : les trois styles réels sont montés, pilotés sur une séquence
+d'événements identique avec deux tables de câblage, et leurs appels de rendu
+comparés. Sont vérifiés — couper la caisse claire, couper le charley, changer
+la décroissance du kick, changer les quatre LFO. Plus un contrôle de
+déterminisme : deux exécutions du même mapping donnent une empreinte
+rigoureusement identique, sans quoi les quatre autres tests ne prouveraient
+rien.
+
+Deux tests de non-régression structurels (`signalCoverage.test.ts`) : aucun
+signal ne peut redevenir orphelin, et aucun style ne peut retomber sous quatre
+signaux lus.
+
+### À valider par Aaron, à l'œil
+
+Le chantier est validé par les tests sur le plan « le signal atteint l'image ».
+Ce que les tests ne disent pas, c'est si le résultat est BEAU :
+
+- **Le dosage de chaque nouveau canal.** Toutes les amplitudes sont des
+  premières estimations, choisies pour être visibles sans écraser l'accent
+  principal. Les constantes sont nommées en tête de chaque couche
+  (`ACCENT_DEFORM`, `TICK_SPEED_GAIN`, `SUB_BREATH`, `TENSION_SWELL`…).
+- **Le charley** est le canal le plus susceptible d'être trop présent : il
+  frappe à la croche, donc huit fois par mesure.
+- **La dérive du halo central** (`LFO_DRIFT = 0.045`) doit être perceptible sans
+  qu'on voie le halo « bouger ». Si on la remarque, elle est trop grande.
+- **`tension`** ne se juge que sur un morceau ayant un vrai drop détecté ; sur
+  un morceau sans DROP, ce canal reste à zéro et c'est normal.
+- **Comparer deux presets du même style** — `trap-dark` contre `drill`, `house`
+  contre `rnb` — pour juger si la différence est maintenant suffisante. Elle
+  reste limitée à la réaction et aux couleurs : la GÉOMÉTRIE ne changera qu'aux
+  chantiers 5 et 6.
+
+### Limites connues
+
+- Cinq des six fonctions de `easing.ts` n'ont pas encore de consommateur
+  (voir plus haut).
+- `Impulse.decay` reste en secondes, donc indépendant du tempo (chantier 9).
+- Les LFO ne sont configurables qu'en éditant le JSON du preset ; l'interface
+  d'assignation est le chantier 10.
+- `ParticleField` continue de faire naître ses particules sur `step.fired`
+  (KICK/HAT/SNARE en dur). Seuls sa vitesse et son balancement passent par la
+  table de câblage. Router les naissances par le mapping demanderait un
+  quatrième type d'entrée et n'était pas dans ce chantier.

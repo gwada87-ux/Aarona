@@ -32,6 +32,13 @@ export function makeSignals(overrides: Partial<VisualSignals> = {}): VisualSigna
     tension: 0,
     pulse: 0.5,
     barPulse: 0.5,
+    // Milieu de course, comme `pulse`/`barPulse` : un LFO au repos à 0 ferait
+    // démarrer chaque test au minimum de l'oscillation, ce qui masquerait une
+    // couche qui ne lit le LFO que dans un sens.
+    lfoA: 0.5,
+    lfoB: 0.5,
+    lfoC: 0.5,
+    lfoD: 0.5,
     ...overrides,
   };
 }
