@@ -24,9 +24,12 @@
 
 import type { Color, Renderer } from '../../render/Renderer';
 import type { Viewport } from '../../render/Viewport';
-import type { StepContext } from '../../music/StepContext';
-import type { BehaviourEngine } from '../../behaviour/BehaviourEngine';
-import type { VisualDirector } from '../../behaviour/VisualDirector';
+import { StepContextBuilder, type StepContext } from '../../music/StepContext';
+import type { MusicTimeline } from '../../music/MusicTimeline';
+import { BehaviourEngine } from '../../behaviour/BehaviourEngine';
+import type { MappingSchema } from '../../behaviour/mapping/MappingSchema';
+import { VisualDirector } from '../../behaviour/VisualDirector';
+import { FIXED_DT } from '../../core/time/FixedStep';
 import { isOverlayLayer, type BlendMode } from './Layer';
 import type { Scene } from './Scene';
 
@@ -110,6 +113,73 @@ export function stepSceneWithDrama(
  * qui est le comportement voulu — la secousse est une modulation du cadrage,
  * pas un cadrage concurrent.
  */
+/**
+ * AMORCE une scène fraîche à l'instant `atSec`.
+ *
+ * LE DÉFAUT CORRIGÉ
+ * -----------------
+ * Une scène qui vient d'être construite est VIDE : pools de particules à zéro,
+ * traînée noire, enveloppes au repos. Ses couches ne se remplissent que dans
+ * `update()`, appelé uniquement quand le transport joue. Changer de style, de
+ * palette ou de composition **en pause** laissait donc l'aperçu noir jusqu'à ce
+ * qu'on relance la lecture.
+ *
+ * Mesuré au navigateur, style `pulse` en pause : 2 828 pixels clairs avant le
+ * changement de style, **0 après**, 2 828 au retour au style d'origine, et
+ * 10 858 après deux secondes de lecture. Le défaut est antérieur à la phase 2 —
+ * il valait déjà pour le sélecteur de style — mais le compositeur de couches et
+ * l'automatisation du chantier 10 le rendent visible en permanence.
+ *
+ * POURQUOI DES MOTEURS JETABLES
+ * -----------------------------
+ * `BehaviourEngine` est STATEFUL : ses enveloppes avancent de `step.dt` à chaque
+ * `update`. Amorcer avec le moteur VIVANT ferait avancer ses enveloppes sans que
+ * le temps avance — un accroc à la Loi 1, et c'est la raison pour laquelle ce
+ * correctif avait été repoussé au chantier 10 lot C.
+ *
+ * Ici tout est jetable : un `StepContextBuilder`, un `BehaviourEngine` et un
+ * `VisualDirector` neufs rejouent les deux dernières secondes, puis sont
+ * abandonnés. Le moteur vivant n'est pas touché, et comme les deux partent de la
+ * même graine et de la même table de câblage, ils s'accordent à `atSec`. La Loi 1
+ * tient : l'état amorcé est une fonction pure de `atSec` et de la graine.
+ *
+ * C'est déjà le remède des vignettes de style (§10.1) et de l'export d'image
+ * fixe (§7.12) — troisième usage, donc extrait ici.
+ *
+ * CE QUE L'AMORÇAGE NE FAIT PAS
+ * -----------------------------
+ * Il ne DESSINE pas : une couche à feedback repart donc d'un canevas noir et
+ * reconstruit sa traînée sur les images suivantes. Délibéré — dessiner
+ * demanderait un `Renderer` et un `Viewport`, et la boucle d'aperçu redessine de
+ * toute façon dès l'image suivante.
+ *
+ * @returns le `VisualDirector` utilisé, dont le budget est celui de `atSec`.
+ *   Un appelant qui va DESSINER juste après en a besoin : `openFrameWithCamera`
+ *   lit `director.budget`, et un director neuf rendrait une caméra neutre — la
+ *   dramaturgie disparaîtrait de l'image. Le rendre coûte une ligne et supprime
+ *   la seule façon de se tromper ici.
+ */
+export function primeScene(
+  scene: Scene,
+  timeline: MusicTimeline,
+  projectSeed: number,
+  mapping: MappingSchema,
+  atSec: number,
+  automationAt: (t: number) => AutomationFrame = () => NEUTRAL_AUTOMATION,
+  seconds: number = PRIME_SECONDS,
+): VisualDirector {
+  const stepper = new StepContextBuilder(timeline, projectSeed);
+  const behaviour = new BehaviourEngine(timeline, mapping);
+  const director = new VisualDirector(timeline);
+  for (let t = Math.max(0, atSec - seconds); t < atSec; t += FIXED_DT) {
+    stepSceneWithDrama(scene, behaviour, director, stepper.build(t), automationAt(t));
+  }
+  return director;
+}
+
+/** Secondes de simulation rejouées pour amorcer une scène. */
+export const PRIME_SECONDS = 2;
+
 /**
  * Cadrage de variante EFFECTIF pour cette scene (chantier 8).
  *

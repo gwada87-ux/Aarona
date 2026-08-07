@@ -191,10 +191,14 @@ describe('les corrections atteignent le moteur, et l\'export d\'image fixe exist
     expect(dialog).toContain('loop: this.loopCheckbox.checked');
   });
 
-  it('l\'image fixe SIMULE avant de dessiner', () => {
+  it('l\'image fixe SIMULE avant de dessiner, par la fonction PARTAGÉE', () => {
     // Un `scene.draw` sur une scene fraiche rendrait un cadre vide : pools de
-    // particules a zero, feedback noir.
-    expect(app).toContain('STILL_PREROLL_SEC');
-    expect(app).toMatch(/for \(let t = start; t < simT; t \+= FIXED_DT\)/);
+    // particules a zero, feedback noir. `primeScene` est la meme fonction qui
+    // amorce l'apercu apres un changement de style en pause - trois usages, un
+    // seul endroit a corriger.
+    expect(app).toContain('primeScene(scene, currentTimeline, projectSeed, currentMapping, simT, automationAt)');
+    // Et c'est le director RENDU par `primeScene` qui ouvre l'image : un neuf
+    // rendrait une camera neutre, et l'image fixe perdrait la dramaturgie.
+    expect(app).toMatch(/const director = primeScene\(/);
   });
 });

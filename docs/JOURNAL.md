@@ -5703,3 +5703,131 @@ mais ce n'est pas rien non plus.
   la réalité, donc conservateur, mais ce n'est pas la configuration qu'un
   utilisateur rencontre.
 - **L'observation à 50 % reste inexpliquée.**
+
+---
+
+## Phase 2 — Correctif : le creux en pause
+
+Défaut trouvé au chantier 10 lot C, écarté alors avec sa raison, corrigé ici sur
+mandat d'Aaron.
+
+### Le défaut
+
+Une scène qui vient d'être construite est VIDE : pools de particules à zéro,
+traînée noire, enveloppes au repos. Ses couches ne se remplissent que dans
+`update()`, appelé uniquement quand le transport joue. **Changer de style, de
+couche ou de palette pendant une pause laissait donc l'aperçu noir jusqu'à ce
+qu'on relance la lecture.**
+
+Mesuré au lot C, style `pulse`, en pause :
+
+| | pixels clairs |
+|---|---|
+| départ | 2 828 |
+| après changement de style | **0** |
+| retour au style d'origine | 2 828 |
+| après deux secondes de lecture | 10 858 |
+
+Le défaut est ANTÉRIEUR à la phase 2 — il valait déjà pour le sélecteur de
+style. Mais le compositeur de couches et l'automatisation du chantier 10 le
+rendent visible en permanence : on y touche cent fois plus souvent qu'on ne
+change de style.
+
+### Pourquoi il avait été écarté
+
+Amorcer la scène demande de la SIMULER, et simuler demande un `BehaviourEngine`.
+Or celui-ci est stateful : ses enveloppes avancent de `step.dt` à chaque
+`update`. Amorcer avec le moteur VIVANT ferait donc avancer ses enveloppes sans
+que le temps avance — un accroc à la Loi 1 que je ne voulais pas poser en fin de
+lot.
+
+### Ce qui lève l'objection
+
+Des moteurs JETABLES. `primeScene` construit un `StepContextBuilder`, un
+`BehaviourEngine` et un `VisualDirector` neufs, rejoue les deux dernières
+secondes sur la scène, puis les abandonne. Le moteur vivant n'est pas touché, et
+comme les deux partent de la même graine et de la même table de câblage, ils
+s'accordent à l'instant courant. **La Loi 1 tient : l'état amorcé est une
+fonction pure de l'instant et de la graine**, et deux tests l'inscrivent — le
+premier compare deux moteurs menés à l'identique avec l'amorçage intercalé sur
+un seul, le second vérifie que deux amorçages identiques donnent le même dessin.
+
+Ce n'était pas une invention : c'est déjà le remède des vignettes de style
+(§10.1) et de l'export d'image fixe (§7.12). Troisième usage, donc extrait dans
+`visual/scene/dramaFrame.ts` — un seul endroit à corriger désormais.
+
+### Trois conditions, et chacune évite un coût
+
+- **Seulement à l'arrêt.** En lecture, l'image suivante remplit la scène toute
+  seule ; amorcer par-dessus serait deux fois le même travail.
+- **Seulement si la scène a été RECONSTRUITE.** `applyActiveConfiguration` se
+  déclenche à chaque pixel de course d'un curseur de macro. Rejouer deux
+  secondes à chacun figerait l'interface.
+- **Seulement s'il y a un morceau.** Sans timeline, il n'y a rien à rejouer.
+
+### Un piège évité de justesse
+
+`primeScene` RETOURNE son `VisualDirector`. En câblant l'export d'image fixe
+dessus, j'avais d'abord construit un director neuf pour ouvrir l'image — et
+`openFrameWithCamera` lit `director.budget`. Un director neuf a un budget
+NEUTRE : l'image fixe aurait perdu toute la dramaturgie que l'aperçu montre au
+même instant, sans que rien ne le signale. Le rendre coûte une ligne et supprime
+la seule façon de se tromper ici.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 119 fichiers, 1126 tests (1119 -> 1126, +7)
+npm run test:arch   -> 1 test
+npm run build       -> 531,39 kB (gzip 152,13 kB), 2,10 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**. Le geste exact qui révélait
+le défaut, refait en pause à t = 5,18 s :
+
+| geste (en pause) | avant | après |
+|---|---|---|
+| départ | 2 828 | 12 504 |
+| changement de style vers `field` | **0** | **1 314** |
+| retour à `pulse` | 2 828 | **12 565** |
+| couche « halo » désactivée | — | 9 620 |
+| **couche rallumée** | **2 828, perdu** | **12 565, exactement le départ** |
+
+La dernière ligne est celle qui compte : rallumer une couche rend précisément
+l'image d'avant.
+
+**Vérifié sur les styles sombres**, où un seuil trop haut m'a d'abord fait lire
+des zéros. Au seuil honnête, l'état amorcé est celui de la lecture :
+
+| style | amorcé (pixels non noirs / luminance moyenne) | après 2 s de lecture |
+|---|---|---|
+| `aurore` | 99 955 / 11,93 | 110 154 / 13,54 |
+| `chambre` | 253 638 / 14,01 | **253 638** / 13,56 |
+| `field` | 28 916 / 6,24 | 29 224 / 5,75 |
+
+`chambre` est identique au pixel près ; les deux autres sont à 10 % et 1 %.
+
+**Le coût, et les garde-fous qui l'évitent :**
+
+| geste | durée |
+|---|---|
+| changement de style EN PAUSE (amorçage compris) | 20,2 / 5,5 / 8,0 ms |
+| le même EN LECTURE (pas d'amorçage) | 2,3 / 1,8 ms |
+| curseur de macro en pause (scène non reconstruite) | 1,5 à 3,2 ms |
+
+Un à-coup unique de 5 à 20 ms au changement de style, et rien du tout partout
+ailleurs. Les 20,2 ms sont pour `field` et ses 2 500 particules.
+
+### Limites connues
+
+- **La traînée de feedback n'est PAS amorcée.** `primeScene` simule sans
+  dessiner ; une couche à feedback repart donc d'un canevas noir et reconstruit
+  sa traînée sur les images suivantes. Délibéré : dessiner demanderait un
+  `Renderer` et un `Viewport`, et la boucle d'aperçu redessine de toute façon dès
+  l'image suivante — sauf, précisément, en pause, où la traînée met alors une
+  demi-seconde de lecture à revenir.
+- **Deux secondes d'amorçage** (`PRIME_SECONDS`) : assez pour un pool de
+  particules, jamais vérifié sur une couche dont l'état s'accumulerait sur plus
+  longtemps. Aucune ne le fait aujourd'hui.
+- Aucune capture d'écran : mêmes limites d'environnement que sur toute la phase.

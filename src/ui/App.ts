@@ -59,7 +59,7 @@ import {
 } from '../visual/text/textConfig';
 import { planText } from '../visual/text/textLayout';
 import { importCover, CoverImportError } from './coverImport';
-import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, framingFor, openFrameWithCamera, primeScene, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
@@ -452,6 +452,7 @@ function applyActiveConfiguration(): void {
     sceneTextKey = textStructureKey(textConfig);
     scene.init({ renderer, palette: currentPalette, cover: coverImage });
     if (currentTimeline) scene.reset(simT);
+    sceneNeedsPriming = true;
   } else if (scene) {
     scene.init({ renderer, palette: currentPalette, cover: coverImage });
   }
@@ -480,6 +481,7 @@ function applyActiveConfiguration(): void {
     }
   }
 
+  primeSceneIfPaused();
   refreshPaletteEditor();
   refreshStyleThumbnails();
   // L'éditeur montre le câblage RÉSOLU : une ligne jamais touchée affiche ce
@@ -577,6 +579,39 @@ function applyLayerMacros(): void {
   if (spectrumBarsLayer) {
     spectrumBarsLayer.params = { ...spectrumBarsLayer.params, bandCount: QUALITY_LEVEL_CONFIGS[currentQualityLevel].spectrumBands };
   }
+}
+
+/**
+ * `true` quand une scène vient d'être RECONSTRUITE et n'a encore rien simulé.
+ * Posé par `applyActiveConfiguration`, consommé par `primeSceneIfPaused`.
+ */
+let sceneNeedsPriming = false;
+
+/**
+ * Amorce la scène quand le transport est À L'ARRÊT.
+ *
+ * Une scène fraîche est vide, et ses couches ne se remplissent que dans
+ * `update()`, qui ne tourne qu'en lecture. Changer de style, de couche ou de
+ * palette en pause laissait donc l'aperçu noir jusqu'à la reprise — mesuré :
+ * 2 828 pixels clairs, puis 0, puis 10 858 après deux secondes de lecture.
+ *
+ * TROIS CONDITIONS, et chacune évite un coût inutile :
+ *
+ * - **seulement à l'arrêt** — en lecture, l'image suivante remplit la scène
+ *   toute seule, et amorcer par-dessus serait deux fois le même travail ;
+ * - **seulement si la scène a été reconstruite** — `applyActiveConfiguration`
+ *   se déclenche à chaque pixel de course d'un curseur de macro, et rejouer deux
+ *   secondes à chacun figerait l'interface ;
+ * - **seulement s'il y a un morceau** — sans timeline, il n'y a rien à rejouer.
+ *
+ * `primeScene` n'avance PAS le `behaviourEngine` vivant : il travaille sur des
+ * moteurs jetables. C'était l'objection qui avait fait repousser ce correctif.
+ */
+function primeSceneIfPaused(): void {
+  if (!sceneNeedsPriming) return;
+  sceneNeedsPriming = false;
+  if (audioEngine.playing || !scene || !currentTimeline || !currentMapping) return;
+  primeScene(scene, currentTimeline, projectSeed, currentMapping, simT, automationAt);
 }
 
 /**
@@ -1724,16 +1759,15 @@ async function exportStillFrame(): Promise<void> {
       resolveBloom(currentBloom, currentMacros.glow, QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom),
     );
 
-    const stepperLocal = new StepContextBuilder(currentTimeline, projectSeed);
-    const behaviour = new BehaviourEngine(currentTimeline, currentMapping);
-    const director = new VisualDirector(currentTimeline);
     // Simulation depuis un PRÉ-ROLL et non depuis zéro : rejouer tout le morceau
     // pour une image fixe coûterait des minutes sur un long titre, et deux
-    // secondes suffisent à remplir les pools et la traînée.
-    const start = Math.max(0, simT - STILL_PREROLL_SEC);
-    for (let t = start; t < simT; t += FIXED_DT) {
-      stepSceneWithDrama(scene, behaviour, director, stepperLocal.build(t), automationAt(t));
-    }
+    // secondes suffisent à remplir les pools. `primeScene` est la même fonction
+    // qui amorce l'aperçu après un changement de style en pause — trois usages,
+    // un seul endroit à corriger.
+    // Le director RENDU par `primeScene` porte le budget de `simT` : en
+    // construire un neuf ici rendrait une caméra neutre, et l'image fixe
+    // perdrait la dramaturgie que l'aperçu montre au même instant.
+    const director = primeScene(scene, currentTimeline, projectSeed, currentMapping, simT, automationAt);
     openFrameWithCamera(target.renderer, target.viewport, currentPalette.bg[1], director, framingFor(scene, variant), automationAt(simT));
     scene.draw(target.renderer, target.viewport);
     target.renderer.endFrame();
@@ -1753,8 +1787,8 @@ async function exportStillFrame(): Promise<void> {
   }
 }
 
-/** Secondes de simulation avant la capture d'une image fixe. */
-const STILL_PREROLL_SEC = 2;
+// La durée de simulation avant capture n'est plus déclarée ici : c'est
+// `PRIME_SECONDS`, partagée avec l'amorçage de l'aperçu (`primeScene`).
 
 document.querySelector<HTMLButtonElement>('#btn-export-still')!.addEventListener('click', () => void exportStillFrame());
 
