@@ -2804,3 +2804,61 @@ Bloque la suite : étape 2 (pipeline de rendu) nécessaire pour que ce moteur d'
 effectivement le visuel. Redéploiement Netlify fait après cette étape malgré l'absence de changement
 visuel visible, pour garder le dépôt distant et la production synchronisés avec le code réellement
 en place.
+
+## Étape 55 — hors roadmap : pipeline de rendu du mode EN DIRECT (étape 2/2, palettes + post-FX)
+
+**Hors de docs/00a.** Suite directe de l'Étape 54 : le moteur d'analyse temps réel existait, mais le
+rendu à l'écran n'avait pas encore changé. Cette étape branche enfin un vrai pipeline visuel sur ce
+moteur — c'est la partie visible par Aaron.
+
+Nouveau sous `src/ui/live/render/` : `Palette.ts` (8 palettes OKLCH, 5 rôles, fondu perceptuel,
+modulation de teinte bornée par construction — conversion OKLCH↔sRGB dans `util/oklch.ts`, fonctions
+pures), `FrameBudget.ts` (qualité adaptative à 4 niveaux, descente rapide/remontée lente, zone morte,
+gel), `LayerStack.ts` (point d'écriture unique de `ctx.filter`, feature-test), `Assets.ts` (grain,
+halo, vignette/scanlines pré-composés), `Bloom.ts` (bright-pass + flou par paliers), `Feedback.ts`
+(ping-pong avec décroissance normalisée par `dt`), `PostFX.ts` (aberration chromatique en
+demi-résolution, grain, sonde de luminance 32×18, composition unique), `Camera.ts` (caméra 2D
+commune, le shake est une modulation de cette caméra et non un effet séparé), `LivePipeline.ts`
+(assemblage). Plus `audio/SectionEnergy.ts` (détection breakdown/build/drop sur les niveaux bruts,
+quantifiée sur le downbeat) et `scenes/WitnessScene.ts` (scène témoin — les 6 scènes du prompt externe
+restent pour une étape 3 non commencée, tout comme le director qui gérerait le budget d'effets
+simultanés).
+
+Deux écarts assumés documentés avec dérivation dans `NOTES.md` : l'ordre de dégradation qualité
+suit la phrase normative du prompt externe plutôt que sa table entre parenthèses (les deux se
+contredisaient) ; le comptage des passes de post-traitement est pondéré par l'aire réelle (un
+`drawImage` sur un buffer au quart de résolution coûte 1/16 d'une passe plein écran, pas une passe
+entière) — sans quoi le budget de passes du prompt externe n'était tout simplement pas atteignable.
+Deux optimisations imposées par la mesure : composition directe à l'écran quand l'aberration
+chromatique est désactivée (évite une copie + un blit plein écran, niveau 2 : 9 → 6,4 passes) et
+finition (grain/vignette) en résolution réduite quand le diviseur interne est actif (niveau 1 :
+3,75 → 2,31 passes). Exclusion mutuelle aberration/grain ajoutée : sans elle, une trame de transitoire
+demandait 11 passes pour un budget de 10, et les deux effets se recouvrent perceptuellement de toute
+façon.
+
+Mesuré au navigateur (Chrome, canvas 1920×1080, écran 60 Hz, click track 128 BPM, médiane sur 200
+trames) : les 4 niveaux de qualité tiennent 60 fps — la médiane est plafonnée par la période d'écran
+(16,7 ms), pas par le pipeline lui-même ; marge réelle non mesurable dans ce cas simple, à réévaluer
+à l'étape 3 sur une scène chargée en particules. Mémoire canvas 34,2 Mo au maximum pour un plafond de
+120 Mo. Niveau 2 dépasse son budget de passes de 6 % (6,36 contre 6) — signalé plutôt que masqué en
+ajustant le budget, sans effet mesurable sur le temps de trame.
+
+Vérifié en conditions réelles (Playwright + `file://` contre Beat Studio, comme pour l'Étape 53) :
+connexion WebRTC établie, moteur d'analyse en état REACTIVE avec BPM détecté, **trois captures d'écran
+prises à quelques secondes d'écart montrent un rendu clairement différent de l'ancien panneau (barres
+radiales) et clairement animé** — halo, traînées de feedback qui s'accumulent et se dissipent, arc
+tournant, aucune erreur console côté PULSAR (la seule erreur capturée est un avertissement `Fetch API`
+préexistant et sans rapport, propre au runtime de Beat Studio sous `file://`).
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 721/721 verts (94/94 fichiers, +27 par rapport à
+l'Étape 54). `npm run test:arch` : 1/1. `npm run build` : succès, 188 modules, `index-D7Wr5vBy.js`
+402,96 ko (gzip 112,18 ko).
+Limites connues : une seule scène témoin est câblée (les 6 scènes prévues et le director qui
+orchestrerait les transitions restent à faire) ; la qualité d'image perçue et le choix des 8 palettes
+ne sont validables qu'à l'œil, pas par un test automatisé ; la lisibilité du tempo dans le rendu
+(arc/épaisseur/rotation portant respectivement temps/mesure/phrase) reste à confirmer par Aaron à
+l'usage.
+Dette introduite : aucune connue.
+Bloque la suite : étape 3 du prompt externe (les 6 scènes + transitions) et étape 4 (director avec
+budget d'effets simultanés, garde-fou de non-saturation) restent à faire pour la version complète.
+Redéploiement Netlify fait immédiatement après cette étape.

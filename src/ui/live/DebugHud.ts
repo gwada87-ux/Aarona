@@ -12,11 +12,14 @@
  */
 
 import type { LiveAnalysisEngine } from './audio/LiveAnalysisEngine';
+import type { LivePipeline } from './render/LivePipeline';
 import type { LiveConfig } from './LiveConfig';
 
 const PAD = 10;
 const LINE = 15;
 const BAR_W = 150;
+/** Seuil de non-saturation de §2.8. Le garde-fou qui l'utilise est de l'etape 4 ; la mesure, elle, existe deja. */
+const SATURATION_LIMIT = 0.55;
 
 export class DebugHud {
   visible: boolean;
@@ -24,6 +27,8 @@ export class DebugHud {
   frameMs = 0;
   /** Compteur de declenchements du FlashLimiter. */
   flashClamped = 0;
+  /** Pipeline de rendu, pour les lignes de qualite et de saturation. */
+  pipeline: LivePipeline | null = null;
 
   private readonly lines: string[] = [];
 
@@ -62,6 +67,20 @@ export class DebugHud {
     this.lines.push(
       `perf        ${this.frameMs.toFixed(1)} ms/trame   flashs limites ${this.flashClamped}   ajustement periode ${beat.fitPoints} pts, residu ${beat.fitResidual.toFixed(3)}`,
     );
+    const p = this.pipeline;
+    if (p) {
+      const s = p.stats;
+      const ref = p.budget.referencePeriodMs;
+      this.lines.push(
+        `rendu       qualite ${p.budget.level}/3   ref ${ref > 0 ? `${ref.toFixed(1)} ms` : 'calibration'}   passes ${s.passes}/${s.budget}   bitmap ${s.postW}x${s.postH}   ${s.memoryMb.toFixed(1)} Mo${s.degraded ? '   DEGRADE' : ''}`,
+      );
+      this.lines.push(
+        `image       luminance ${s.luminance.toFixed(3)} (seuil ${SATURATION_LIMIT.toFixed(2)})${s.luminance > SATURATION_LIMIT ? '  SATURE' : ''}   palette ${p.palette.current.id}${p.palette.blending ? ' (fondu)' : ''}   scene ${p.currentScene?.id ?? '-'}`,
+      );
+      this.lines.push(
+        `section     ${engine.section.arc}   E ${engine.section.lowDb.toFixed(1)} dB / ref ${engine.section.referenceDb.toFixed(1)} dB   intensite ${engine.section.intensity.toFixed(2)}   onsets/s ${engine.onsetRate.toFixed(1)}`,
+      );
+    }
     this.lines.push(`marqueurs   ${marker(engine, 'kick')}  ${marker(engine, 'snare')}  ${marker(engine, 'hat')}`);
     this.lines.push(`fleches haut/bas : trim de synchro   D : fermer`);
 

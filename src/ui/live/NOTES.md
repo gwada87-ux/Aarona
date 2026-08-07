@@ -3,6 +3,8 @@
 Refonte du visualiseur live (PROMPT-live-visual-upgrade v2). Ce fichier est le
 journal impose par le prompt (§0, fin de chaque etape de §9).
 
+**Avancement : etapes 1 et 2 de §9 livrees. Etapes 3 a 6 non commencees.**
+
 ---
 
 ## §0 - Chemins reels (releves, pas devines)
@@ -323,3 +325,133 @@ Pipeline de rendu (§3), palettes OKLCH (§3.5), scenes (§4.2), director (§4.3
 overlays (§4.4), controles clavier hors HUD (§4.5), `FrameBudget` (§3.7),
 `IntensityDirector` (§2.8). Le rendu reste celui d'avant, simplement alimente
 par les nouvelles features au lieu des octets bruts.
+
+---
+
+## Etape 2 - Pipeline de rendu, palettes, FrameBudget
+
+### Ce qui est livre
+
+- `util/oklch.ts` (§3.5) - conversion OKLCH <-> sRGB dans le code, dans les
+  deux sens, plus luminance WCAG et contraste. Fonctions pures.
+- `render/Palette.ts` (§3.5) - 8 palettes, 5 roles, fondu perceptuel, cache de
+  chaines `#rrggbb`, modulation de teinte BORNEE par construction.
+- `render/FrameBudget.ts` (§3.7) - 4 niveaux, periode de reference estimee,
+  descente 8/12, remontee 90, zone morte, gel.
+- `render/LayerStack.ts` (§3.1) - inventaire memoire, `withFilter` comme seul
+  point d'ecriture de `ctx.filter`, feature-test correct de `ctx.filter`.
+- `render/Assets.ts` (§3.4) - tuile de grain additive, sprite de halo, overlay
+  vignette + scanlines pre-compose.
+- `render/Bloom.ts` (§3.2) - bright pass en deux variantes, flou par cascade
+  ou par `ctx.filter`, remontee par paliers, replication des bords.
+- `render/Feedback.ts` (§3.3) - ping-pong, decroissance normalisee par `dt`,
+  injection ponderee par `(1-k)`, plancher 8 bits.
+- `render/PostFX.ts` (§3.4) - aberration 2 canaux en demi-resolution, grain,
+  overlay, sonde de luminance 32x18. Un seul `composite()`.
+- `render/Camera.ts` (§3.6) - camera 2D commune ; le shake est une modulation
+  de cette camera, pas un effet separe.
+- `render/LivePipeline.ts` - assemblage.
+- `audio/SectionEnergy.ts` (§2.7.9, §2.8) - detection breakdown / build / drop
+  sur les niveaux BRUTS, drop quantifie sur le downbeat, plus l'intensite
+  globale que consommera le director.
+- `scenes/types.ts` (§4.1) et `scenes/WitnessScene.ts` - contrat des scenes et
+  scene temoin.
+
+### Ecart assume n°5 - ordre de degradation contre table des passes de bloom
+
+§3.7 donne un ORDRE de desactivation (« aberration -> scanlines -> 2e echelle
+de bloom -> grain -> feedback ») et, entre parentheses, une table
+« passes de bloom (0/1/2/2) ». Les deux se contredisent : la table garde deux
+echelles de bloom au niveau 1, alors que l'ordre les retire avant le grain,
+lui-meme absent du niveau 1. L'ordre est la phrase normative, la parenthese
+une illustration : c'est l'ordre qui est suivi. Decoupage retenu pour trois
+descentes et cinq effets :
+
+- 3 -> 2 : retire aberration et scanlines
+- 2 -> 1 : retire la 2e echelle de bloom et le grain
+- 1 -> 0 : retire le feedback
+
+### Ecart assume n°6 - comptage des passes PONDERE PAR L'AIRE
+
+Compter chaque `drawImage` comme une passe plein ecran donne 9 passes au
+niveau 2 pour un budget de 6, et 7 au niveau 1 pour un budget de 3. Or une
+passe sur un buffer au quart de la resolution lineaire ne coute pas une passe :
+elle en coute 1/16. Le budget de §3.7 est un budget de REMPLISSAGE, et c'est
+la seule lecture sous laquelle ses chiffres sont atteignables.
+
+Le comptage est donc pondere par l'aire, relativement au canvas visible. Le
+dessin de la scene elle-meme n'y entre pas : §3.7 chiffre la chaine de POST et
+mesure les scenes separement, en temps de trame par scene.
+
+### Deux optimisations que la mesure a imposees
+
+1. **Chemin direct vers l'ecran.** L'aberration est le seul etage qui exige
+   une source stable et relisible ; elle seule justifie un buffer de post
+   intermediaire. Sans elle et a diviseur 1, composer directement sur le canvas
+   visible economise une copie ET un blit plein ecran par trame, et libere un
+   calque 1080p. Mesure : niveau 2 passe de 9 a 6,4 passes.
+2. **Finition en resolution reduite.** Quand le diviseur est > 1, grain et
+   overlay sont appliques sur le buffer de post, pas sur l'ecran : ils y
+   coutent un quart de passe au lieu d'une, et le seul cout plein ecran
+   restant est le blit final. Mesure : niveau 1 passe de 3,75 a 2,31 passes.
+
+### Exclusion mutuelle aberration / grain
+
+Ajoutee a la liste de §4.4. Le blit simple coute 1 passe, l'aberration a
+2 canaux en demi-resolution en coute 4 : sans exclusion, une trame de
+transitoire demande 11 passes la ou §3.7 en autorise 10. Les deux effets jouent
+de toute facon sur le meme registre - la texture de l'image - et l'aberration
+masque largement le banding que le grain sert a dithering.
+
+### Mesures - navigateur, click track 128 BPM, Chrome
+
+Canvas 1920x1080, ecran 60 Hz. Mediane sur 200 trames par niveau.
+
+| qualite | mediane | passes (pic) | budget §3.7 | bitmap de post | memoire canvas |
+|---|---|---|---|---|---|
+| 3 | 15,4 ms | 9,36 | 10 | 1920x1080 | 34,2 Mo |
+| 2 | 15,0 ms | 6,36 | 6 | 1920x1080 | 26,3 Mo |
+| 1 | 15,6 ms | 2,31 | 3 | 960x540 | 10,0 Mo |
+| 0 | 15,7 ms | 1,50 | 3 | 960x540 | 6,1 Mo |
+
+**Les quatre niveaux tiennent 60 fps en 1080p sur cette machine** : la mediane
+est plafonnee par la periode de l'ecran (16,7 ms), pas par le pipeline. La
+marge reelle n'est donc pas mesurable ici ; elle le sera sur une scene chargee
+en particules, a l'etape 3.
+
+**Le niveau 2 depasse son budget de 0,36 passe** (6,36 contre 6). Les passes
+irreductibles y sont : feedback 2, composition 1, recomposition du bloom 1,
+grain 1, overlay 1 = 6,0 exactement. Le depassement est le travail
+sous-resolution du bloom (bright pass et flou a 1/4 et 1/8). Le supprimer
+demanderait de retirer le grain ou la 2e echelle de bloom au niveau 2, ce qui
+inverserait l'ordre de desactivation de §3.7. Le depassement est de 6 % et
+n'a aucun effet mesurable sur le temps de trame ; il est laisse tel quel et
+signale ici plutot que masque en ajustant le budget.
+
+Memoire canvas : 34,2 Mo au maximum, pour un plafond de 120 Mo (§3.1). Un
+ecran 4K a DPR 2 sans plafond de bitmap en demanderait quatre fois plus - c'est
+exactement ce que le plafond de 1920x1080 evite.
+
+### Captures
+
+Trois captures a trois instants, trois palettes, deux niveaux de qualite, dans
+la reponse de livraison. Visibles : trainees de feedback, halo de bloom,
+degrade d'horizon a 4 arrets, vignette, arc decentre, et un espace negatif
+dominant (95 a 96 % du cadre sous 8 % de luminance).
+
+### A valider par un humain
+
+- Qualite d'image percue - le seul critere de §0 qui ne se mesure pas.
+- Lisibilite du tempo son coupe : l'arc, l'epaisseur et la rotation portent
+  respectivement le temps, la mesure et la phrase. A verifier a l'oeil.
+- Choix des 8 palettes : les contrastes et les compositions sont verifies
+  automatiquement, le GOUT ne l'est pas.
+
+### Ce qui n'est PAS dans l'etape 2
+
+Les 6 scenes de §4.2 (etape 3), `LiveDirector` et `IntensityDirector` avec le
+budget d'effets simultanes, le plancher de vide, la retenue avant impact et le
+garde-fou de non-saturation (§2.8, etape 4), les overlays expressifs et leurs
+exclusions (§4.4), les transitions de scene (§4.3), les controles clavier
+(§4.5). La sonde de luminance de §2.8 EXISTE et est affichee au HUD ; ce qui
+manque est le director qui s'en sert pour retirer un cran d'effets.

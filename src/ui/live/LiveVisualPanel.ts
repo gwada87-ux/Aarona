@@ -2,6 +2,8 @@ import { FlashLimiter } from '../../visual/safety/FlashLimiter';
 import type { LiveAudioSource } from '../../audio/LiveAudioSource';
 import { LiveAnalysisEngine } from './audio/LiveAnalysisEngine';
 import { DebugHud } from './DebugHud';
+import { LivePipeline } from './render/LivePipeline';
+import { WitnessScene } from './scenes/WitnessScene';
 import { mergeLiveConfig, type LiveConfig, type LiveConfigPatch } from './LiveConfig';
 
 /**
@@ -28,9 +30,12 @@ export class LiveVisualPanel {
 
   private config: LiveConfig = mergeLiveConfig();
   private engine: LiveAnalysisEngine | null = null;
+  private pipeline: LivePipeline | null = null;
   private hud: DebugHud | null = null;
   private source: LiveAudioSource | null = null;
   private audioContext: AudioContext | null = null;
+  private motionQuery: MediaQueryList | null = null;
+  private reducedMotion = false;
 
   private rafId: number | null = null;
   /**
@@ -79,11 +84,14 @@ export class LiveVisualPanel {
       return;
     }
     this.engine = new LiveAnalysisEngine(this.config, sampleRate, source.fftSizeOnset, source.fftSizeBands);
+    this.pipeline = new LivePipeline(this.config);
+    this.pipeline.setScene(new WitnessScene());
     this.hud = new DebugHud(this.config);
 
     this.canvas.style.display = 'block';
     this.measure();
     this.applyPendingSize();
+    this.watchReducedMotion();
 
     // `getBoundingClientRect()` par trame force un reflow a chaque image
     // (interdit §6.6). Le ResizeObserver ne fait que STOCKER la taille ; la
@@ -119,11 +127,17 @@ export class LiveVisualPanel {
       this.dprQuery.removeEventListener('change', this.onDprChange);
       this.dprQuery = null;
     }
+    if (this.motionQuery) {
+      this.motionQuery.removeEventListener('change', this.onMotionChange);
+      this.motionQuery = null;
+    }
     document.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
 
     this.engine?.reset();
     this.engine = null;
+    this.pipeline?.dispose();
+    this.pipeline = null;
     this.hud = null;
     this.source = null;
     this.audioContext = null;
@@ -177,6 +191,24 @@ export class LiveVisualPanel {
     this.lastFrameStamp = 0;
   };
 
+  /**
+   * `prefers-reduced-motion` ecoute EN CONTINU (§1), pas seulement au
+   * demarrage : l'utilisateur peut l'activer pendant que le visuel tourne, et
+   * c'est precisement le moment ou il en a besoin.
+   */
+  private watchReducedMotion(): void {
+    if (!this.config.safety.respectReducedMotion) return;
+    this.motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.reducedMotion = this.motionQuery.matches;
+    this.motionQuery.addEventListener('change', this.onMotionChange);
+    this.flashLimiter.setReducedFlashing(this.reducedMotion);
+  }
+
+  private readonly onMotionChange = (event: MediaQueryListEvent): void => {
+    this.reducedMotion = event.matches;
+    this.flashLimiter.setReducedFlashing(this.reducedMotion);
+  };
+
   private watchDpr(): void {
     const dpr = window.devicePixelRatio || 1;
     this.dprQuery = window.matchMedia(`(resolution: ${dpr}dppx)`);
@@ -210,21 +242,26 @@ export class LiveVisualPanel {
     this.canvas.height = this.pendingH;
     this.ctx2d.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx2d.imageSmoothingEnabled = true;
-    this.ctx2d.filter = 'none';
     this.ctx2d.globalAlpha = 1;
     this.ctx2d.globalCompositeOperation = 'source-over';
+    // Le feedback est perdu par le redimensionnement : on le vide franchement
+    // et on gele l'adaptation de qualite, dont les mesures ne seraient pas
+    // representatives pendant la reallocation (§3.7).
+    this.pipeline?.invalidate(this.lastFrameStamp);
   }
 
   private tick(stamp: number): void {
     const engine = this.engine;
     const source = this.source;
-    if (!engine || !source) return;
+    const pipeline = this.pipeline;
+    if (!engine || !source || !pipeline) return;
     this.applyPendingSize();
     if (this.canvas.width <= 0 || this.canvas.height <= 0) return;
 
     // MUST §3.7 : le temps de trame se mesure sur les horodatages de rAF, pas
     // avec un `performance.now()` autour du code de rendu - le travail Canvas
     // 2D est soumis de facon asynchrone.
+    pipeline.budget.sample(stamp);
     if (this.lastFrameStamp > 0) {
       const delta = stamp - this.lastFrameStamp;
       if (delta > 0 && delta < 500) this.frameMs = this.frameMs + 0.1 * (delta - this.frameMs);
@@ -246,63 +283,80 @@ export class LiveVisualPanel {
       });
     }
 
-    this.draw(engine);
+    // Fondu de palette sur frontiere de PHRASE (§3.5), coupe franche sur un
+    // drop. Le director de l'etape 4 reprendra cette decision ; en attendant
+    // la regle minimale est deja celle du prompt, pas un minuteur.
+    if (engine.beat.phraseThisFrame) {
+      pipeline.palette.next(this.config.content.paletteCrossfadeSec);
+    } else if (engine.section.dropFired) {
+      pipeline.palette.next(0);
+    }
+    if (engine.beat.beatsThisFrame > 0) pipeline.palette.markBeat();
+    // Le shake est une modulation de la CAMERA, pas un effet separe (§3.6).
+    if (engine.firedThisFrame('kick')) pipeline.camera.impulse(engine.onsets.lastStrength('kick'));
+
+    pipeline.render(this.ctx2d, this.canvas.width, this.canvas.height, window.devicePixelRatio || 1, {
+      dt: engine.dt,
+      tSec: engine.tSec,
+      state: engine.state,
+      beat: engine.beat,
+      features: engine.features,
+      onsets: engine.onsetSet,
+      energy: engine.section,
+      intensity: engine.section.intensity,
+      reducedMotion: this.reducedMotion,
+    });
+
+    this.drawBadge(engine, pipeline);
+
+    // `FlashLimiter` : dernier etage, non contournable (Loi 5). En direct il
+    // n'y a pas de temps musical au sens du mode fichier, on lui passe
+    // l'horloge audio.
+    this.flashLimiter.apply(engine.tSec);
 
     if (this.hud) {
-      this.hud.frameMs = this.frameMs;
+      this.hud.frameMs = pipeline.budget.medianFrameMs || this.frameMs;
       this.hud.flashClamped = this.flashLimiter.clampedCount;
+      this.hud.pipeline = pipeline;
       this.hud.draw(this.ctx2d, engine, window.devicePixelRatio || 1);
     }
   }
 
-  private draw(engine: LiveAnalysisEngine): void {
-    const { width, height } = this.canvas;
+  /**
+   * Repere `EN DIRECT`, conserve par §1 mais RETRAVAILLE : couleur de palette
+   * au lieu d'un blanc pose, apparition progressive pendant BOOT (§2.6), et la
+   * pastille bat sur le temps MUSICAL - decale de `syncOffsetMs` - plutot que
+   * de clignoter sur une horloge independante. Dessine sur le canvas visible
+   * apres le post : il ne doit ni entrer dans le feedback, ni etre floute par
+   * le bloom.
+   */
+  private drawBadge(engine: LiveAnalysisEngine, pipeline: LivePipeline): void {
     const ctx = this.ctx2d;
+    const h = this.canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const boot = engine.state === 'BOOT' ? Math.min(1, engine.tSec / this.config.state.bootSec) : 1;
+    if (boot <= 0) return;
+
+    const size = Math.max(11, Math.round(h * 0.016));
+    const pad = Math.round(12 * dpr);
+    const toBeat = engine.beat.periodSec > 0 ? 1 - engine.beat.visualBeatPhase : 0;
+    const dot = 0.45 + 0.55 * toBeat * toBeat;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, width, height);
-
-    const bands = engine.features.bandsNorm;
-    const energy = engine.features.rmsNorm;
-    const cx = width / 2;
-    const cy = height / 2;
-    const baseRadius = Math.min(width, height) * 0.22 * (1 + energy * 0.25);
-
-    const barCount = bands.length;
-    const maxBarLen = Math.min(width, height) * 0.28;
-    ctx.lineWidth = Math.max(1, (Math.min(width, height) / barCount) * 0.6);
-    for (let i = 0; i < barCount; i++) {
-      const level = bands[i] ?? 0;
-      const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
-      const len = level * maxBarLen;
-      const x0 = cx + Math.cos(angle) * baseRadius;
-      const y0 = cy + Math.sin(angle) * baseRadius;
-      const x1 = cx + Math.cos(angle) * (baseRadius + len);
-      const y1 = cy + Math.sin(angle) * (baseRadius + len);
-      const hue = 260 - level * 140; // violet -> rose/orange sur les pics, coherent avec la palette par defaut du mode fichier
-      ctx.strokeStyle = `hsl(${hue} 85% ${45 + level * 25}%)`;
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
-    }
-
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = boot * 0.9;
+    ctx.fillStyle = pipeline.palette.hex('accent');
     ctx.beginPath();
-    ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(180,140,255,${0.4 + energy * 0.4})`;
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.arc(pad + size * 0.35, pad + size * 0.55, size * 0.28 * dot, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = `${Math.max(10, height * 0.03)}px "IBM Plex Mono", monospace`;
+    ctx.globalAlpha = boot * 0.75;
+    ctx.fillStyle = pipeline.palette.hex('highlight');
+    ctx.font = `${size}px "IBM Plex Mono", ui-monospace, monospace`;
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText('● EN DIRECT', 12, 10);
-
-    // `FlashLimiter` attend un temps en secondes ; en direct il n'y a pas de
-    // temps musical au sens du mode fichier, on lui passe l'horloge AUDIO.
-    this.flashLimiter.apply(engine.tSec);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('EN DIRECT', pad + size, pad + size * 0.55);
+    ctx.globalAlpha = 1;
   }
 }
 

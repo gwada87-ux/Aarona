@@ -27,7 +27,9 @@ import {
   type OnsetKind,
 } from './OnsetDetector';
 import { TempoEstimator } from './TempoEstimator';
+import { SectionEnergy } from './SectionEnergy';
 import { MACRO_BAND_IDS, type LiveConfig } from '../LiveConfig';
+import type { OnsetSet } from '../scenes/types';
 
 export type EngineState = 'BOOT' | 'IDLE' | 'REACTIVE' | 'LOCKED';
 
@@ -54,11 +56,49 @@ function isOctaveRelated(a: number, b: number): boolean {
   return false;
 }
 
+/**
+ * Vue des onsets telle qu'une scene la consomme (§4.1). Traduit les instants
+ * bruts du detecteur en enveloppes utilisables par le rendu.
+ */
+class OnsetView implements OnsetSet {
+  constructor(private readonly engine: LiveAnalysisEngine) {}
+
+  fired(kind: OnsetKind): boolean {
+    return this.engine.firedThisFrame(kind);
+  }
+
+  strength(kind: OnsetKind): number {
+    return this.engine.onsets.lastStrength(kind);
+  }
+
+  /**
+   * MUST §2.7.2 : decroissance selon le TEMPS ECOULE depuis l'attaque, jamais
+   * selon `beatPhase`. Avec `beatPhase`, l'enveloppe remonte a 1 sur TOUS les
+   * temps meme sans frappe, et une frappe en contretemps nait deja a moitie
+   * attenuee.
+   *
+   * Une nouvelle attaque REMPLACE l'enveloppe (`max`), elle ne s'y ajoute pas.
+   */
+  envelope(kind: OnsetKind, decayBeats: number): number {
+    const period = this.engine.beat.periodSec;
+    if (period <= 0) return 0;
+    const since = this.engine.audioTime - this.engine.onsets.lastTime(kind);
+    if (!(since >= 0) || !Number.isFinite(since)) return 0;
+    const tau = Math.max(1e-3, decayBeats * period);
+    return this.engine.onsets.lastStrength(kind) * Math.exp(-since / tau);
+  }
+}
+
 export class LiveAnalysisEngine {
   readonly features: AudioFeatures;
   readonly onsets: OnsetDetector;
   readonly tempo: TempoEstimator;
   readonly beat: BeatClock;
+  readonly section: SectionEnergy;
+  /** Vue des onsets pour le rendu. */
+  readonly onsetSet: OnsetSet;
+  /** Onsets par seconde, lisse - alimente l'intensite (§2.8). */
+  onsetRate = 0;
 
   state: EngineState = 'BOOT';
   /** Secondes ecoulees depuis `start()`, en temps audio. */
@@ -101,6 +141,8 @@ export class LiveAnalysisEngine {
     this.tempo = new TempoEstimator(config.beat, a.gridHz, a.gridSeconds);
     this.beat = new BeatClock(config.beat, config.sync, MACRO_BAND_IDS.length);
     this.grid = new AnalysisGrid(GRID_CHANNELS, a.gridHz, a.gridReanchorSec);
+    this.section = new SectionEnergy(config.state);
+    this.onsetSet = new OnsetView(this);
   }
 
   /** Un onset de ce type est-il tombe pendant la derniere trame ? */
@@ -173,8 +215,33 @@ export class LiveAnalysisEngine {
       this.onsets.clearEvents();
     }
 
+    this.updateOnsetRate(this.dt);
+    // La detection de sections lit les niveaux BRUTS, pre-AGC (§2.7.9).
+    const barSec = this.beat.periodSec > 0 ? this.beat.periodSec * this.config.beat.beatsPerBar : 2;
+    this.section.update(
+      this.tSec,
+      this.dt,
+      this.features.macroDb,
+      this.features.rmsDbfs,
+      this.onsetRate,
+      this.beat.barIndex,
+      this.beat.barThisFrame,
+      barSec,
+    );
+
     this.detectTrackChange(this.dt, silent);
     this.maybeUpdateSync(input);
+  }
+
+  private updateOnsetRate(dt: number): void {
+    let count = 0;
+    if (this.fired.kick) count++;
+    if (this.fired.snare) count++;
+    if (this.fired.hat) count++;
+    // Lissage sur ~1,5 s : assez court pour distinguer un breakdown d'un drop,
+    // assez long pour ne pas suivre chaque croche.
+    const a = 1 - Math.exp(-dt / 1.5);
+    this.onsetRate += (count / Math.max(dt, 1e-4) - this.onsetRate) * a;
   }
 
   private readonly onGridTick = (tickTime: number, values: Float32Array): void => {
@@ -319,6 +386,8 @@ export class LiveAnalysisEngine {
     this.features.reset();
     this.flux.reset();
     this.grid.reset();
+    this.section.reset();
+    this.onsetRate = 0;
     this.fluxCarry.fill(0);
     this.fluxOut.fill(0);
     this.fracPrev = 0;

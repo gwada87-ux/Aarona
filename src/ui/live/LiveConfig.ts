@@ -317,9 +317,90 @@ export interface LiveStateConfig {
   readonly hiddenReArmSec: number;
 }
 
+export interface LiveRenderConfig {
+  /** Plafond memoire de l'ensemble des calques, en Mo. Safari plafonne la memoire canvas GLOBALE vers 224-256 Mo. */
+  readonly layerMemoryLimitMb: number;
+  /** Largeur maximale du bitmap de post, en pixels physiques. Le DPR ne sert qu'au calque HUD. */
+  readonly postMaxWidth: number;
+  /** Hauteur maximale du bitmap de post, en pixels physiques. */
+  readonly postMaxHeight: number;
+  /** Constante de temps du feedback, en secondes. 0,13 s reproduit un alpha de 0,88 a 60 fps. */
+  readonly feedbackTauSec: number;
+  /** Amplitude de la « respiration » du feedback sur `barPhase`, en fraction de tau. */
+  readonly feedbackBreath: number;
+  /** Zoom du feedback par trame. Au-dela de 1,02 l'image part en tunnel. */
+  readonly feedbackZoom: number;
+  /** Borne basse du facteur de decroissance par trame. */
+  readonly feedbackKMin: number;
+  /** Borne haute. Au-dela de 0,95 l'image ne se vide plus jamais. */
+  readonly feedbackKMax: number;
+  /** Gain d'injection de la scene dans le feedback. <= 1, pondere par (1-k) pour eviter l'emballement. */
+  readonly feedbackSceneGain: number;
+  /** Seuil de luminance du bright pass, 0-1. Variante B uniquement (necessite ctx.filter). */
+  readonly bloomThreshold: number;
+  /** Contraste du bright pass, variante B. Plus grand = seuil plus raide. */
+  readonly bloomContrast: number;
+  /** Gain de recomposition du bloom. */
+  readonly bloomGain: number;
+  /** Rayon de flou de base, en pixels pour un buffer de 1080 de haut. Recalcule a la hauteur reelle. */
+  readonly bloomSigmaAt1080: number;
+  /** Cote de la tuile de grain, en pixels. */
+  readonly grainTileSize: number;
+  /** Amplitude maximale du grain, sur 255. Additif. */
+  readonly grainAmplitude255: number;
+  /** Sous ce deplacement en pixels device, l'aberration est SAUTEE - elle ne produirait rien de visible. */
+  readonly aberrationGatePx: number;
+  /** Deplacement maximal de l'aberration, en pixels device. */
+  readonly aberrationMaxPx: number;
+  /** Force de la vignette, 0-1. */
+  readonly vignetteStrength: number;
+  /** Opacite des scanlines, 0-1. */
+  readonly scanlineStrength: number;
+  /** Periode des scanlines, en pixels du bitmap de post. */
+  readonly scanlinePeriodPx: number;
+}
+
+export interface LivePerfConfig {
+  /** Nombre de trames servant a ESTIMER la periode de reference. Jamais 16,7 ms en dur. */
+  readonly calibrationFrames: number;
+  /** Taille de la fenetre glissante de decision. */
+  readonly windowFrames: number;
+  /** Nombre de trames lentes dans la fenetre declenchant une descente de qualite. */
+  readonly slowFrames: number;
+  /** Multiple de la periode de reference au-dela duquel une trame est « lente ». */
+  readonly slowFactor: number;
+  /** Nombre de trames rapides CONSECUTIVES declenchant une remontee. */
+  readonly goodFrames: number;
+  /** Multiple de la periode sous lequel une trame est « rapide ». L'ecart avec `slowFactor` EST la zone morte. */
+  readonly fastFactor: number;
+  /** Delai minimal entre deux changements de niveau, en ms. */
+  readonly qualityCooldownMs: number;
+  /** Au-dela de cette duree, une trame est un retour d'onglet ou un GC, pas une trame lente. */
+  readonly outlierFrameMs: number;
+  /** Gel de l'adaptation apres un resize, en ms. */
+  readonly resizeFreezeMs: number;
+  /** Gel de l'adaptation pendant une transition de scene, en ms. */
+  readonly transitionFreezeMs: number;
+}
+
+export interface LiveSafetyConfig {
+  /** Respecter `prefers-reduced-motion`. Mettre a `false` desactive l'adaptation, pas la detection. */
+  readonly respectReducedMotion: boolean;
+  /** Plafond du facteur de decroissance du feedback en mouvement reduit. */
+  readonly reducedFeedbackKMax: number;
+  /** Diviseur d'amplitude applique aux reactions en mouvement reduit. */
+  readonly reducedAmplitudeDivider: number;
+  /** Duree minimale d'une transition en mouvement reduit, en secondes. Fondu uniquement, jamais de coupe. */
+  readonly reducedTransitionSec: number;
+}
+
 export interface LiveContentConfig {
   /** Ouvre le HUD de debug des le demarrage. Sinon touche `D`. */
   readonly debugHudOnStart: boolean;
+  /** Index de palette impose. `-1` = laisser le moteur choisir. */
+  readonly forcedPalette: number;
+  /** Duree du fondu de palette sur frontiere de phrase, en secondes. 0 = coupe franche. */
+  readonly paletteCrossfadeSec: number;
 }
 
 export interface LiveConfig {
@@ -327,6 +408,9 @@ export interface LiveConfig {
   readonly beat: LiveBeatConfig;
   readonly sync: LiveSyncConfig;
   readonly state: LiveStateConfig;
+  readonly render: LiveRenderConfig;
+  readonly perf: LivePerfConfig;
+  readonly safety: LiveSafetyConfig;
   readonly content: LiveContentConfig;
 }
 
@@ -462,8 +546,50 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     dtClampSec: 0.05,
     hiddenReArmSec: 1,
   }),
+  render: Object.freeze({
+    layerMemoryLimitMb: 120,
+    postMaxWidth: 1920,
+    postMaxHeight: 1080,
+    feedbackTauSec: 0.13,
+    feedbackBreath: 0.6,
+    feedbackZoom: 1.005,
+    feedbackKMin: 0.8,
+    feedbackKMax: 0.94,
+    feedbackSceneGain: 0.9,
+    bloomThreshold: 0.62,
+    bloomContrast: 10,
+    bloomGain: 0.85,
+    bloomSigmaAt1080: 9,
+    grainTileSize: 256,
+    grainAmplitude255: 10,
+    aberrationGatePx: 1,
+    aberrationMaxPx: 6,
+    vignetteStrength: 0.55,
+    scanlineStrength: 0.16,
+    scanlinePeriodPx: 4,
+  }),
+  perf: Object.freeze({
+    calibrationFrames: 60,
+    windowFrames: 12,
+    slowFrames: 8,
+    slowFactor: 1.5,
+    goodFrames: 90,
+    fastFactor: 0.8,
+    qualityCooldownMs: 500,
+    outlierFrameMs: 500,
+    resizeFreezeMs: 500,
+    transitionFreezeMs: 1000,
+  }),
+  safety: Object.freeze({
+    respectReducedMotion: true,
+    reducedFeedbackKMax: 0.85,
+    reducedAmplitudeDivider: 2,
+    reducedTransitionSec: 0.6,
+  }),
   content: Object.freeze({
     debugHudOnStart: false,
+    forcedPalette: -1,
+    paletteCrossfadeSec: 0.3,
   }),
 });
 
@@ -480,6 +606,9 @@ export function mergeLiveConfig(patch?: LiveConfigPatch, base: LiveConfig = DEFA
     beat: Object.freeze({ ...base.beat, ...patch.beat }),
     sync: Object.freeze({ ...base.sync, ...patch.sync }),
     state: Object.freeze({ ...base.state, ...patch.state }),
+    render: Object.freeze({ ...base.render, ...patch.render }),
+    perf: Object.freeze({ ...base.perf, ...patch.perf }),
+    safety: Object.freeze({ ...base.safety, ...patch.safety }),
     content: Object.freeze({ ...base.content, ...patch.content }),
   });
 }

@@ -11,6 +11,10 @@
  */
 
 import { LiveAnalysisEngine } from '../audio/LiveAnalysisEngine';
+import { LivePipeline } from '../render/LivePipeline';
+import { WitnessScene } from '../scenes/WitnessScene';
+import { PALETTES } from '../render/Palette';
+import type { QualityLevel } from '../render/FrameBudget';
 import { mergeLiveConfig } from '../LiveConfig';
 
 const config = mergeLiveConfig();
@@ -20,12 +24,25 @@ const ui = {
   start: document.getElementById('start') as HTMLButtonElement,
   stop: document.getElementById('stop') as HTMLButtonElement,
   audible: document.getElementById('audible') as HTMLInputElement,
+  quality: document.getElementById('quality') as HTMLSelectElement,
+  palette: document.getElementById('palette') as HTMLSelectElement,
   readout: document.getElementById('readout') as HTMLPreElement,
   canvas: document.getElementById('view') as HTMLCanvasElement,
 };
 
 const ctx2d = ui.canvas.getContext('2d');
 if (!ctx2d) throw new Error('live-bench: contexte 2D indisponible');
+
+for (let i = 0; i < PALETTES.length; i++) {
+  const option = document.createElement('option');
+  option.value = String(i);
+  option.textContent = PALETTES[i]?.id ?? String(i);
+  ui.palette.appendChild(option);
+}
+
+let pipeline: LivePipeline | null = null;
+/** Historique des temps de trame depuis le dernier changement de qualite, pour la mediane. */
+let frameSamples: number[] = [];
 
 let audio: AudioContext | null = null;
 let engine: LiveAnalysisEngine | null = null;
@@ -144,6 +161,9 @@ function start(): void {
   bandsDb = new Float32Array(bands.frequencyBinCount);
   timeDomain = new Float32Array(onset.fftSize);
   engine = new LiveAnalysisEngine(config, ac.sampleRate, onset.fftSize, bands.fftSize);
+  pipeline = new LivePipeline(config);
+  pipeline.setScene(new WitnessScene());
+  frameSamples = [];
 
   scheduledUpTo = ac.currentTime + 0.2;
   beatIndex = 0;
@@ -157,6 +177,8 @@ function stop(): void {
   raf = 0;
   engine?.reset();
   engine = null;
+  pipeline?.dispose();
+  pipeline = null;
   void audio?.close();
   audio = null;
   master = null;
@@ -169,12 +191,21 @@ let frameMs = 16.7;
 
 function loop(stamp: number): void {
   raf = requestAnimationFrame(loop);
-  if (!audio || !engine || !onset || !bands || !onsetDb || !bandsDb || !timeDomain) return;
+  loopBody(stamp);
+}
+
+function loopBody(stamp: number): void {
+  if (!audio || !engine || !pipeline || !onset || !bands || !onsetDb || !bandsDb || !timeDomain) return;
   schedule();
 
+  pipeline.budget.sample(stamp);
   if (lastStamp > 0) {
     const d = stamp - lastStamp;
-    if (d > 0 && d < 500) frameMs += 0.1 * (d - frameMs);
+    if (d > 0 && d < 500) {
+      frameMs += 0.1 * (d - frameMs);
+      frameSamples.push(d);
+      if (frameSamples.length > 600) frameSamples.shift();
+    }
   }
   lastStamp = stamp;
 
@@ -197,44 +228,120 @@ function loop(stamp: number): void {
     frameIntervalSec: frameMs / 1000,
   });
 
-  render();
+  render(stamp);
 }
 
-function render(): void {
-  if (!engine || !ctx2d) return;
+function median(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[sorted.length >> 1] ?? 0;
+}
+
+function render(stamp: number): void {
+  if (!engine || !pipeline || !ctx2d) return;
   const beat = engine.beat;
   const w = ui.canvas.width;
   const h = ui.canvas.height;
-  ctx2d.fillStyle = '#0b0b12';
-  ctx2d.fillRect(0, 0, w, h);
 
-  // Pastille de temps : c'est elle qu'on filme a 240 fps avec le son pour
-  // mesurer la latence reelle (point a valider par un humain, §8).
-  const r = 40 + 40 * Math.max(0, 1 - beat.beatPhase * 4);
-  ctx2d.fillStyle = beat.barPhase < 0.25 ? '#ff9060' : '#8f7cff';
-  ctx2d.beginPath();
-  ctx2d.arc(w / 2, h / 2, r, 0, Math.PI * 2);
-  ctx2d.fill();
+  // Qualite forcee : c'est ce qui permet de consigner le temps de trame aux
+  // quatre niveaux, livrable de §9.2.
+  const forced = ui.quality.value;
+  if (forced !== 'auto') {
+    const level = Number(forced) as QualityLevel;
+    if (pipeline.budget.level !== level) {
+      pipeline.budget.setLevel(level, stamp);
+      pipeline.budget.freeze(stamp, 1e9);
+      frameSamples = [];
+    }
+  }
+  const paletteIndex = Number(ui.palette.value);
+  if (Number.isFinite(paletteIndex) && pipeline.palette.currentIndex !== paletteIndex) {
+    pipeline.palette.crossfadeTo(paletteIndex, config.content.paletteCrossfadeSec);
+  }
 
-  ctx2d.strokeStyle = '#4a4a66';
-  ctx2d.strokeRect(20.5, h - 40.5, w - 40, 16);
-  ctx2d.fillStyle = '#60ffc0';
-  ctx2d.fillRect(21, h - 40, (w - 42) * beat.beatPhase, 15);
+  if (engine.beat.beatsThisFrame > 0) pipeline.palette.markBeat();
+  if (engine.firedThisFrame('kick')) pipeline.camera.impulse(engine.onsets.lastStrength('kick'));
+
+  pipeline.render(ctx2d, w, h, window.devicePixelRatio || 1, {
+    dt: engine.dt,
+    tSec: engine.tSec,
+    state: engine.state,
+    beat: engine.beat,
+    features: engine.features,
+    onsets: engine.onsetSet,
+    energy: engine.section,
+    intensity: engine.section.intensity,
+    reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  });
 
   const sync = beat.sync;
+  const stats = pipeline.stats;
   ui.readout.textContent = [
     `etat        ${engine.state}`,
     `tempo       ${beat.bpm.toFixed(2)} BPM   conf ${engine.tempo.confidence.toFixed(2)}   downbeat ${beat.downbeatConfidence.toFixed(2)}`,
-    `octaves     ${engine.tempo.hypotheses.map((x) => `${x.bpm.toFixed(1)}:${x.score.toFixed(2)}`).join('  ')}`,
-    `position    temps ${beat.beatIndex}   mesure ${beat.barIndex}   phrase ${beat.phraseIndex}`,
+    `position    temps ${beat.beatIndex}   mesure ${beat.barIndex}   phrase ${beat.phraseIndex}   phase ${beat.beatPhase.toFixed(2)}`,
     `kicks       ${beat.acceptedKicks} acceptes / ${beat.rejectedKicks} rejetes   resync ${beat.hardResyncs}`,
     `sync        ${sync.totalMs.toFixed(1)} ms   avance audio ${sync.audioAheadMs.toFixed(1)} ms   trim ${sync.userTrimMs.toFixed(0)} ms`,
-    `trame       ${frameMs.toFixed(1)} ms`,
+    `qualite     ${pipeline.budget.level}/3 (${forced === 'auto' ? 'auto' : 'forcee'})   passes ${stats.passes}/${stats.budget}   bitmap ${stats.postW}x${stats.postH}   ${stats.memoryMb.toFixed(1)} Mo`,
+    `trame       mediane ${median(frameSamples).toFixed(2)} ms sur ${frameSamples.length} trames   ref ${pipeline.budget.referencePeriodMs.toFixed(2)} ms`,
+    `image       luminance ${stats.luminance.toFixed(3)}   palette ${pipeline.palette.current.id}   section ${engine.section.arc}   intensite ${engine.section.intensity.toFixed(2)}`,
   ].join('\n');
 }
 
 ui.start.addEventListener('click', start);
 ui.stop.addEventListener('click', stop);
+
+/**
+ * Point d'entree MANUEL du banc.
+ *
+ * `requestAnimationFrame` ne se declenche pas quand la page n'est pas
+ * composee - onglet en arriere-plan, volet de previsualisation ferme. Ce hook
+ * permet de forcer des trames avec un horodatage injecte, ce qui suffit a
+ * verifier que toute la chaine de rendu rasterise sans exception et produit
+ * des pixels.
+ *
+ * Ce qu'il ne remplace PAS : la mesure du temps de trame, qui n'a de sens que
+ * sur des trames reellement cadencees par le compositeur.
+ */
+(window as unknown as { __liveBench: unknown }).__liveBench = {
+  start,
+  stop,
+  /** Force `count` trames espacees de `dtMs` d'horodatage simule. */
+  step(count: number, dtMs = 16.7): number {
+    let stamp = lastStamp;
+    for (let i = 0; i < count; i++) {
+      stamp += dtMs;
+      loopBody(stamp);
+    }
+    return stamp;
+  },
+  get stats() {
+    return pipeline?.stats ?? null;
+  },
+  get readout() {
+    return ui.readout.textContent;
+  },
+  /** Capture PNG du canvas. Fonctionne meme sans compositeur. */
+  capture(): string {
+    return ui.canvas.toDataURL('image/png');
+  },
+  /** Luminance moyenne echantillonnee directement sur le canvas visible. */
+  probe(): { mean: number; nonBackground: number } {
+    const ctx = ui.canvas.getContext('2d');
+    if (!ctx) return { mean: 0, nonBackground: 0 };
+    const { data } = ctx.getImageData(0, 0, ui.canvas.width, ui.canvas.height);
+    let sum = 0;
+    let bright = 0;
+    const n = data.length / 4;
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      const l = (0.2126 * (data[o] ?? 0) + 0.7152 * (data[o + 1] ?? 0) + 0.0722 * (data[o + 2] ?? 0)) / 255;
+      sum += l;
+      if (l > 0.08) bright++;
+    }
+    return { mean: sum / n, nonBackground: bright / n };
+  },
+};
 window.addEventListener('keydown', (e) => {
   if (!engine) return;
   if (e.key === 'ArrowUp') engine.beat.setUserTrimMs(engine.beat.userTrimMs + config.sync.userTrimStepMs);
