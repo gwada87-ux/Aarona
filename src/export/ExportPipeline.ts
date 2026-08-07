@@ -3,8 +3,10 @@ import type { Viewport } from '../render/Viewport';
 import { StepContextBuilder } from '../music/StepContext';
 import type { MusicTimeline } from '../music/MusicTimeline';
 import { BehaviourEngine } from '../behaviour/BehaviourEngine';
+import { VisualDirector } from '../behaviour/VisualDirector';
 import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import type { Scene } from '../visual/scene/Scene';
+import { openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
 import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
 import { EXPORT_QUALITY_LEVEL, QUALITY_LEVEL_CONFIGS } from '../perf/qualityLevels';
@@ -91,6 +93,9 @@ export async function runExport(
 
   const stepper = new StepContextBuilder(config.timeline, config.projectSeed);
   const behaviourEngine = new BehaviourEngine(config.timeline, config.mapping);
+  // Dramaturgie (chantier 3) : sans état, entièrement recalculée depuis `t`,
+  // donc l'export en produit exactement la même que la preview.
+  const director = new VisualDirector(config.timeline);
   const scene = config.createScene();
   scene.init({ renderer: target.renderer, palette: config.palette });
   // Macros de couche (Étape 20) — CORRIGÉ à l'Étape 26 : jusque-là jamais appliquées à l'export
@@ -125,13 +130,10 @@ export async function runExport(
       const targetT = f / config.fps;
       while (simT < targetT - 1e-9) {
         simT += FIXED_DT;
-        const step = stepper.build(simT);
-        const signals = behaviourEngine.update(step);
-        scene.update(step, signals);
+        stepSceneWithDrama(scene, behaviourEngine, director, stepper.build(simT));
       }
 
-      target.renderer.beginFrame(target.viewport);
-      target.renderer.clear(config.palette.bg[1]);
+      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director);
       scene.draw(target.renderer, target.viewport);
       target.renderer.endFrame();
       if (config.watermarked) drawWatermark(target.renderer, target.viewport);

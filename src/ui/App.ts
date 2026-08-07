@@ -22,11 +22,13 @@ import { buildMusicTimeline, type MusicTimeline } from '../music/MusicTimeline';
 import type { PmdiDocument } from '../music/pmdi';
 import type { WaveformPeaks } from '../analysis/waveformPeaks';
 import { BehaviourEngine } from '../behaviour/BehaviourEngine';
+import { VisualDirector } from '../behaviour/VisualDirector';
 import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import { createPulseStyle } from '../visual/styles/pulse/createPulseStyle';
 import { createFieldStyle } from '../visual/styles/field/createFieldStyle';
 import { createSpectrumProStyle } from '../visual/styles/spectrum-pro/createSpectrumProStyle';
 import type { Scene } from '../visual/scene/Scene';
+import { openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
@@ -113,6 +115,8 @@ let currentTimeline: MusicTimeline | null = null;
 let currentAudioBuffer: AudioBuffer | null = null;
 let stepper: StepContextBuilder | null = null;
 let behaviourEngine: BehaviourEngine | null = null;
+let visualDirector: VisualDirector | null = null;
+let visualDirectorTimeline: MusicTimeline | null = null;
 /** Timeline pour laquelle `behaviourEngine` a été construit — distinct de `currentTimeline`, même rôle que `sceneStyleId` pour `scene` (Étape 28). */
 let behaviourEngineTimeline: MusicTimeline | null = null;
 let scene: Scene | null = null;
@@ -242,6 +246,14 @@ function applyActiveConfiguration(): void {
     } else {
       behaviourEngine = new BehaviourEngine(currentTimeline, currentMapping);
       behaviourEngineTimeline = currentTimeline;
+    }
+    // Le director est SANS ÉTAT : le reconstruire à chaque changement de
+    // timeline suffit, et il n'a rien à préserver au passage — contrairement au
+    // `BehaviourEngine`, dont les enveloppes en cours doivent survivre à un
+    // simple glissement de macro.
+    if (visualDirectorTimeline !== currentTimeline) {
+      visualDirector = new VisualDirector(currentTimeline);
+      visualDirectorTimeline = currentTimeline;
     }
   }
 
@@ -1064,7 +1076,7 @@ function loop(nowMs: number): void {
   lastFrameMs = nowMs;
 
   const updateStartMs = performance.now();
-  if (audioEngine.playing && stepper && behaviourEngine && scene && currentTimeline) {
+  if (audioEngine.playing && stepper && behaviourEngine && visualDirector && scene && currentTimeline) {
     // `audioEngine.dt` est le delta BRUT (non corrigé) — `audioEngine.t`, lui, intègre la
     // correction de dérive de `correctDrift()` (±2ms/image, convergence douce vers l'horloge
     // audio réelle). Alimenter l'accumulateur avec le delta de `t` plutôt que `dt` fait hériter
@@ -1077,8 +1089,9 @@ function loop(nowMs: number): void {
     for (let i = 0; i < steps; i++) {
       simT = Math.min(currentTimeline.duration, simT + FIXED_DT);
       const step = stepper.build(simT);
-      const signals = behaviourEngine.update(step);
-      scene.update(step, signals);
+      // Dramaturgie appliquée par le MÊME point que l'export (chantier 3) :
+      // deux boucles d'images distinctes, un seul endroit qui les dose.
+      stepSceneWithDrama(scene, behaviourEngine, visualDirector, step);
       lastRegime = step.regime;
     }
     timelineComponent.setPlayhead(simT);
@@ -1087,8 +1100,14 @@ function loop(nowMs: number): void {
 
   const renderStartMs = performance.now();
   if (scene && currentPalette) {
-    renderer.beginFrame(viewport);
-    renderer.clear(currentPalette.bg[1]);
+    // Sans director (aucun morceau chargé), la caméra est simplement neutre :
+    // on ouvre l'image comme avant.
+    if (visualDirector) {
+      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector);
+    } else {
+      renderer.beginFrame(viewport);
+      renderer.clear(currentPalette.bg[1]);
+    }
     scene.draw(renderer, viewport);
     renderer.endFrame();
     flashLimiter.apply(simT);

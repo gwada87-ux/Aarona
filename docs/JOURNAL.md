@@ -3425,3 +3425,205 @@ Ce que les tests ne disent pas, c'est si le résultat est BEAU :
   (KICK/HAT/SNARE en dur). Seuls sa vitesse et son balancement passent par la
   table de câblage. Router les naissances par le mapping demanderait un
   quatrième type d'entrée et n'était pas dans ce chantier.
+
+---
+
+## Phase 2 — Chantier 3 : dramaturgie et caméra
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 3 (§6.2, §6.4).
+Livrable : montrer que l'intro, la montée, le drop et le breakdown produisent
+des images distinctes.
+
+### Le défaut corrigé
+
+`step.section` existe depuis toujours dans le `StepContext` — énergie, lettre de
+répétition A/B/C, label, confiance — et **aucune couche ne le lisait**.
+`step.regime` non plus. Un morceau de trois minutes se rendait donc sans la
+moindre variation structurelle. Aucune quantité de nouveaux styles n'aurait
+corrigé ça : c'est un problème de durée, pas de géométrie.
+
+### Loi 1 : un director SANS ÉTAT
+
+`IntensityDirector`, son équivalent du mode live, accumule — il compte les
+mesures depuis le drop, mémorise le niveau d'avant, suit une moyenne glissante
+de luminance. **Rien de tout ça n'est permis ici** : le rendu doit être une
+fonction pure de `t`, sinon l'export cesse de reproduire l'aperçu.
+
+`VisualDirector` n'a donc aucun état de dramaturgie. Chaque valeur est
+recalculée depuis `t` par consultation de la timeline, qui sait regarder en
+arrière (`prevEventOfType`) comme en avant (`nextEventOfType`). Le niveau
+d'avant le drop, par exemple, n'est pas mémorisé : il est **relu** à
+`sectionAt(dropT - ε)`.
+
+Le test le vérifie de trois façons : lecture continue depuis zéro, saut direct,
+et série de sauts arrière désordonnés donnent tous exactement le même budget à
+t = 26,4 s.
+
+**Tout est compté en MESURES, jamais en secondes.** « Deux mesures avant le
+drop » veut dire la même chose à 90 et à 140 BPM. Les positions viennent de
+`barIndexAt + barPhaseAt`, ce qui évite en prime d'avoir à connaître la
+métrique — l'API de la timeline ne l'expose pas.
+
+### Relevé sur un morceau structuré de 64 s
+
+Intro (0,15 d'énergie) · couplet (0,7) · refrain avec drop à 24 s (1,0) ·
+breakdown (0,1) · refrain repris, même lettre.
+
+| moment | arc | amplitude | niveau | caméra |
+|---|---|---|---|---|
+| intro (3 s) | `intro` | 0,700 | 0,420 | +0,051 +0,033 |
+| couplet (14 s) | `sustain` | 1,000 | 0,865 | +0,030 +0,013 |
+| montée, −2 mesures | `build` | 0,999 | 0,865 | −0,008 +0,032 |
+| montée, −0,5 mesure | `build` | **0,516** | 0,865 | +0,013 +0,032 |
+| montée, juste avant | `build` | **0,451** | 0,865 | +0,016 +0,031 |
+| DROP +0,5 mesure | `drop` | 1,000 | **1,000** | +0,010 +0,037 |
+| retombée +1,5 mesure | `fallout` | 0,700 | **0,779** | +0,010 +0,032 |
+| refrain (33 s) | `sustain` | 1,000 | 1,000 | −0,016 +0,022 |
+| vide avant section | `void` | 0,350 | 0,300 | +0,011 +0,037 |
+| breakdown (44 s) | `breakdown` | 0,500 | **0,180** | −0,041 +0,042 |
+
+La retenue avant impact est visible : l'amplitude tombe de 1,000 à 0,451 sur les
+deux dernières mesures. Contre-intuitif et c'est le point — si tout monte en
+même temps que le drop, le drop n'a plus de contraste à franchir.
+
+### Une intro n'est pas un breakdown
+
+Trouvé par un test qui échouait : l'intro du morceau, à 0,15 d'énergie, tombait
+sous le seuil de breakdown et était rendue en quasi-noir. Or les deux moments
+ont souvent la **même énergie** et ne racontent pas du tout la même chose :
+l'une prépare, l'autre effondre. Un morceau aurait démarré sur un écran presque
+éteint.
+
+Ce qui les distingue n'est pas l'énergie mais la **position** : la première
+section d'un morceau est une intro, quelle que soit son énergie. Niveau 0,42
+contre 0,18.
+
+### Un défaut trouvé en relevant les chiffres, pas en lisant le code
+
+La retombée d'après drop utilisait `easeOutCubic`. Une courbe ease-**out**
+remonte vite au début : mesuré, le niveau était revenu à **0,992 dès 2,5 mesures
+après le drop**, alors qu'il valait 0,865 avant. La règle « rester sous le
+niveau d'avant pendant deux mesures » n'était donc tenue que sur la première
+moitié de la fenêtre.
+
+Corrigé en deux temps : `easeInQuad`, qui tient bas puis remonte à la fin ; et
+un plafond dur à `beforeLevel * 0.98` sur toute la fenêtre, pour qu'un futur
+réglage de courbe ne puisse pas recasser la règle en silence. Un test balaie
+maintenant la fenêtre par pas de 0,05 mesure.
+
+Ce défaut n'était visible ni au typecheck, ni aux tests que j'avais écrits, ni à
+la lecture — seulement en imprimant les valeurs réelles.
+
+### Caméra : translation seulement, et pourquoi
+
+§6.4 demande trois choses. Deux sont livrées :
+
+- **Recadrage franc sur frontière de section.** Le décalage est une fonction de
+  l'instant de début de section et de sa lettre, donc constant à l'intérieur
+  d'une section — il ne PEUT pas changer au milieu d'une mesure. Deux sections
+  de lettres différentes ne sont pas cadrées pareil, si bien qu'un refrain
+  revenu ne se lit pas comme une copie du précédent.
+- **Dérive lente**, d'autant plus ample que le passage est calme.
+
+La troisième — « poussée lente pendant une montée » — **n'est pas réalisable en
+l'état**. `Renderer.applyShake(dx, dy)` fait `ctx.translate` et rien d'autre :
+l'interface n'expose aucun zoom, et `docs/17` §4 n'autorise que deux extensions,
+les modes de fusion et `drawImage`. Une caméra à zoom en serait une troisième.
+
+Ce qui est livré à la place, et qui n'est pas un pis-aller : la dérive se
+**resserre** à l'approche du drop, jusqu'à l'immobilité. À défaut de pouvoir
+pousser, c'est le figement du cadre qui porte la tension. Un test le vérifie.
+
+**Décision pour Aaron** : ajouter `Renderer.setCamera(x, y, zoom)` demanderait
+un ADR dans `docs/15_ADR.md`. Le mécanisme est le même que `applyShake` — un
+`ctx.scale` dans le `save/restore` déjà en place — donc peu risqué, et la Loi 1
+serait respectée puisque tout dériverait de `t`. À trancher avant le chantier 5,
+parce que `monolith` et `iso-pulse` en tireraient tous deux parti.
+
+### Un seul point d'application pour l'aperçu et pour l'export
+
+`ui/App.ts` et `export/ExportPipeline.ts` ont deux boucles d'images
+indépendantes. À l'Étape 25, les macros de couche avaient été branchées dans la
+première et oubliées dans la seconde — pendant plusieurs étapes, l'export ne
+produisait pas la même image que l'aperçu, et personne ne l'a vu.
+
+La dramaturgie présente le même risque, en pire : un morceau exporté sans elle
+serait plat de bout en bout, ce qui ne saute pas aux yeux sur une vignette.
+D'où `visual/scene/dramaFrame.ts`, deux fonctions appelées des deux côtés :
+
+- `stepSceneWithDrama(scene, behaviour, director, step)` remplace le trio
+  « calculer les signaux / les doser / avancer la scène ».
+- `openFrameWithCamera(renderer, viewport, couleur, director)` remplace
+  `beginFrame` + `clear` + la pose de la caméra.
+
+La caméra est posée **après** `clear` et **avant** le dessin : `applyShake` est
+un décalage global qui n'affecte que ce qui vient ensuite ; le poser avant le
+`clear` décalerait le fond et laisserait une bande non peinte au bord.
+
+Un test lit les deux fichiers et vérifie qu'ils appellent bien les deux
+fonctions, et qu'aucun n'appelle plus `scene.update()` directement — un appel
+direct signifierait que cette boucle contourne le director.
+
+### Aucune couche modifiée
+
+Le budget dose les SIGNAUX, pas les couches. Une couche réagit déjà aux
+signaux ; le director ne fait que les atténuer avant qu'elle ne les voie. C'est
+ce qui permet d'ajouter toute cette dramaturgie sans toucher une seule des
+treize couches.
+
+Ce qui n'est délibérément **pas** dosé :
+
+- `pulse`, `barPulse`, `lfoA`..`lfoD` sont des **horloges**. Les atténuer ferait
+  ralentir le mouvement au lieu de le calmer, ce qui se lit comme une erreur de
+  tempo.
+- `tension` **est** la montée. La réduire pendant la retenue effacerait le signal
+  qui décrit exactement ce moment.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 105 fichiers, 847 tests (826 -> 847, +21)
+npm run test:arch   -> 1 test
+npm run build       -> 454,05 kB (gzip 127,39 kB), 1,49 s
+```
+
+Navigateur (`http://localhost:5174/`), après rechargement : **aucune erreur
+console**.
+
+**Critère 12 atteint et verrouillé** (`dramaChangesImage.test.ts`) : les trois
+styles réels sont montés et simulés depuis le début du morceau jusqu'à chacun
+des cinq moments — intro, montée, drop, refrain, breakdown — et les cinq images
+sont deux à deux différentes, pour chaque style. Plus un contrôle de
+déterminisme.
+
+### À valider par Aaron, à l'œil
+
+- **Le dosage de la retenue** : l'amplitude tombe à 0,45 juste avant le drop.
+  Si l'image paraît s'éteindre au lieu de se contenir, remonter
+  `RESTRAINT_FLOOR`.
+- **Le breakdown à 0,18** est volontairement très sombre. À juger sur un vrai
+  morceau : si c'est trop, `BREAKDOWN_LEVEL`.
+- **Le vide d'une demi-mesure** avant chaque frontière de section : il doit se
+  lire comme une respiration, pas comme un bug d'affichage.
+- **La dérive de caméra** doit être imperceptible en tant que mouvement. Si on
+  voit l'image glisser, `DRIFT_CALM` est trop grand.
+- **Le recadrage entre sections** (0,05) : assez pour que deux refrains ne se
+  ressemblent pas, pas assez pour qu'on voie un saut.
+- **La décision sur le zoom de caméra** (voir plus haut).
+
+### Limites connues
+
+- **Pas de poussée de caméra**, faute de zoom dans le `Renderer`.
+- Le breakdown est détecté par un **seuil d'énergie** (0,25) et non par le
+  `label` de section, qui n'existe qu'en Mode B (PULSAR). Un morceau dont
+  l'analyse donne une énergie mal calibrée sera mal classé.
+- La règle du **plancher de vide** de §6.2 est implémentée par position — la
+  demi-mesure avant une frontière de section — et non par mesure de luminance
+  comme en mode live. Mesurer la luminance exigerait de lire l'image rendue, ce
+  que la Loi 1 et l'interdiction de `getImageData` par image excluent toutes
+  deux. C'est un écart assumé : le vide est garanti et musicalement placé, mais
+  il ne s'adapte pas à ce que la scène affiche réellement.
+- Aucune vérification par capture d'écran : le volet d'aperçu n'est pas affiché
+  et l'`AudioContext` ne démarre pas sans geste utilisateur réel. Les cinq
+  moments sont prouvés par empreinte d'appels de rendu, pas par pixels.
