@@ -1,0 +1,393 @@
+/*
+ * Feuille de style de l'application (docs/17_PHASE2_VISUELS.md §10.1,
+ * chantier 10, lot A).
+ *
+ * SORTIE DU HTML, AVEC DES VARIABLES
+ * ----------------------------------
+ * §10.1 : « Le CSS sort du HTML, avec des variables CSS pour le thème. » Elle
+ * était dans un `<style>` en ligne de 130 lignes, où chaque couleur était
+ * réécrite à la main : `#2c2e38` apparaissait onze fois, `#1b1d24` sept fois.
+ * Changer le thème demandait un remplacement global, et un oubli ne se voyait
+ * que sur le composant concerné.
+ *
+ * Importée depuis `ui/App.ts` : Vite l'injecte au chargement, et un import
+ * manquant casse la page entière plutôt que de la dégrader silencieusement.
+ *
+ * AUCUNE DÉPENDANCE
+ * -----------------
+ * §10.1 : « Pas de framework CSS, pas de bibliothèque de composants, pas de
+ * sélecteur de couleur tiers. » Grille et flexbox natives, `<input type=color>`
+ * natif, `<details>` natif pour les sections repliables.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Fonds, du plus profond au plus clair ----------------------------- */
+  --fond-page: #0d0e12;
+  --fond-eleve: #16171d;
+  --fond-champ: #1b1d24;
+  --fond-noir: #000;
+
+  /* --- Traits et separations -------------------------------------------- */
+  --trait: #2c2e38;
+  --trait-fort: #262832;
+
+  /* --- Texte ------------------------------------------------------------- */
+  --texte: #e8e8ec;
+  --texte-attenue: rgba(232, 232, 236, 0.62);
+  --texte-faible: rgba(232, 232, 236, 0.4);
+
+  /* --- Accents ----------------------------------------------------------- */
+  --accent: #7b4cff;
+  --accent-doux: rgba(123, 76, 255, 0.18);
+  --alerte: #ff6b6b;
+  --avertissement: #ffb26b;
+
+  /* --- Rythme -------------------------------------------------------------
+   * Un seul jeu d'espacements et de rayons : sans ça, chaque composant ajouté
+   * invente les siens et la barre latérale finit par n'avoir aucune trame. */
+  --pas: 0.5rem;
+  --pas-2: 0.75rem;
+  --pas-3: 1rem;
+  --rayon: 6px;
+  --rayon-petit: 4px;
+
+  /* --- Tailles ------------------------------------------------------------ */
+  --barre: 340px;
+  --texte-s: 0.72rem;
+  --texte-m: 0.85rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  background: var(--fond-page);
+  color: var(--texte);
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr var(--barre);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+/* --------------------------------------------------------------------------
+ * En-tete
+ * ----------------------------------------------------------------------- */
+
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--pas-3);
+  padding: 0.6rem var(--pas-3);
+  border-bottom: 1px solid var(--trait-fort);
+}
+header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+header .spacer { flex: 1; }
+#autosave-status { opacity: 0.6; font-size: 0.75rem; }
+
+/* --------------------------------------------------------------------------
+ * Apercu : c'est LUI qui domine (§10.1)
+ * ----------------------------------------------------------------------- */
+
+main {
+  display: flex;
+  flex-direction: column;
+  padding: var(--pas-3);
+  gap: var(--pas-2);
+  min-width: 0;
+}
+#preview-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--fond-noir);
+  border-radius: 8px;
+  overflow: hidden;
+}
+#canvas { width: 100%; height: 100%; display: block; }
+
+#dropzone {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pas-2);
+  background: rgba(10, 10, 14, 0.92);
+  text-align: center;
+  padding: var(--pas-3);
+}
+#dropzone.dragover { outline: 2px dashed var(--accent); outline-offset: -8px; }
+#dropzone p { opacity: 0.7; font-size: var(--texte-m); max-width: 28rem; margin: 0; }
+#dropzone.hidden { display: none; }
+#dropzone .hero-tagline { opacity: 1; font-size: 1.15rem; font-weight: 600; max-width: 26rem; line-height: 1.4; margin: 0 0 0.25rem; }
+#dropzone .hero-subtitle { opacity: 0.6; font-size: 0.8rem; max-width: 26rem; margin: -0.5rem 0 var(--pas); }
+#import-error { color: var(--alerte); }
+
+#analysis-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pas);
+  background: rgba(10, 10, 14, 0.92);
+}
+#analysis-status.hidden { display: none; }
+#analysis-progress { width: 60%; }
+
+#transport { display: flex; align-items: center; gap: 0.6rem; }
+#transport button { font-size: 1rem; padding: 0.35rem 0.7rem; cursor: pointer; }
+#transport .volume-field { display: flex; align-items: center; gap: 0.3rem; margin: 0; font-size: 0.8rem; }
+#out-time { font-variant-numeric: tabular-nums; opacity: 0.8; font-size: var(--texte-m); min-width: 9ch; }
+#volume { width: 90px; }
+
+#timeline-canvas {
+  width: 100%;
+  height: 72px;
+  display: block;
+  border-radius: var(--rayon-petit);
+  background: var(--fond-eleve);
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Barre laterale : CINQ GROUPES PAR INTENTION (§10.1)
+ *
+ * Visuel / Couleurs / Texte / Reactivite / Export. Les onglets Simple et Avance
+ * ne DECOUPENT plus le panneau en deux moities : ils filtrent, a l'interieur de
+ * chaque groupe, ce qui est marque `data-avance`. Un reglage reste donc toujours
+ * a la meme place, qu'on soit en mode simple ou avance - le chercher deux fois
+ * etait le principal defaut de l'ancien decoupage.
+ * ----------------------------------------------------------------------- */
+
+aside {
+  border-left: 1px solid var(--trait-fort);
+  padding: var(--pas-3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pas-2);
+}
+
+.tabs { display: flex; gap: 0.4rem; }
+.tabs button {
+  flex: 1;
+  padding: 0.4rem;
+  cursor: pointer;
+  background: var(--fond-champ);
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon-petit);
+}
+.tabs button[aria-selected='true'] { background: var(--accent); border-color: var(--accent); }
+
+/* Un groupe = un `<details>` : replier ce dont on ne se sert pas est la seule
+   facon de garder une colonne de 340 px lisible avec cinq groupes. */
+.groupe {
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon);
+  padding: 0 var(--pas-2) var(--pas-2);
+}
+.groupe > summary {
+  cursor: pointer;
+  padding: var(--pas-2) 0;
+  font-size: var(--texte-m);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  list-style: none;
+}
+.groupe > summary::-webkit-details-marker { display: none; }
+.groupe > summary::before { content: '▸ '; opacity: 0.5; }
+.groupe[open] > summary::before { content: '▾ '; }
+.groupe[open] > summary { border-bottom: 1px solid var(--trait); margin-bottom: var(--pas); }
+
+/* Sous-titre a l'interieur d'un groupe : remplace les `<legend>` de l'ancien
+   decoupage, ou chaque reglage avait son propre cadre. Huit cadres empiles
+   faisaient plus de bordures que de contenu. */
+.sous-titre {
+  font-size: var(--texte-s);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--texte-faible);
+  margin: var(--pas-2) 0 0.2rem;
+}
+.groupe > .sous-titre:first-of-type { margin-top: 0; }
+
+label { display: block; margin: var(--pas) 0; font-size: var(--texte-m); }
+.macro-row { display: flex; align-items: center; gap: var(--pas); }
+.macro-row input[type='range'] { flex: 1; }
+.macro-note { font-size: var(--texte-s); opacity: 0.55; margin: 0 0 0.4rem; }
+
+select,
+input[type='number'],
+input[type='file'],
+textarea {
+  width: 100%;
+  background: var(--fond-champ);
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon-petit);
+  padding: 0.3rem;
+}
+input[type='range'] { width: 100%; }
+button {
+  background: var(--fond-champ);
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon-petit);
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--texte-m);
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+/* --------------------------------------------------------------------------
+ * Vignettes de style (§10.1 : « des vignettes, pas une liste deroulante »)
+ * ----------------------------------------------------------------------- */
+
+#style-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--pas);
+  margin: 0.3rem 0;
+}
+.style-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 3px;
+  background: var(--fond-champ);
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon-petit);
+  cursor: pointer;
+  text-align: left;
+}
+.style-tile canvas {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  border-radius: 3px;
+  background: var(--fond-noir);
+}
+.style-tile span { font-size: var(--texte-s); padding: 0 2px 2px; color: var(--texte-attenue); }
+.style-tile[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-doux); }
+.style-tile[aria-pressed='true'] span { color: var(--texte); }
+
+/* --------------------------------------------------------------------------
+ * Couleurs et texte
+ * ----------------------------------------------------------------------- */
+
+#text-content { resize: vertical; font: inherit; font-size: var(--texte-m); padding: 0.35rem; }
+#text-status { font-size: var(--texte-s); opacity: 0.75; margin: 0.3rem 0 0; min-height: 1em; }
+
+.swatch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem var(--pas); margin: 0.4rem 0; }
+.swatch-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.78rem;
+}
+.swatch-grid input[type='color'] {
+  width: 2.2rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid var(--trait);
+  border-radius: 3px;
+  background: var(--fond-champ);
+  cursor: pointer;
+}
+#palette-warning { font-size: var(--texte-s); margin: 0.4rem 0 0; min-height: 1em; color: var(--avertissement); }
+#palette-swatch { display: flex; gap: 4px; height: 20px; border-radius: var(--rayon-petit); overflow: hidden; margin-top: 0.3rem; }
+#palette-swatch span { flex: 1; }
+#preset-suggestion { font-size: 0.78rem; opacity: 0.75; margin: 0.3rem 0 0; }
+#cover-status { font-size: var(--texte-s); opacity: 0.75; margin: 0.3rem 0 0; }
+
+/* --------------------------------------------------------------------------
+ * Boites de dialogue
+ * ----------------------------------------------------------------------- */
+
+dialog {
+  background: var(--fond-eleve);
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: 8px;
+  padding: 1.25rem;
+  max-width: 640px;
+  width: 90vw;
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+dialog h2 { margin-top: 0; font-size: 1rem; }
+dialog .note { opacity: 0.75; font-size: var(--texte-m); }
+#preset-json {
+  height: 320px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  background: var(--fond-page);
+  padding: var(--pas);
+}
+#preset-json-errors { color: var(--alerte); font-size: 0.8rem; white-space: pre-wrap; margin: var(--pas) 0; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--pas); margin-top: var(--pas-2); }
+.dialog-actions.left { justify-content: flex-start; margin-top: 0; }
+#export-status,
+#projects-status { opacity: 0.8; font-size: var(--texte-m); }
+#relink-audio-message { font-size: 0.9rem; }
+#relink-audio-error { color: var(--alerte); font-size: var(--texte-m); }
+#projects-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--pas-2) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pas);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * Debug et projets
+ * ----------------------------------------------------------------------- */
+
+#debug-state { font-size: var(--texte-s); opacity: 0.5; }
+#debug-state dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 0.6rem; margin: 0; }
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem;
+  border: 1px solid var(--trait);
+  border-radius: var(--rayon);
+}
+.project-row img { width: 64px; height: 36px; object-fit: cover; border-radius: var(--rayon-petit); background: var(--fond-noir); }
+.project-row .project-info { flex: 1; min-width: 0; }
+.project-row .project-name { font-size: var(--texte-m); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-row .project-date { font-size: var(--texte-s); opacity: 0.6; }
+
+/* --------------------------------------------------------------------------
+ * Point de rupture
+ *
+ * La grille body a 2 colonnes fixes (1fr + 340px) n'avait aucun point de
+ * rupture : sous ~700 px de large, #preview-wrap (aspect-ratio 16/9) heritait
+ * d'une largeur quasi nulle et le canvas devenait illisible - quelques pixels,
+ * pas seulement « un peu serre ». En dessous de 768 px, la barre laterale passe
+ * SOUS l'apercu plutot qu'a cote.
+ * ----------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+  body { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+  aside { border-left: none; border-top: 1px solid var(--trait-fort); }
+  #style-grid { grid-template-columns: 1fr 1fr 1fr; }
+}

@@ -150,14 +150,17 @@ describe('catalogue de styles — source unique', () => {
     }
   });
 
-  it('index.html ne code plus aucune option de style en dur', () => {
+  it('index.html ne code plus aucun style en dur', () => {
+    // Chantier 10 : la liste deroulante est devenue une grille de VIGNETTES
+    // (docs/17 §10.1). La garde ne change pas de nature - le HTML ne doit
+    // contenir NI option NI libelle de style - seul le conteneur change.
     const html = readFileSync(join(process.cwd(), 'index.html'), 'utf-8');
-    const select = html.match(/<select id="style-select"[^>]*>([\s\S]*?)<\/select>/);
-    expect(select, 'le <select id="style-select"> a disparu de index.html').not.toBeNull();
-    expect(
-      select?.[1],
-      'les options doivent être peuplées par AdvancedPanel depuis STYLE_IDS, pas écrites dans le HTML',
-    ).not.toMatch(/<option/i);
+    const grid = html.match(/<div id="style-grid"[^>]*>([\s\S]*?)<\/div>/);
+    expect(grid, 'le conteneur <div id="style-grid"> a disparu de index.html').not.toBeNull();
+    expect(grid?.[1]?.trim(), 'la grille doit être peuplée par AdvancedPanel, pas écrite dans le HTML').toBe('');
+    for (const id of STYLE_IDS) {
+      expect(html, `le style ${id} est écrit en dur dans index.html`).not.toContain(STYLE_LABELS[id]);
+    }
   });
 });
 

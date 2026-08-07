@@ -12,6 +12,11 @@
  * (voir `docs/JOURNAL.md`) — le travail propre à cette étape est
  * l'intégration elle-même, pas une nouvelle logique métier.
  */
+// Feuille de style de l'application (docs/17 §10.1, chantier 10). Importée ici
+// plutôt que liée depuis `index.html` : Vite l'assemble et la versionne avec le
+// reste, et un chemin faux casse la compilation au lieu de laisser passer une
+// page sans style.
+import './styles.css';
 import { AudioEngine } from '../audio/AudioEngine';
 import { AudioValidationError } from '../audio/decode';
 import { FixedStep, FIXED_DT } from '../core/time/FixedStep';
@@ -54,10 +59,11 @@ import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
-import type { MacroName, PresetBloomConfig } from '../presets/schema';
+import { STYLE_IDS, type MacroName, type PresetBloomConfig } from '../presets/schema';
 import type { PresetPaletteConfig } from '../presets/schema';
 import { DEFAULT_PRESET_BLOOM, resolveBloom } from '../presets/bloom';
 import { PALETTE_CATALOGUE, cataloguePaletteById } from '../presets/paletteCatalogue';
+import { renderStyleThumbnail } from './styleThumbnails';
 import { buildPalette } from '../presets/palette';
 import { MIN_CONTRAST, contrastRatio } from '../visual/palette/contrast';
 import { rgbToHex } from '../core/color/oklch';
@@ -349,6 +355,7 @@ function applyActiveConfiguration(): void {
   }
 
   refreshPaletteEditor();
+  refreshStyleThumbnails();
   simplePanel.setPalette(currentPalette);
   simplePanel.setMacros(currentMacros);
   advancedPanel.setMacros(currentMacros);
@@ -448,6 +455,58 @@ function applyLayerMacros(): void {
  */
 function applyBloom(): void {
   renderer.setBloomConfig(resolveBloom(currentBloom, currentMacros.glow, QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom));
+}
+
+/**
+ * Redessine les huit vignettes de style avec la palette et la graine courantes
+ * (docs/17 §10.1, chantier 10).
+ *
+ * PAS À CHAQUE APPEL DE `applyActiveConfiguration` : celle-ci se déclenche à
+ * chaque pixel de course d'un curseur de macro, et huit scènes simulées sur
+ * 240 pas à chaque mouvement figeraient l'interface. Deux garde-fous :
+ *
+ * - **rien tant que le groupe « Visuel » est replié** — on ne rend pas ce qui
+ *   n'est pas regardé, et le groupe est le seul endroit d'où les vignettes sont
+ *   visibles ;
+ * - **une empreinte** palette + graine : les vignettes ne dépendent que de ces
+ *   deux choses, donc un changement de macro ne les redessine pas.
+ */
+let thumbnailKey = '';
+let thumbnailTimer: number | null = null;
+
+function refreshStyleThumbnails(force = false): void {
+  const groupe = document.querySelector<HTMLDetailsElement>('#groupe-visuel');
+  if (!groupe?.open || !currentPalette) return;
+  const key = `${currentPalette.id}|${colorToHex(currentPalette.primary)}|${colorToHex(currentPalette.accent)}|${colorToHex(currentPalette.bg[1])}|${projectSeed}`;
+  if (!force && key === thumbnailKey) return;
+  thumbnailKey = key;
+
+  // UNE VIGNETTE À LA FOIS, et la mesure l'a imposé : les huit d'affilée
+  // coûtaient 68,7 ms au navigateur, soit quatre images perdues d'un coup, et
+  // ça se voyait comme un à-coup au moindre changement de palette. Étalées, ce
+  // sont huit tâches de 8,6 ms, chacune sous le budget de 16 ms.
+  //
+  // `setTimeout` et NON `requestAnimationFrame`, alors que c'est du dessin :
+  // rAF ne se déclenche pas dans un onglet qui ne composite pas — arrière-plan,
+  // fenêtre masquée, navigateur automatisé. Mesuré : les huit vignettes
+  // restaient noires. Un `setTimeout` s'exécute partout, laisse le navigateur
+  // peindre entre deux tâches exactement de la même façon, et son ralentissement
+  // en arrière-plan ne concerne que des vignettes que personne ne regarde.
+  if (thumbnailTimer !== null) clearTimeout(thumbnailTimer);
+  const queue = [...STYLE_IDS];
+  const palette = currentPalette;
+  const seed = projectSeed;
+  const next = (): void => {
+    const id = queue.shift();
+    if (!id) {
+      thumbnailTimer = null;
+      return;
+    }
+    const canvas = advancedPanel.styleCanvas(id);
+    if (canvas) renderStyleThumbnail(canvas, STYLE_FACTORIES[id], palette, seed);
+    thumbnailTimer = window.setTimeout(next, 0);
+  };
+  thumbnailTimer = window.setTimeout(next, 0);
 }
 
 /**
@@ -596,18 +655,31 @@ const exportDialog = new ExportDialog({
 
 const tabSimple = document.querySelector<HTMLButtonElement>('#tab-simple')!;
 const tabAdvanced = document.querySelector<HTMLButtonElement>('#tab-advanced')!;
-const panelSimple = document.querySelector<HTMLElement>('#panel-simple')!;
-const panelAdvanced = document.querySelector<HTMLElement>('#panel-advanced')!;
 
+/**
+ * Simple / Avancé FILTRE, il ne découpe plus (docs/17 §10.1, chantier 10).
+ *
+ * Il y avait deux panneaux, `#panel-simple` et `#panel-advanced`, dont un seul
+ * était visible. Un réglage changeait donc de place selon l'onglet, et certains
+ * n'existaient que d'un côté : le curseur Glow était dans les deux, la palette
+ * dans un seul, sans que rien ne l'indique. Les cinq groupes par intention sont
+ * désormais toujours là ; seuls les éléments marqués `data-mode` apparaissent
+ * ou disparaissent.
+ */
 function selectTab(tab: 'simple' | 'advanced'): void {
   const simple = tab === 'simple';
   tabSimple.setAttribute('aria-selected', String(simple));
   tabAdvanced.setAttribute('aria-selected', String(!simple));
-  panelSimple.hidden = !simple;
-  panelAdvanced.hidden = simple;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-mode]')) {
+    el.hidden = el.dataset.mode === (simple ? 'avance' : 'simple');
+  }
 }
 tabSimple.addEventListener('click', () => selectTab('simple'));
 tabAdvanced.addEventListener('click', () => selectTab('advanced'));
+// Etat initial pose ICI et non par un attribut `hidden` dans le HTML : avec
+// `data-mode`, le filtre porte sur une dizaine d'elements dissemines dans les
+// cinq groupes, et les marquer un a un dans le HTML garantissait un oubli.
+selectTab('simple');
 
 // ---------------------------------------------------------------------------
 // Timeline (frise)
@@ -1205,6 +1277,10 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
   applyActiveConfiguration();
 });
 
+// Le groupe « Visuel » ne rend ses vignettes qu'une fois ouvert : les huit
+// scènes simulées ne se paient donc que si quelqu'un les regarde.
+document.querySelector<HTMLDetailsElement>('#groupe-visuel')?.addEventListener('toggle', () => refreshStyleThumbnails());
+
 // --- Couleurs (docs/17 §9.2) -----------------------------------------------
 
 const paletteSelect = document.querySelector<HTMLSelectElement>('#palette-select')!;
@@ -1503,6 +1579,10 @@ function applySeed(seed: number): void {
   // le cadrage identique — c'est-à-dire l'essentiel de ce que l'utilisateur
   // regarde.
   refreshVariant();
+  // Les vignettes dependent aussi de la graine : sans ce rappel, « Nouvelle
+  // variante » changerait l'apercu et laisserait les huit vignettes montrer le
+  // cadrage precedent.
+  refreshStyleThumbnails();
   handleSeek(simT, 'release');
   scheduleAutosave();
 }

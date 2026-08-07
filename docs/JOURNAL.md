@@ -4815,3 +4815,161 @@ passent tous les deux par lui.
   compare à ce qu'un humain choisirait.
 - Aucune capture d'écran : mêmes limites d'environnement qu'aux chantiers
   précédents. Tout ce qui est affirmé ci-dessus est un comptage de pixels.
+
+---
+
+## Phase 2 — Chantier 10, lot A : interface
+
+§11 prévenait : « Le chantier 10 est le plus gros ; s'il devient trop lourd,
+découpe-le et propose le découpage avant de commencer. » Il l'est. Découpage
+proposé, cinq lots :
+
+| lot | contenu | §17 |
+|---|---|---|
+| **A** | **interface : CSS, mise en page par intention, vignettes de style** | §10.1 |
+| B | persistance de la pochette, du texte et de la palette dans le projet | dette des chantiers 7, 8, 9 |
+| C | éditeur de réaction + compositeur de couches et « Looks » | §7.11, §7.7 |
+| D | automatisation par images-clés | §7.3 |
+| E | marqueurs et correction de l'analyse + options d'export | §7.8, §7.12 |
+
+A d'abord, parce que les quatre autres ajoutent tous des contrôles et que les
+poser dans la barre latérale d'avant aurait été empiler une dixième boîte dans
+une colonne qui en comptait déjà huit.
+
+**Ce lot ne couvre que §10.1.** Trois de ses six points étaient déjà faits au
+chantier 1 et ont été revérifiés plutôt que refaits : le catalogue de styles est
+peuplé depuis `STYLE_IDS` (le `<select>` en dur avait disparu), les résidus morts
+d'`AdvancedPanel` sont retirés (`WIRED_MACROS` contenait toutes les macros, donc
+l'avertissement était inatteignable), et l'en-tête périmé de `SimplePanel` est
+corrigé. Le curseur Profondeur en `pulse` est traité comme §10.1 l'autorise —
+marqué `⚠` avec une infobulle plutôt que grisé, parce que sa valeur est
+enregistrée dans le preset et reprend effet dès qu'on change de style ; le griser
+ferait croire qu'il est cassé.
+
+### Le CSS sort du HTML
+
+130 lignes dans un `<style>` en ligne, plus huit attributs `style=`. `#2c2e38`
+y apparaissait onze fois, `#1b1d24` sept fois : changer le thème demandait un
+remplacement global, et un oubli ne se voyait que sur le composant concerné.
+
+`src/ui/styles.css`, importée depuis `App.ts` et non liée depuis le HTML — Vite
+l'assemble avec le reste, et un chemin faux casse la compilation au lieu de
+laisser passer une page sans style. Les couleurs, espacements et rayons sont des
+variables de `:root`.
+
+**Un test interdit désormais toute couleur hexadécimale hors de `:root`.** Sans
+lui, la première règle ajoutée recopierait un `#2c2e38` et le thème cesserait
+d'être changeable en un point. Il a fallu lui apprendre à ignorer les
+commentaires : l'en-tête de la feuille CITE les couleurs qu'elle remplace, et une
+garde qui se déclenche sur sa propre documentation est inutilisable.
+
+### Les onglets FILTRENT, ils ne découpent plus
+
+Il y avait `#panel-simple` et `#panel-advanced`, dont un seul était visible. Un
+réglage changeait donc de place selon l'onglet, et certains n'existaient que d'un
+côté sans que rien ne l'indique — la palette n'était nulle part en Avancé, le
+curseur Glow était dans les deux.
+
+Les contrôles sont maintenant en **cinq groupes par intention** (§10.1 : Visuel /
+Couleurs / Texte / Réactivité / Export), toujours présents, chacun un `<details>`
+repliable — la seule façon de garder une colonne de 340 px lisible avec cinq
+groupes. Les onglets ne font plus que masquer les éléments marqués `data-mode`.
+
+L'état initial du filtre est posé par un appel au chargement, pas par des
+attributs `hidden` dans le HTML : le filtre porte sur dix éléments disséminés
+dans les cinq groupes, et les marquer un à un garantissait un oubli.
+
+### Des vignettes rendues PAR LE MOTEUR
+
+§10.1 : « Des vignettes de style, pas une liste déroulante. »
+
+Chaque vignette est une vraie image du style : la vraie scène, le vrai
+`Canvas2DRenderer`, la palette du projet. Huit pictogrammes dessinés à la main
+auraient coûté dix fois moins et auraient été faux dès la première retouche d'un
+style — une vignette qui ment est pire qu'une liste déroulante honnête. Bénéfice
+immédiat : **les vignettes suivent la palette**, donc on voit la géométrie dans
+ses propres couleurs sans avoir à l'appliquer.
+
+Une scène ne se dessine pas sans `StepContext`, et il n'y a pas de morceau au
+démarrage : `buildDemoDoc` en fabrique un — le même que le bouton « Charger une
+démo », donc déjà validé par `validatePmdi`.
+
+Deux réglages non évidents, tous deux imposés par ce qu'on voyait :
+
+- **La simulation démarre à 4 s, pas à 0.** Le début d'un morceau est une intro,
+  et une vignette prise là montre un cadre presque vide. `StepContext` étant une
+  fonction pure de `t`, démarrer plus loin ne coûte pas un pas de plus.
+- **Les 24 dernières images sont réellement DESSINÉES**, pas seulement simulées.
+  Une couche à feedback part d'un canvas noir : sans cette queue, `field` et les
+  styles à traînée rendaient une vignette vide.
+
+### `setTimeout` et non `requestAnimationFrame` — mesuré
+
+Les huit vignettes d'affilée coûtaient **68,7 ms** (8,6 ms chacune), soit quatre
+images perdues d'un coup à chaque changement de palette. Étalées à une par tâche,
+chacune passe sous le budget de 16 ms — l'appel synchrone tombe de **68,7 ms à
+2,5 ms**.
+
+Premier essai avec `requestAnimationFrame`, le primitif naturel pour du dessin.
+**Les huit vignettes sont restées noires** : rAF ne se déclenche pas dans un
+onglet qui ne composite pas. `setTimeout` s'exécute partout, laisse le navigateur
+peindre entre deux tâches exactement de la même façon, et son ralentissement en
+arrière-plan ne concerne que des vignettes que personne ne regarde. Un test
+interdit le retour à rAF, avec la raison.
+
+Deux garde-fous en plus : rien n'est rendu tant que le groupe « Visuel » est
+replié, et une empreinte palette + graine évite de tout redessiner à chaque pixel
+de course d'un curseur de macro.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 114 fichiers, 1045 tests (1034 -> 1045, +11)
+npm run test:arch   -> 1 test
+npm run build       -> index.html 12,95 kB (18,91 avant) + CSS 7,64 kB
+                       JS 508,04 kB (gzip 144,46 kB), 2,05 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**.
+
+| contrôle | mesure |
+|---|---|
+| feuille de style chargée | `--accent` = `#7b4cff`, fond `rgb(13, 14, 18)` |
+| groupes | 5, dans l'ordre, « Visuel » ouvert |
+| vignettes | **8 / 8 non vides** |
+| ancien `#style-select` | absent |
+| clic sur une vignette | `pulse` -> `eclats`, une seule pressée |
+| filtre Simple | 10 éléments `avance` masqués sur 10 |
+| filtre Avancé | 0 masqué, grille de 8 macros présente |
+| appel synchrone d'un changement de palette | **2,5 ms** (68,7 avant) |
+
+Les vignettes suivent bien la palette : sur `ember`, les huit ont une dominante
+rouge (R nettement supérieur à G et B sur les huit).
+
+### À valider par Aaron, à l'œil
+
+- **La lisibilité des vignettes à 160 x 90.** C'est la question du lot : à cette
+  taille, `field` ne montre que 638 pixels non noirs sur 14 400. Reconnaît-on le
+  style, ou faut-il agrandir la vignette — ou allonger la chauffe ?
+- **L'instant capturé (4 s) et la durée de chauffe (2 s).** Un autre instant
+  donnerait d'autres vignettes ; celui-ci est un compromis entre « il se passe
+  quelque chose » et « ça ne coûte pas ».
+- **Le repliage par défaut** : seul « Visuel » est ouvert au démarrage. Trop
+  fermé, ou juste ce qu'il faut ?
+- **Le passage Simple / Avancé** : les dix éléments avancés apparaissent-ils là
+  où on les attend, maintenant qu'ils ne sont plus dans un panneau à part ?
+
+### Limites connues
+
+- **Aucune capture d'écran** — c'est le lot où ça manque le plus, puisqu'il est
+  entièrement visuel. Tout ce qui est affirmé ci-dessus est un comptage de
+  pixels et une lecture du DOM.
+- **Les vignettes ne sont pas mises en cache entre les sessions** : elles sont
+  recalculées à chaque ouverture du groupe si la palette a changé.
+- **Le lot A ne couvre que §10.1.** Le compositeur de couches, les « Looks »,
+  l'éditeur de réaction, l'automatisation, les marqueurs et les options d'export
+  sont les lots B à E.
+- **La dette de persistance des chantiers 7, 8 et 9 n'est pas payée** : la
+  pochette, le texte et la palette éditée sont toujours perdus au rechargement.
+  C'est le lot B.

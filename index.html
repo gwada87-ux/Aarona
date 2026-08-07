@@ -5,146 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="PULSAR VISUALIZER transforme un morceau audio en vidéo musicale synchronisée, entièrement en local dans le navigateur, en moins de deux minutes." />
   <title>PULSAR VISUALIZER</title>
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
-    body {
-      font-family: system-ui, sans-serif;
-      background: #0d0e12;
-      color: #e8e8ec;
-      margin: 0;
-      display: grid;
-      grid-template-columns: 1fr 340px;
-      grid-template-rows: auto 1fr;
-      min-height: 100vh;
-    }
-    header {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0.6rem 1rem;
-      border-bottom: 1px solid #262832;
-    }
-    header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
-    header .spacer { flex: 1; }
-
-    main {
-      display: flex;
-      flex-direction: column;
-      padding: 1rem;
-      gap: 0.75rem;
-      min-width: 0;
-    }
-    #preview-wrap {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      background: #000;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    #canvas { width: 100%; height: 100%; display: block; }
-
-    #dropzone {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 0.75rem;
-      background: rgba(10, 10, 14, 0.92);
-      text-align: center;
-      padding: 1rem;
-    }
-    #dropzone.dragover { outline: 2px dashed #7b4cff; outline-offset: -8px; }
-    #dropzone p { opacity: 0.7; font-size: 0.85rem; max-width: 28rem; margin: 0; }
-    #dropzone.hidden { display: none; }
-    #dropzone .hero-tagline { opacity: 1; font-size: 1.15rem; font-weight: 600; max-width: 26rem; line-height: 1.4; margin: 0 0 0.25rem; }
-    #dropzone .hero-subtitle { opacity: 0.6; font-size: 0.8rem; max-width: 26rem; margin: -0.5rem 0 0.5rem; }
-
-    #analysis-status {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
-      background: rgba(10, 10, 14, 0.92);
-    }
-    #analysis-status.hidden { display: none; }
-    #analysis-progress { width: 60%; }
-
-    #transport {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-    }
-    #transport button { font-size: 1rem; padding: 0.35rem 0.7rem; cursor: pointer; }
-    #out-time { font-variant-numeric: tabular-nums; opacity: 0.8; font-size: 0.85rem; min-width: 9ch; }
-    #volume { width: 90px; }
-
-    #timeline-canvas { width: 100%; height: 72px; display: block; border-radius: 4px; background: #16171d; cursor: pointer; touch-action: none; }
-
-    aside {
-      border-left: 1px solid #262832;
-      padding: 1rem;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .tabs { display: flex; gap: 0.4rem; }
-    .tabs button { flex: 1; padding: 0.4rem; cursor: pointer; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; }
-    .tabs button[aria-selected="true"] { background: #7b4cff; border-color: #7b4cff; }
-
-    fieldset { border: 1px solid #2c2e38; border-radius: 6px; margin: 0; }
-    legend { padding: 0 0.4rem; opacity: 0.8; font-size: 0.8rem; }
-    label { display: block; margin: 0.5rem 0; font-size: 0.85rem; }
-    .macro-row { display: flex; align-items: center; gap: 0.5rem; }
-    .macro-row input[type="range"] { flex: 1; }
-    .macro-note { font-size: 0.72rem; opacity: 0.55; margin: 0 0 0.4rem; }
-    select, input[type="number"] { width: 100%; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.3rem; }
-    input[type="range"] { width: 100%; }
-    #text-content { width: 100%; box-sizing: border-box; resize: vertical; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.35rem; font: inherit; font-size: 0.85rem; }
-    #text-status { font-size: 0.72rem; opacity: 0.75; margin: 0.3rem 0 0; min-height: 1em; }
-    .swatch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem 0.5rem; margin: 0.4rem 0; }
-    .swatch-grid label { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; margin: 0; font-size: 0.78rem; }
-    .swatch-grid input[type="color"] { width: 2.2rem; height: 1.4rem; padding: 0; border: 1px solid #2c2e38; border-radius: 3px; background: #1b1d24; cursor: pointer; }
-    #palette-warning { font-size: 0.72rem; margin: 0.4rem 0 0; min-height: 1em; color: #ffb26b; }
-
-    #palette-swatch { display: flex; gap: 4px; height: 20px; border-radius: 4px; overflow: hidden; margin-top: 0.3rem; }
-    #palette-swatch span { flex: 1; }
-
-    #preset-suggestion { font-size: 0.78rem; opacity: 0.75; margin: 0.3rem 0 0; }
-
-    dialog { background: #16171d; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 8px; padding: 1.25rem; max-width: 640px; width: 90vw; }
-    dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
-    dialog h2 { margin-top: 0; font-size: 1rem; }
-    #preset-json { width: 100%; height: 320px; font-family: ui-monospace, monospace; font-size: 0.8rem; background: #0d0e12; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.5rem; }
-    #preset-json-errors { color: #ff6b6b; font-size: 0.8rem; white-space: pre-wrap; margin: 0.5rem 0; }
-    .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.75rem; }
-
-    #debug-state { font-size: 0.72rem; opacity: 0.5; }
-    #debug-state dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 0.6rem; margin: 0; }
-
-    .project-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem; border: 1px solid #2c2e38; border-radius: 6px; }
-    .project-row img { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; background: #000; }
-    .project-row .project-info { flex: 1; min-width: 0; }
-    .project-row .project-name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .project-row .project-date { font-size: 0.72rem; opacity: 0.6; }
-
-    /* La grille body à 2 colonnes fixes (1fr + 340px) n'avait aucun point de rupture : sous
-       ~700px de large, #preview-wrap (aspect-ratio 16/9) hérite d'une largeur quasi nulle et le
-       canvas devient illisible (quelques pixels), pas seulement « un peu serré ». En dessous de
-       768px, la barre latérale passe sous l'aperçu plutôt qu'à côté. */
-    @media (max-width: 768px) {
-      body { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
-      aside { border-left: none; border-top: 1px solid #262832; }
-    }
-  </style>
+  <!-- Le CSS est dans `src/ui/styles.css`, importé par `src/ui/App.ts` (docs/17
+       §10.1, chantier 10). Plus aucun bloc de style en ligne, ni ici ni sur un
+       attribut : les couleurs sont des variables, et un thème se change en un
+       seul endroit. -->
 </head>
 <body>
   <header>
@@ -160,7 +24,7 @@
     </label>
     <button id="btn-fullscreen">Plein écran</button>
     <button id="btn-export-open">Exporter…</button>
-    <span id="autosave-status" style="opacity: 0.6; font-size: 0.75rem;"></span>
+    <span id="autosave-status"></span>
   </header>
 
   <main>
@@ -174,7 +38,7 @@
         <button id="btn-pick-file">Choisir un fichier</button>
         <input type="file" id="file-input" accept="audio/*" hidden />
         <p>MP3, WAV, OGG, FLAC — 12 minutes / 150 Mo maximum. Ou charge la démo synthétique en haut à droite.</p>
-        <p id="import-error" style="color: #ff6b6b;"></p>
+        <p id="import-error"></p>
       </div>
 
       <div id="analysis-status" class="hidden">
@@ -188,7 +52,7 @@
       <button id="btn-pause">⏸</button>
       <span id="out-time">0:00 / 0:00</span>
       <span class="spacer"></span>
-      <label style="display:flex; align-items:center; gap:0.3rem; margin:0; font-size:0.8rem;">
+      <label class="volume-field">
         Volume
         <input type="range" id="volume" min="0" max="1" step="0.01" value="0.9" />
       </label>
@@ -213,99 +77,117 @@
     </details>
   </main>
 
+  <!-- CINQ GROUPES PAR INTENTION (docs/17 §10.1) : Visuel, Couleurs, Texte,
+       Réactivité, Export.
+
+       Les onglets Simple/Avancé ne découpent plus le panneau en deux moitiés :
+       ils FILTRENT, à l'intérieur de chaque groupe, les éléments marqués
+       `data-mode`. Un réglage reste donc toujours à la même place, quel que soit
+       le mode — le chercher à deux endroits selon l'onglet était le principal
+       défaut de l'ancien découpage. -->
   <aside>
     <div class="tabs" role="tablist">
       <button id="tab-simple" role="tab" aria-selected="true">Simple</button>
       <button id="tab-advanced" role="tab" aria-selected="false">Avancé</button>
     </div>
 
-    <div id="panel-simple">
-      <fieldset>
-        <legend>Preset</legend>
-        <label>
-          <select id="preset-select">
-            <option value="" selected>Aucun (câblage et palette par défaut)</option>
-          </select>
-        </label>
-        <p id="preset-suggestion"></p>
-        <div id="palette-swatch"></div>
-      </fieldset>
+    <!-- ================================================== VISUEL ========= -->
+    <details class="groupe" id="groupe-visuel" open>
+      <summary>Visuel</summary>
+
+      <p class="sous-titre">Style</p>
+      <!-- Vignettes peuplées par AdvancedPanel depuis STYLE_IDS/STYLE_LABELS
+           (presets/schema.ts) et rendues par le moteur lui-même. Les écrire ici
+           obligerait à modifier trois fichiers pour ajouter un style, sans
+           qu'aucun test ne signale l'oubli du troisième. -->
+      <div id="style-grid" role="group" aria-label="Style visuel"></div>
+
+      <p class="sous-titre">Preset de genre</p>
+      <label>
+        <select id="preset-select">
+          <option value="" selected>Aucun (câblage et palette par défaut)</option>
+        </select>
+      </label>
+      <p id="preset-suggestion"></p>
+      <div id="palette-swatch"></div>
 
       <!-- Pochette (docs/17 §7.5) : import d'image, palette extraite. -->
-      <fieldset>
-        <legend>Pochette</legend>
-        <label>
-          <input id="cover-input" type="file" accept="image/*" />
-        </label>
-        <button id="btn-cover-clear" type="button">Retirer</button>
-        <p id="cover-status"></p>
-      </fieldset>
+      <p class="sous-titre">Pochette</p>
+      <label>
+        <input id="cover-input" type="file" accept="image/*" />
+      </label>
+      <button id="btn-cover-clear" type="button">Retirer</button>
+      <p id="cover-status"></p>
+    </details>
 
-      <!-- Couleurs (docs/17 §9.2) : catalogue, six roles, contraste et les deux
-           couleurs de derive. Les options du catalogue sont peuplees par App.ts
-           depuis `presets/paletteCatalogue.ts`. -->
-      <fieldset>
-        <legend>Couleurs</legend>
-        <label>
-          <select id="palette-select"></select>
-        </label>
-        <div class="swatch-grid">
-          <label>Fond sombre<input type="color" id="col-bg0" /></label>
-          <label>Fond<input type="color" id="col-bg1" /></label>
-          <label>Primaire<input type="color" id="col-primary" /></label>
-          <label>Secondaire<input type="color" id="col-secondary" /></label>
-          <label>Accent<input type="color" id="col-accent" /></label>
-          <label>Halo<input type="color" id="col-glow" /></label>
-          <label>Dérive basse<input type="color" id="col-drift-lo" /></label>
-          <label>Dérive haute<input type="color" id="col-drift-hi" /></label>
-        </div>
-        <label>Contraste
-          <div class="macro-row"><input type="range" id="palette-contrast" min="0" max="1" step="0.01" value="0.85" /></div>
-        </label>
-        <button id="btn-palette-reset" type="button">Revenir à la palette du preset</button>
-        <p id="palette-warning"></p>
-      </fieldset>
+    <!-- ================================================ COULEURS ========= -->
+    <!-- docs/17 §9.2 : catalogue, six rôles, contraste et les deux couleurs de
+         dérive. Les options du catalogue sont peuplées par App.ts depuis
+         `presets/paletteCatalogue.ts`. -->
+    <details class="groupe" id="groupe-couleurs">
+      <summary>Couleurs</summary>
+      <label>
+        <select id="palette-select"></select>
+      </label>
+      <div class="swatch-grid">
+        <label>Fond sombre<input type="color" id="col-bg0" /></label>
+        <label>Fond<input type="color" id="col-bg1" /></label>
+        <label>Primaire<input type="color" id="col-primary" /></label>
+        <label>Secondaire<input type="color" id="col-secondary" /></label>
+        <label>Accent<input type="color" id="col-accent" /></label>
+        <label>Halo<input type="color" id="col-glow" /></label>
+        <label>Dérive basse<input type="color" id="col-drift-lo" /></label>
+        <label>Dérive haute<input type="color" id="col-drift-hi" /></label>
+      </div>
+      <label>Contraste
+        <div class="macro-row"><input type="range" id="palette-contrast" min="0" max="1" step="0.01" value="0.85" /></div>
+      </label>
+      <button id="btn-palette-reset" type="button">Revenir à la palette du preset</button>
+      <p id="palette-warning"></p>
+    </details>
 
-      <!-- Texte (docs/17 §9.3 et §7.6) : contenu, mise en page, animation.
-           Les <option> des six selecteurs sont peuplees par App.ts depuis les
-           tables de `visual/text/textConfig.ts` : les ecrire ici obligerait a
-           modifier deux fichiers pour ajouter une animation, et rien ne
-           garantirait qu'ils restent d'accord. -->
-      <fieldset>
-        <legend>Texte</legend>
-        <label>
-          <textarea id="text-content" rows="2" placeholder="LIVE" spellcheck="false"></textarea>
-        </label>
-        <p class="macro-note">Entrée = nouvelle ligne. Vide = aucun texte.</p>
-        <label>Mise en page
-          <select id="text-layout"></select>
-        </label>
-        <label>Animation
-          <select id="text-animation"></select>
-        </label>
-        <label>Rejoue
-          <select id="text-every"></select>
-        </label>
-        <label>Police
-          <select id="text-family"></select>
-        </label>
-        <label>Graisse
-          <select id="text-weight"></select>
-        </label>
-        <label>Casse
-          <select id="text-case"></select>
-        </label>
-        <label>Couleur
-          <select id="text-color"></select>
-        </label>
-        <label>Taille
-          <div class="macro-row"><input type="range" id="text-size" min="0.4" max="2" step="0.05" value="1" /></div>
-        </label>
-        <p id="text-status"></p>
-      </fieldset>
+    <!-- =================================================== TEXTE ========= -->
+    <!-- docs/17 §9.3 et §7.6 : contenu, mise en page, animation. Les <option>
+         des six sélecteurs sont peuplées par App.ts depuis
+         `visual/text/textConfig.ts`. -->
+    <details class="groupe" id="groupe-texte">
+      <summary>Texte</summary>
+      <label>
+        <textarea id="text-content" rows="2" placeholder="LIVE" spellcheck="false"></textarea>
+      </label>
+      <p class="macro-note">Entrée = nouvelle ligne. Vide = aucun texte.</p>
+      <label>Mise en page
+        <select id="text-layout"></select>
+      </label>
+      <label>Animation
+        <select id="text-animation"></select>
+      </label>
+      <label>Rejoue
+        <select id="text-every"></select>
+      </label>
+      <label>Taille
+        <div class="macro-row"><input type="range" id="text-size" min="0.4" max="2" step="0.05" value="1" /></div>
+      </label>
+      <label data-mode="avance">Police
+        <select id="text-family"></select>
+      </label>
+      <label data-mode="avance">Graisse
+        <select id="text-weight"></select>
+      </label>
+      <label data-mode="avance">Casse
+        <select id="text-case"></select>
+      </label>
+      <label data-mode="avance">Couleur
+        <select id="text-color"></select>
+      </label>
+      <p id="text-status"></p>
+    </details>
 
-      <fieldset>
-        <legend>Macros</legend>
+    <!-- ============================================== RÉACTIVITÉ ========= -->
+    <details class="groupe" id="groupe-reactivite">
+      <summary>Réactivité</summary>
+
+      <div data-mode="simple">
         <label>Énergie
           <div class="macro-row"><input type="range" id="macro-energy-simple" min="0" max="1" step="0.01" /></div>
         </label>
@@ -315,64 +197,44 @@
         <label>Glow
           <div class="macro-row"><input type="range" id="macro-glow-simple" min="0" max="1" step="0.01" /></div>
         </label>
-      </fieldset>
+      </div>
 
-      <fieldset>
-        <legend>Format d'export</legend>
-        <label>
-          <select id="export-format-simple">
-            <option value="youtube" selected>YouTube (1920×1080, 16:9)</option>
-            <option value="vertical">Shorts / TikTok / Reels (1080×1920, 9:16)</option>
-            <option value="square">Post carré (1080×1080, 1:1)</option>
-            <option value="free">Gratuit (1280×720, watermark)</option>
-          </select>
-        </label>
-      </fieldset>
-    </div>
-
-    <div id="panel-advanced" hidden>
-      <fieldset>
-        <legend>Style</legend>
-        <label>
-          <!-- Options peuplees par AdvancedPanel depuis STYLE_IDS/STYLE_LABELS
-               (presets/schema.ts). Les ecrire ici obligeait a modifier trois
-               fichiers pour ajouter un style, sans qu'aucun test ne signale
-               l'oubli du troisieme. -->
-          <select id="style-select"></select>
-        </label>
-      </fieldset>
-
-      <fieldset>
-        <legend>Les 8 macros</legend>
-        <p class="macro-note">Chaque curseur agit différemment selon le style choisi. Profondeur n'a pas d'effet visible en Pulse (style volontairement plat).</p>
+      <div data-mode="avance">
+        <p class="macro-note">Chaque curseur agit différemment selon le style choisi. Une macro sans effet dans le style courant est marquée ⚠.</p>
         <div id="macro-grid-advanced"></div>
-      </fieldset>
+      </div>
 
-      <fieldset>
-        <legend>Sécurité</legend>
-        <label>
-          <input type="checkbox" id="reduced-flashing" /> Réduction des flashs (WCAG 2.3.1)
-        </label>
-      </fieldset>
+      <p class="sous-titre">Sécurité</p>
+      <label>
+        <input type="checkbox" id="reduced-flashing" /> Réduction des flashs (WCAG 2.3.1)
+      </label>
 
-      <fieldset>
-        <legend>Qualité</legend>
-        <label>
-          <select id="quality-select">
-            <option value="low">Basse</option>
-            <option value="medium">Moyenne</option>
-            <option value="high" selected>Haute</option>
-            <option value="ultra">Ultra</option>
-          </select>
-        </label>
-        <p class="macro-note">Ajustée automatiquement selon les performances de ta machine. Un choix ici devient un plafond : la remontée automatique ne le dépassera jamais, mais la descente automatique reste active en cas de saccades.</p>
-      </fieldset>
+      <p class="sous-titre" data-mode="avance">Qualité</p>
+      <label data-mode="avance">
+        <select id="quality-select">
+          <option value="low">Basse</option>
+          <option value="medium">Moyenne</option>
+          <option value="high" selected>Haute</option>
+          <option value="ultra">Ultra</option>
+        </select>
+      </label>
+      <p class="macro-note" data-mode="avance">Ajustée automatiquement selon les performances de ta machine. Un choix ici devient un plafond : la remontée automatique ne le dépassera jamais, mais la descente automatique reste active en cas de saccades.</p>
+    </details>
 
-      <fieldset>
-        <legend>Preset JSON</legend>
-        <button id="btn-preset-editor-open">Éditer le preset actif…</button>
-      </fieldset>
-    </div>
+    <!-- ================================================== EXPORT ========= -->
+    <details class="groupe" id="groupe-export">
+      <summary>Export</summary>
+      <label>Format
+        <select id="export-format-simple">
+          <option value="youtube" selected>YouTube (1920×1080, 16:9)</option>
+          <option value="vertical">Shorts / TikTok / Reels (1080×1920, 9:16)</option>
+          <option value="square">Post carré (1080×1080, 1:1)</option>
+          <option value="free">Gratuit (1280×720, watermark)</option>
+        </select>
+      </label>
+      <p class="sous-titre" data-mode="avance">Preset JSON</p>
+      <button id="btn-preset-editor-open" data-mode="avance">Éditer le preset actif…</button>
+    </details>
   </aside>
 
   <dialog id="export-dialog">
@@ -396,7 +258,7 @@
     <label>
       <input type="checkbox" id="export-watermark" /> Watermark (marque discrète en bas à droite)
     </label>
-    <p id="export-status" style="opacity: 0.8; font-size: 0.85rem;"></p>
+    <p id="export-status"></p>
     <div class="dialog-actions">
       <button id="btn-export-cancel" disabled>Annuler</button>
       <button id="btn-export-close">Fermer</button>
@@ -406,7 +268,7 @@
 
   <dialog id="preset-editor-dialog">
     <h2>Éditeur de preset (JSON)</h2>
-    <p style="opacity:0.75; font-size:0.85rem;">Validé par schéma avant application — rien n'est appliqué tant qu'il reste des erreurs.</p>
+    <p class="note">Validé par schéma avant application — rien n'est appliqué tant qu'il reste des erreurs.</p>
     <textarea id="preset-json" spellcheck="false"></textarea>
     <div id="preset-json-errors"></div>
     <div class="dialog-actions">
@@ -418,13 +280,13 @@
 
   <dialog id="projects-dialog">
     <h2>Projets</h2>
-    <div class="dialog-actions" style="justify-content: flex-start; margin-top: 0;">
+    <div class="dialog-actions left">
       <button id="btn-project-save-pvproj">Enregistrer sous .pvproj…</button>
       <button id="btn-project-import-pvproj">Importer un .pvproj…</button>
       <input type="file" id="pvproj-file-input" accept=".pvproj" hidden />
     </div>
-    <p id="projects-status" style="opacity: 0.8; font-size: 0.85rem;"></p>
-    <ul id="projects-list" style="list-style: none; padding: 0; margin: 0.75rem 0; display: flex; flex-direction: column; gap: 0.5rem; max-height: 50vh; overflow-y: auto;"></ul>
+    <p id="projects-status"></p>
+    <ul id="projects-list"></ul>
     <div class="dialog-actions">
       <button id="btn-projects-close">Fermer</button>
     </div>
@@ -432,10 +294,10 @@
 
   <dialog id="relink-audio-dialog">
     <h2>Fichier audio introuvable</h2>
-    <p id="relink-audio-message" style="font-size: 0.9rem;"></p>
+    <p id="relink-audio-message"></p>
     <button id="btn-relink-pick">Choisir le fichier</button>
     <input type="file" id="relink-file-input" accept="audio/*" hidden />
-    <p id="relink-audio-error" style="color: #ff6b6b; font-size: 0.85rem;"></p>
+    <p id="relink-audio-error"></p>
     <div class="dialog-actions">
       <button id="btn-relink-cancel">Annuler</button>
     </div>

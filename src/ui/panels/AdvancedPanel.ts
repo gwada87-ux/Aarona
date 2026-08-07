@@ -68,7 +68,9 @@ export interface AdvancedPanelCallbacks {
 }
 
 export class AdvancedPanel {
-  private readonly styleSelect = document.querySelector<HTMLSelectElement>('#style-select')!;
+  private readonly styleGrid = document.querySelector<HTMLElement>('#style-grid')!;
+  private readonly styleTiles = new Map<StyleId, HTMLButtonElement>();
+  private readonly styleCanvases = new Map<StyleId, HTMLCanvasElement>();
   private readonly macroGrid = document.querySelector<HTMLElement>('#macro-grid-advanced')!;
   private readonly reducedFlashingCheckbox = document.querySelector<HTMLInputElement>('#reduced-flashing')!;
   private readonly qualitySelect = document.querySelector<HTMLSelectElement>('#quality-select')!;
@@ -79,21 +81,43 @@ export class AdvancedPanel {
   private currentStyle: StyleId = STYLE_IDS[0];
 
   constructor(callbacks: AdvancedPanelCallbacks) {
-    // Catalogue de styles construit depuis `STYLE_IDS`, plus écrit en dur dans
-    // `index.html` : ajouter un style ne demande donc plus de toucher au HTML.
+    // VIGNETTES, plus une liste déroulante (docs/17 §10.1, chantier 10). La
+    // grille reste construite depuis `STYLE_IDS` : ajouter un style ne demande
+    // toujours pas de toucher au HTML.
+    //
+    // Un `<button aria-pressed>` plutôt qu'un `<input type=radio>` déguisé : le
+    // second exigerait de masquer un contrôle natif pour en dessiner un autre
+    // par-dessus, et c'est précisément ce qui casse la navigation au clavier.
     for (const id of STYLE_IDS) {
-      const option = document.createElement('option');
-      option.value = id;
-      option.textContent = STYLE_LABELS[id];
-      this.styleSelect.appendChild(option);
-    }
-    this.styleSelect.value = this.currentStyle;
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'style-tile';
+      tile.dataset.styleId = id;
+      tile.setAttribute('aria-pressed', String(id === this.currentStyle));
 
-    this.styleSelect.addEventListener('change', () => {
-      this.currentStyle = this.styleSelect.value as StyleId;
-      this.refreshInertMarks();
-      callbacks.onStyleSelect(this.currentStyle);
-    });
+      const canvas = document.createElement('canvas');
+      canvas.width = 160;
+      canvas.height = 90;
+      // Le nom du style dans l'alternative textuelle : une vignette rendue par
+      // le moteur ne dit rien à un lecteur d'écran.
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', STYLE_LABELS[id]);
+      const caption = document.createElement('span');
+      caption.textContent = STYLE_LABELS[id];
+      tile.append(canvas, caption);
+
+      tile.addEventListener('click', () => {
+        if (this.currentStyle === id) return;
+        this.currentStyle = id;
+        this.refreshTiles();
+        this.refreshInertMarks();
+        callbacks.onStyleSelect(id);
+      });
+
+      this.styleTiles.set(id, tile);
+      this.styleCanvases.set(id, canvas);
+      this.styleGrid.appendChild(tile);
+    }
     this.reducedFlashingCheckbox.addEventListener('change', () => callbacks.onReducedFlashingChange(this.reducedFlashingCheckbox.checked));
     this.qualitySelect.addEventListener('change', () => callbacks.onQualitySelect(this.qualitySelect.value as QualityLevel));
 
@@ -143,11 +167,29 @@ export class AdvancedPanel {
     }
   }
 
+  private refreshTiles(): void {
+    for (const [id, tile] of this.styleTiles) {
+      tile.setAttribute('aria-pressed', String(id === this.currentStyle));
+    }
+  }
+
   selectStyle(styleId: StyleId): void {
     if (!STYLE_IDS.includes(styleId)) return;
-    this.styleSelect.value = styleId;
     this.currentStyle = styleId;
+    this.refreshTiles();
     this.refreshInertMarks();
+  }
+
+  /**
+   * Le canevas d'une vignette, pour que `ui/App.ts` y dessine l'aperçu du style.
+   *
+   * Le panneau ne rend PAS les vignettes lui-même : il faudrait pour cela qu'il
+   * connaisse les fabriques de style, la palette et la graine du projet, c'est-
+   * à-dire trois choses qui appartiennent à l'application. Il expose la surface,
+   * l'application la remplit.
+   */
+  styleCanvas(styleId: StyleId): HTMLCanvasElement | null {
+    return this.styleCanvases.get(styleId) ?? null;
   }
 
   setMacros(macros: PresetMacros): void {
