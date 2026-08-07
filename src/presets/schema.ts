@@ -110,6 +110,31 @@ export interface ClassificationOverrides {
   readonly perc?: Partial<PercThresholds>;
 }
 
+/**
+ * Champs RÉELS de chaque famille de seuils, en clair et à l'exécution.
+ *
+ * Troisième fois que ce besoin revient — après les courbes d'anticipation et
+ * les préfixes de `from` —, et pour la même raison de fond : `ClassificationOverrides`
+ * est un type, effacé à la compilation, alors que les presets sont du JSON.
+ * Rien ne les confrontait, et `mergeClassification` fait un simple
+ * `{ ...base.kick, ...overrides.kick }` : une clé mal orthographiée s'ajoute
+ * à l'objet, n'est lue par personne, et le seuil qu'on croyait régler garde sa
+ * valeur par défaut. Sans un mot.
+ *
+ * Recopiée à la main plutôt que dérivée de `DEFAULT_CLASSIFICATION_THRESHOLDS` :
+ * la dérivation lierait la validation aux VALEURS par défaut, et un jour où
+ * quelqu'un retirerait un champ du défaut, la validation cesserait de le
+ * connaître au lieu de le signaler. Un test vérifie que les deux listes
+ * coïncident.
+ */
+export const CLASSIFICATION_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  kick: Object.freeze(['bassRatio', 'maxCentroid', 'maxDecay30']),
+  snare: Object.freeze(['lowmidRatio', 'highRatio', 'minFlatness', 'minDecay30', 'maxDecay30']),
+  clap: Object.freeze(['lowmidRatio', 'highRatio', 'minFlatness', 'minDecay30', 'maxDecay30', 'minMicroOnsets', 'maxMicroOnsets']),
+  hat: Object.freeze(['highRatio', 'minCentroid', 'maxDecay30', 'openDecay30']),
+  perc: Object.freeze(['minCentroid', 'maxCentroid']),
+});
+
 export interface PresetPaletteConfig {
   readonly bg: readonly [string, string];
   readonly primary: string;
@@ -336,6 +361,42 @@ function checkMappingNames(value: unknown, errors: string[]): void {
   }
 }
 
+/**
+ * Contrôle les NOMS de `classification` : famille et champ doivent exister, et
+ * la valeur doit être un nombre fini.
+ *
+ * Rien de plus. Aucune borne n'est imposée : docs/05 §4 appelle ces valeurs des
+ * « points de départ à calibrer sur le corpus », et un `maxCentroid` de 180 Hz
+ * pour un kick techno est aussi légitime que 250. Décider ici de ce qui est
+ * musicalement raisonnable serait s'arroger un jugement que la documentation
+ * confie explicitement à la calibration.
+ */
+function checkClassificationNames(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    errors.push('"classification" doit être un objet');
+    return;
+  }
+  for (const [famille, champs] of Object.entries(value)) {
+    const attendus = CLASSIFICATION_FIELDS[famille];
+    if (!attendus) {
+      errors.push(`"classification.${famille}" n'est pas une famille connue — attendu ${Object.keys(CLASSIFICATION_FIELDS).join(', ')}`);
+      continue;
+    }
+    if (!isRecord(champs)) {
+      errors.push(`"classification.${famille}" doit être un objet`);
+      continue;
+    }
+    for (const [champ, v] of Object.entries(champs)) {
+      if (!attendus.includes(champ)) {
+        errors.push(`"classification.${famille}.${champ}" n'existe pas — attendu ${attendus.join(', ')}`);
+      } else if (!isFiniteNumber(v)) {
+        errors.push(`"classification.${famille}.${champ}" doit être un nombre fini`);
+      }
+    }
+  }
+}
+
 export function validatePreset(value: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -356,6 +417,7 @@ export function validatePreset(value: unknown): ValidationResult {
   checkMacros(value.macros, errors);
   checkBloom(value.bloom, errors);
   checkMappingNames(value.mapping, errors);
+  checkClassificationNames(value.classification, errors);
 
   if (value.version !== PRESET_SCHEMA_VERSION) {
     warnings.push(`version de schéma ${String(value.version)} différente de celle supportée (${PRESET_SCHEMA_VERSION})`);

@@ -6564,3 +6564,143 @@ un tableau vide.
 - **`intensity: 1` est un choix**, pas une mesure. Aucune specification ne dit
   quelle force doit avoir une frontiere de section.
 - Le harnais de mesure a ete archive dans `_corbeille/20260808/`.
+
+---
+
+## Audit des seuils de classification
+
+Demande par Aaron apres l'audit des familles de mapping, dont les limites
+disaient que ces seuils n'avaient pas ete regardes. Troisieme round de la meme
+famille de defaut, et le plus couteux des trois.
+
+### Trouvaille principale : les seuils n'atteignaient JAMAIS l'analyse
+
+```
+--- CHEMIN REEL DE L'APPLICATION ---
+  App.ts passe-t-il `classification` a importTrack ?  false
+  pipeline.ts le transmet-il a finalizePmdi ?         true
+  suggestPreset est appele APRES finalizePmdi ?       true
+```
+
+**Huit presets sur onze declarent un bloc `classification`, et il ne servait a
+rien.** Tout etait en place — `mergeClassification` fusionne correctement,
+`pipeline.ts` transmet, `finalizePmdi` accepte — sauf le dernier maillon :
+`App.ts` n'a jamais rempli le champ. `finalizePmdi` retombait donc toujours sur
+`DEFAULT_CLASSIFICATION_THRESHOLDS`.
+
+Et ce n'etait pas un simple oubli : c'est un probleme de **l'oeuf et de la
+poule**. On ne sait quel preset proposer qu'APRES avoir analyse, et il faut
+avoir classe pour analyser. La ligne `suggestPreset(doc, …)` vient
+structurellement apres `finalizePmdi(…)`, dans la meme fonction.
+
+Ce n'etait pas cosmetique. Sur cinq onsets synthetiques :
+
+| preset | bascules |
+|---|---|
+| `drill` | grave net KICK -> aucun, grave limite KICK -> aucun, charley HAT -> aucun |
+| `techno` | idem, trois cas sur cinq |
+| `dubstep` | deux graves sur cinq |
+| `trap-dark` | un grave limite |
+
+Le mecanisme marchait parfaitement. Il n'etait jamais alimente.
+
+### Le correctif : une SECONDE passe
+
+`importTrack` finalise une premiere fois avec les defauts, demande la
+suggestion, puis **refinalise avec les seuils du preset suggere**. Fait dans
+`pipeline.ts` et non dans `App.ts` : l'oeuf et la poule est un probleme du
+pipeline, pas de l'interface, et chaque appelant n'a pas a connaitre cette
+subtilite. `importTrack` rend desormais un document COHERENT avec la
+suggestion qu'il rend.
+
+**Le cout a ete mesure avant d'etre accepte**, et j'avais d'abord ecrit une
+estimation fausse dans le commentaire (~3 ms) avant de la mesurer :
+
+```
+finalizePmdi sur 3000 onsets : 0,58 ms par passe
+```
+
+`finalizePmdi` est PUR et travaille sur `ext.onsetDescriptors` deja calcules :
+ni FFT, ni Worker, ni relecture de l'audio. Doubler la finalisation est
+invisible a cote des secondes que prend l'analyse.
+
+Deux garde-fous : la passe est SAUTEE si l'appelant a impose ses propres seuils
+(il sait ce qu'il veut), et si le preset suggere ne declare aucune surcharge —
+sinon ce serait du travail pur perdu.
+
+### Le defaut silencieux, pour la troisieme fois
+
+`mergeClassification` fait `{ ...base.kick, ...overrides.kick }`. Une cle mal
+orthographiee — `bassRation` pour `bassRatio` — **s'ajoute a l'objet**, n'est
+lue par personne, et le seuil qu'on croyait regler garde sa valeur par defaut.
+Sans un mot.
+
+Meme cause de fond que les deux rounds precedents : `ClassificationOverrides`
+est un TYPE, efface a la compilation, alors que les presets sont du JSON lu a
+l'execution. D'ou `CLASSIFICATION_FIELDS`, une liste executable, et
+`checkClassificationNames` qui refuse une famille inconnue, un champ inexistant
+(en citant les champs attendus) et une valeur non numerique.
+
+**Aucune borne n'est imposee aux VALEURS.** docs/05 §4 appelle ces nombres des
+« points de depart a calibrer sur le corpus » ; un `maxCentroid` de 180 Hz pour
+un kick techno est aussi legitime que 250. Decider ici de ce qui est
+musicalement raisonnable serait s'arroger un jugement que la documentation
+confie explicitement a la calibration.
+
+### Ce qui est SAIN
+
+- **Zero cle inconnue** dans les onze presets : les 18 surcharges declarees
+  nomment toutes un champ reel.
+- **Les trois presets sans bloc** (`lofi`, `rnb`, `edm`, `ambient`) resolvent
+  exactement les defauts.
+- `CLASSIFICATION_FIELDS` est confronte par test a
+  `DEFAULT_CLASSIFICATION_THRESHOLDS` — la liste ne peut pas deriver en silence.
+
+### Une surcharge qui ne sert a rien
+
+`afro` declare `perc.minCentroid: 800`, ce qui est EXACTEMENT la valeur par
+defaut. Elle ne change rien. Laissee telle quelle : elle documente une
+intention (« afro se contente du reglage standard ») et la retirer serait du
+bruit dans l'historique. Signale pour que personne ne cherche son effet.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 123 fichiers, 1184 tests (1173 -> 1184, +11)
+npm run test:arch   -> 1 test
+npm run build       -> 534,85 kB (gzip 153,30 kB), 2,64 s
+```
+
+Un test a du etre RENFORCE apres coup : sa premiere version tombait sur `rnb`,
+qui ne surcharge aucun seuil, si bien que sa branche utile ne s'executait
+jamais. Le montage vise maintenant explicitement un preset surcharge, et un
+test separe VERIFIE que c'est bien le cas avant que l'autre ne mesure.
+
+Au navigateur, page rechargee a neuf : demo chargee, 3,8 s simulees,
+11 196 pixels clairs, aucune erreur.
+
+### Limite de verification
+
+**Rien de tout ceci n'est observable au navigateur ici.** La classification
+n'est calculee que sur l'import d'un fichier audio reel, et `loadDemo` fournit
+un document deja classe. Meme limite que la suggestion de preset. Tout ce qui
+precede est mesure par harnais.
+
+### A valider par Aaron
+
+**Ceci change le resultat de l'analyse de tout morceau importe.** Les
+evenements detectes ne seront plus les memes qu'avant sur les genres dont le
+preset surcharge les seuils — c'est l'intention documentee depuis docs/05, mais
+l'effet est nouveau. Le seul juge : importer un vrai morceau de trap, de drill
+ou de techno et ecouter si les frappes detectees tombent mieux.
+
+### Limites connues
+
+- **La seconde passe suit la SUGGESTION**, pas le preset que l'utilisateur
+  choisit ensuite a la main. Changer de preset apres l'import ne reclasse rien.
+  Le faire demanderait de conserver `result.pmdi` dans `App.ts` et de refinaliser
+  a chaque changement — faisable a 0,58 ms, non fait, a decider.
+- **Les seuils eux-memes n'ont jamais ete calibres sur un corpus**, comme
+  docs/05 le demande. Ils restent des « points de depart » ecrits a la main.
+- Les deux harnais de mesure ont ete archives dans `_corbeille/20260808/`.
