@@ -7,6 +7,7 @@
  * ouvert depuis ce panneau plutôt que dupliqué en contrôles.
  */
 import { MACRO_NAMES, STYLE_IDS, STYLE_LABELS, type MacroName, type PresetMacros, type StyleId } from '../../presets/schema';
+import { isReducedMotionSafe } from '../../presets/reducedMotion';
 import { QUALITY_LEVELS, type QualityLevel } from '../../perf/qualityLevels';
 
 const MACRO_LABELS: Readonly<Record<MacroName, string>> = {
@@ -201,6 +202,29 @@ export class AdvancedPanel {
 
   setReducedFlashing(reduced: boolean): void {
     this.reducedFlashingCheckbox.checked = reduced;
+  }
+
+  /**
+   * Marque les vignettes des styles à mouvement soutenu quand
+   * `prefers-reduced-motion` est actif (docs/17 §12, critère 14).
+   *
+   * MARQUÉES, pas retirées ni désactivées. Un style absent de la grille laisse
+   * l'utilisateur croire qu'il n'existe pas ; un style grisé le laisse croire
+   * qu'il est cassé. La mention dit ce qui est vrai — ce style bouge beaucoup —
+   * et lui laisse le choix. Elle passe par `title` ET par l'alternative
+   * textuelle du canevas, sans quoi elle n'existerait pas pour un lecteur
+   * d'écran, ce qui serait un comble sur un réglage d'accessibilité.
+   */
+  setReducedMotion(active: boolean): void {
+    for (const id of STYLE_IDS) {
+      const tile = this.styleTiles.get(id);
+      const canvas = this.styleCanvases.get(id);
+      if (!tile || !canvas) continue;
+      const marque = active && !isReducedMotionSafe(id);
+      tile.classList.toggle('style-tile--mouvement', marque);
+      tile.title = marque ? 'mouvement soutenu — déconseillé avec « animations réduites »' : '';
+      canvas.setAttribute('aria-label', marque ? `${STYLE_LABELS[id]} (mouvement soutenu)` : STYLE_LABELS[id]);
+    }
   }
 
   /** Reflète dans le sélecteur un niveau atteint automatiquement (`QualityGovernor`) ou restauré depuis un projet. */

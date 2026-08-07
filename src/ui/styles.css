@@ -284,6 +284,15 @@ button:disabled { opacity: 0.45; cursor: default; }
 .style-tile[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-doux); }
 .style-tile[aria-pressed='true'] span { color: var(--texte); }
 
+/* Style à mouvement soutenu sous `prefers-reduced-motion` (docs/17 §12,
+ * critère 14). Une MARQUE, pas une désactivation : la vignette reste cliquable
+ * et lisible. Le repère est un point, pas une opacité réduite — un style à
+ * moitié effacé se lit « cassé », et c'est faux. */
+.style-tile--mouvement span::after {
+  content: ' •';
+  color: var(--avertissement);
+}
+
 /* --------------------------------------------------------------------------
  * Couleurs et texte
  * ----------------------------------------------------------------------- */

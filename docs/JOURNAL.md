@@ -6067,3 +6067,142 @@ livré. J'avais écrit ici une baisse de 0,11 kB avant de lancer la mesure — e
 le prix du retrait, et il est faible : le verdict est écrit, et la partie qui
 comptait vraiment — le limiteur ne se verrouille pas — est verrouillée par un
 test unitaire qui, lui, ne dépend de rien.
+
+---
+
+## Phase 2 — Critère 14 : `prefers-reduced-motion`
+
+> « `prefers-reduced-motion` : la liste des styles autorisés reste non vide et
+> aucun d'eux ne stroboscope. »
+
+Le dernier des quatorze critères de §12 qui restait ouvert. Il l'était pour une
+raison simple et gênante : **la préférence système n'était observée nulle part
+sur le chemin preview/export.** `LiveVisualPanel` l'écoute depuis la refonte VJ,
+`Camera` divise le shake — mais `App.ts` n'avait aucun `matchMedia`, seulement
+une case à cocher manuelle « Réduction des flashs ». Une préférence système et
+un réglage manuel ne sont pas la même chose : l'utilisateur qui a réglé son OS
+n'a aucune raison de venir le redire dans mon interface.
+
+C'est le piège de l'Étape 25 sous une autre forme — câblé d'un côté, absent de
+l'autre.
+
+### La mesure d'abord, la liste ensuite
+
+Deux instruments, chacun validé par un témoin avant de servir (image identique
+-> 0 ; noir vers blanc -> 1) :
+
+- **Écart de luminance** — copie exacte de `FlashLimiter.measureLuminance`
+  (32x18, luma Rec. 709). C'est la définition du clignotement que le projet
+  applique déjà ; en inventer une autre pour l'occasion n'aurait rien prouvé.
+- **Mouvement** — différence absolue moyenne par composante sur 64x36. Il a
+  fallu l'ajouter : **la luminance moyenne est aveugle au mouvement.** `eclats`
+  fracasse l'image sans déplacer sa moyenne d'un pouce, et une liste bâtie sur
+  la seule luminance l'aurait déclaré calme.
+
+Piste de démonstration, 180 images pilotées une par une après 60 de chauffe :
+
+| style          | écart lum. max | mouvement p95 | mouvement max |
+|----------------|----------------|---------------|---------------|
+| `chambre`      | 0,0022         | **0,0022**    | 0,0061        |
+| `monolith`     | 0,0202         | 0,0097        | 0,0325        |
+| `aurore`       | 0,0022         | 0,0106        | 0,0390        |
+| `spectrum-pro` | 0,0118         | 0,0119        | 0,0212        |
+| `iso-pulse`    | 0,0064         | 0,0149        | 0,0190        |
+| `pulse`        | 0,0063         | 0,0155        | 0,0271        |
+| `field`        | 0,0037         | 0,0179        | 0,0431        |
+| `eclats`       | 0,0344         | **0,0392**    | 0,0818        |
+
+**Aucun style ne clignote.** Le pire, `eclats`, est cinq fois sous le seuil de
+0,18 de `REDUCED_FLASHING_MODE` ; le meilleur, quatre-vingts fois. La seconde
+moitié du critère est donc satisfaite par la mesure, pas par une exclusion — et
+c'est une bonne nouvelle qu'il fallait vérifier plutôt que supposer.
+
+Le MOUVEMENT, lui, varie d'un facteur **dix-huit**. Les deux seuils retenus
+tombent dans les deux vrais trous de la série : `chambre` est quatre fois plus
+calme que le suivant, `eclats` deux fois plus agité que le précédent. Ce ne sont
+pas des valeurs rondes choisies d'avance.
+
+**Recoupement que je n'ai pas cherché** : docs/17 §9 écrit de `chambre` « Doit
+passer `prefers-reduced-motion` sans modification ». La mesure, faite sans
+relire cette phrase, le désigne comme le plus calme des huit et de loin. C'est
+le seul contrôle indépendant dont je dispose sur ce classement.
+
+### Deux erreurs de mesure, toutes deux les miennes
+
+**Cinq styles ont d'abord rendu exactement 0,0000.** J'ai failli l'écrire comme
+« cinq styles parfaitement calmes ». Ce n'était pas ça : l'horloge avait atteint
+la fin de la démo (0:58 / 1:00) pendant les trois premiers, et les cinq suivants
+mesuraient des images FIGÉES. Un zéro exact sur 300 images consécutives est
+impossible pour un style animé — c'est ce qui m'a arrêté. Corrigé en rechargeant
+la démo avant chaque style, ce que confirme `t_avance` autour de 4,1 s partout.
+
+**Le premier relevé de clampage valait zéro pour les huit styles**, et je l'ai
+mis de côté : c'était circulaire. Le `FlashLimiter` tourne, donc mesurer après
+lui revient à demander au garde-fou s'il a bien tenu. D'où la mesure directe des
+écarts de luminance, en amont de son verdict.
+
+### Ce que fait le code
+
+- **`src/presets/reducedMotion.ts`** (nouveau) — `STYLE_MOTION_LOAD` en
+  `Record<StyleId, MotionLoad>` : ajouter un style ne compilera pas tant que sa
+  charge n'aura pas été décidée. Précédent : `STYLE_LABELS`.
+  `REDUCED_MOTION_STYLES` en est DÉRIVÉE, jamais recopiée.
+- **`App.ts`** — `matchMedia('(prefers-reduced-motion: reduce)')` écouté EN
+  CONTINU, comme le fait déjà `LiveVisualPanel` : la préférence peut être activée
+  pendant que le visuel tourne, et c'est le moment où elle sert.
+- **`applyImportedDoc`** — seul endroit où l'application impose un style
+  (suggestion à l'import) : il passe par `pickReducedMotionStyle`.
+- **`AdvancedPanel.setReducedMotion`** — marque les vignettes concernées.
+
+### Trois décisions qui auraient pu aller autrement
+
+**La préférence ALLUME la réduction des flashs, elle ne l'éteint jamais.** Si
+elle disparaît, une case cochée à la main le reste. L'inverse effacerait un
+réglage que l'utilisateur a posé lui-même.
+
+**Les styles agités sont MARQUÉS, pas retirés ni grisés.** Un style absent de la
+grille laisse croire qu'il n'existe pas ; un style grisé laisse croire qu'il est
+cassé. La marque dit ce qui est vrai — ce style bouge beaucoup — et laisse le
+choix. Elle passe par `title` ET par l'alternative textuelle du canevas : une
+mention invisible aux lecteurs d'écran, sur un réglage d'accessibilité, serait
+un comble.
+
+**Un seul style est écarté, pas sept.** J'aurais pu ne garder que `chambre`, le
+seul mesuré vraiment calme, et le critère serait passé aussi bien. Retirer six
+styles sur huit à Aaron sur la foi d'une seule piste douce n'était pas une
+lecture honnête de ce que j'avais mesuré.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 120 fichiers, 1146 tests (1131 -> 1146, +15)
+npm run test:arch   -> 1 test
+npm run build       -> 532,42 kB (gzip 152,57 kB), 2,13 s
+```
+
+Au navigateur, sans préférence active : 8 vignettes, **0 marquée**, case
+décochée, aucune erreur console — le cas ordinaire est inchangé, ce qui est la
+première chose à prouver. Marque appliquée à la main sur `eclats` : le repère
+apparaît en `rgb(255,178,107)`, `chambre` reste vierge, la vignette demeure
+cliquable, et le retrait de la classe restaure l'état initial.
+
+### Limites connues
+
+- **Je n'ai pas pu déclencher la vraie préférence système.** `matchMedia` rend
+  un objet neuf à chaque appel : je n'atteins pas l'écouteur d'`App.ts` depuis la
+  console. Le câblage est donc vérifié par lecture de source (4 tests) et par les
+  tests unitaires de la fonction de repli (11 tests), pas de bout en bout.
+  **À valider par Aaron : activer « Réduire les animations » dans Windows,
+  recharger, et vérifier que la case « Réduction des flashs » se coche seule et
+  qu'`Éclats` porte un point orange.**
+- **Tout est mesuré sur la piste de démonstration**, qui est douce. Le chantier 6
+  redoutait `eclats` sur un morceau à breaks rapides : ce cas n'a jamais été
+  mesuré, et le classement est donc un plancher de prudence.
+- **La préférence n'atténue PAS le mouvement** des styles autorisés : elle
+  choisit lesquels proposer, et allume la réduction des flashs. Atténuer
+  vraiment demanderait de toucher `applyCamera` et le shake, donc le pipeline
+  d'export aussi — hors du mandat « fais le critère 14 », et à demander avant.
+- **`pulse` et `field`, à 0,0155 et 0,0179 de mouvement p95, sont les plus agités
+  des autorisés.** Si Aaron trouve que ça bouge encore trop sous la préférence,
+  la frontière se déplace en changeant une ligne de `STYLE_MOTION_LOAD`.

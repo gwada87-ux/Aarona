@@ -63,6 +63,7 @@ import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
+import { pickReducedMotionStyle } from '../presets/reducedMotion';
 import { STYLE_IDS, type MacroName, type PresetBloomConfig, type PresetMapping } from '../presets/schema';
 import type { PresetPaletteConfig } from '../presets/schema';
 import { DEFAULT_PRESET_BLOOM, resolveBloom } from '../presets/bloom';
@@ -318,6 +319,14 @@ function refreshAutomatedMacros(t: number): void {
 /** Palette du preset actif, en hexadecimal : point de depart de l'editeur. */
 let presetPaletteConfig: PresetPaletteConfig | null = null;
 let reducedFlashing = false;
+/**
+ * `prefers-reduced-motion` (docs/17 §12, critère 14). Jusqu'ici la préférence
+ * système n'était observée QUE du côté live (`LiveVisualPanel`) : le chemin
+ * preview/export n'avait que la case à cocher manuelle « Réduction des flashs ».
+ * Une préférence système et un réglage manuel ne sont pas la même chose, et
+ * l'utilisateur qui a réglé son OS n'a aucune raison de venir le redire ici.
+ */
+let reducedMotion = false;
 
 let simT = 0;
 /** Dernier `audioEngine.t` vu par la boucle — sert à dériver un delta CORRIGÉ (voir `loop()`). */
@@ -792,6 +801,29 @@ const advancedPanel = new AdvancedPanel({
   },
 });
 
+/**
+ * `prefers-reduced-motion` écouté EN CONTINU, comme `LiveVisualPanel` le fait
+ * déjà côté live : l'utilisateur peut activer la préférence pendant que le
+ * visuel tourne, et c'est précisément le moment où il en a besoin.
+ *
+ * La préférence ALLUME la réduction des flashs sans jamais l'éteindre : si elle
+ * disparaît, une case cochée à la main le reste. L'inverse effacerait un
+ * réglage que l'utilisateur a posé lui-même.
+ */
+function applyReducedMotion(active: boolean): void {
+  reducedMotion = active;
+  advancedPanel.setReducedMotion(active);
+  if (active && !reducedFlashing) {
+    reducedFlashing = true;
+    advancedPanel.setReducedFlashing(true);
+    applyActiveConfiguration();
+  }
+}
+
+const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+motionQuery.addEventListener('change', (event) => applyReducedMotion(event.matches));
+applyReducedMotion(motionQuery.matches);
+
 const presetEditorDialog = new PresetEditorDialog({
   onApply: (preset) => {
     // Le preset édité devient la config active telle quelle (`customPreset`), jusqu'à
@@ -1145,8 +1177,14 @@ function applyImportedDoc(doc: PmdiDocument, suggestedPresetId: string | null, w
   customPreset = null;
   const preset = PRESET_CATALOG.find((p) => p.id === suggestedPresetId);
   currentMacros = preset?.macros ?? neutralMacros();
-  currentStyleId = preset?.style ?? currentStyleId;
+  // Critère 14 : c'est ICI, et seulement ici, que l'application impose un style
+  // — la suggestion à l'import. Sous `prefers-reduced-motion`, un style à
+  // mouvement soutenu n'est pas proposé d'office ; il reste choisissable à la
+  // main dans la grille, parce que refuser un geste explicite serait décider à
+  // la place de l'utilisateur ce qu'il a le droit de regarder.
+  currentStyleId = pickReducedMotionStyle(preset?.style ?? currentStyleId, reducedMotion);
   simplePanel.selectPreset(selectedPresetId);
+  advancedPanel.selectStyle(currentStyleId);
   applyDocCore(doc, waveformPeaks);
 }
 
