@@ -6822,3 +6822,98 @@ que je corrige ici plutot que de reecrire chaque entree.
   par reproduction du plantage de module, pas par une image animee.
 - **Le seul juge reste Aaron** : recharger la page et verifier que le visuel
   bouge et que les styles changent quelque chose.
+
+---
+
+## Le visuel ne bouge toujours pas — filet sous la boucle, et un diagnostic deporte
+
+Aaron, apres le correctif de zone morte temporelle : « toujours aucun
+changement ». Mon hypothese etait donc fausse, ou incomplete.
+
+### Ce que je ne peux pas faire, et qu'il faut arreter de contourner
+
+```
+images rAF en 1 s = 0
+```
+
+Le panneau navigateur dont je dispose **ne compose pas d'images**. J'ai
+reessaye : mettre l'onglet au premier plan, demander une capture — « the
+Browser pane is not displayed ». Je ne peux pas executer la vraie boucle de
+rendu, point. Continuer a formuler des hypotheses depuis ici serait de la
+divination.
+
+Mon propre diagnostic le montre crument :
+
+```
+canvas_change_apres_clic_style = false
+aria_pressed = true
+```
+
+Le clic est bien enregistre, le canevas ne change pas — parce que rien ne le
+repeint. Chez Aaron, rAF tourne : le meme test y sera decisif.
+
+### Un vrai defaut trouve en chemin
+
+```js
+function raf(nowMs) {
+  loop(nowMs);
+  requestAnimationFrame(raf);   // jamais atteint si loop() leve
+}
+```
+
+**Une seule exception, a une seule image, arretait la boucle POUR TOUJOURS.**
+Canevas gele, tous les controles en apparence morts, rien a l'ecran pour dire
+pourquoi, et aucun moyen de s'en relever sans recharger. Une panne a consequence
+disproportionnee : un defaut passager dans une couche condamnait l'application
+entiere.
+
+Ce n'est **pas un correctif de cause** — je ne sais toujours pas ce qui casse
+chez Aaron. C'est un correctif de PROPAGATION : la boucle se replanifie quoi
+qu'il arrive, et l'erreur est remontee a la console (les trois premieres en
+entier, les suivantes comptees) plutot qu'avalee. Une boucle qui absorbe en
+silence echangerait une panne visible contre une panne invisible, ce qui est
+pire.
+
+`__pulsarDebug.loopErreurs` expose le compteur. **`step()` continue d'appeler
+`loop()` DIRECTEMENT, sans filet** : c'est l'outil de mesure, et s'il avalait
+les exceptions, le defaut des courbes d'anticipation ne se serait jamais
+montre — il a ete trouve exactement comme ca.
+
+### Deux erreurs de ma part dans cette seule verification
+
+1. **Mon premier test du filet ne testait rien** : il forcait une exception puis
+   appelait `step()`, qui appelle `loop()` et non le `raf()` protege. Les cinq
+   exceptions se sont propagees, comme il se doit. Verdict corrige en testant la
+   STRUCTURE plutot que le comportement.
+2. **Mon test de structure a echoue sur du code correct** : il cherchait `\n}\n`
+   dans un fichier en CRLF, ou c'est `\r\n}\r\n`. Fins de ligne normalisees.
+   A retenir pour tout test qui lit la source de ce depot.
+
+### Diagnostic deporte
+
+`public/diag.js`, servi par Vite, a lancer dans un VRAI navigateur :
+
+```
+import('/diag.js').then(m => m.diag())
+```
+
+Il rend l'etat du module, la preference `reduced-motion`, le nombre d'images rAF
+en une seconde, le mouvement du canevas au repos puis en lecture, et l'ecart
+d'image apres trois changements de style et deux de preset. Il copie son compte
+rendu dans le presse-papiers.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 124 fichiers, 1193 tests (1187 -> 1193, +6)
+npm run test:arch   -> 1 test
+npm run build       -> 535,10 kB (gzip 153,44 kB), 2,18 s
+```
+
+### Limites connues
+
+- **Le defaut signale par Aaron n'est PAS diagnostique.** Le filet empeche une
+  exception d'emporter l'application ; il ne dit pas ce qui echoue chez lui.
+- Le filet lui-meme n'est verifie que par lecture de structure — six tests sur
+  la forme de `raf`, faute de pouvoir executer rAF ici.

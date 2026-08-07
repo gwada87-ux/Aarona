@@ -2552,8 +2552,45 @@ function loop(nowMs: number): void {
   outSync.textContent = audioEngine.playing ? `${syncMs >= 0 ? '+' : ''}${syncMs.toFixed(1)} ms ${syncOk ? '✅' : '⚠️'}` : '—';
 }
 
+/**
+ * Nombre d'exceptions de `loop()` détaillées dans la console avant de ne plus
+ * garder qu'un compteur — sinon une erreur à chaque image noierait tout.
+ */
+const LOOP_ERREURS_DETAILLEES = 3;
+let loopErreurs = 0;
+
+/**
+ * Boucle de rendu.
+ *
+ * ## Pourquoi le `try`
+ *
+ * Il n'y en avait pas, et `requestAnimationFrame(raf)` venait APRÈS `loop()` :
+ * **une seule exception, à une seule image, arrêtait la boucle pour toujours.**
+ * Le canevas gelait, tous les contrôles paraissaient morts, et rien à l'écran
+ * ne disait pourquoi. Aucun moyen de s'en relever sans recharger la page.
+ *
+ * C'est une panne à conséquence disproportionnée : un défaut passager dans une
+ * couche — un paramètre absent, une donnée inattendue — condamnait l'application
+ * entière. Le rendu se replanifie donc quoi qu'il arrive, et l'erreur est
+ * REMONTÉE plutôt qu'avalée : la console la garde, les trois premières en
+ * entier.
+ *
+ * Ce n'est pas un correctif de cause, c'est un correctif de propagation. Une
+ * exception ici reste un défaut à trouver ; elle ne doit simplement plus
+ * emporter tout le reste avec elle.
+ */
 function raf(nowMs: number): void {
-  loop(nowMs);
+  try {
+    loop(nowMs);
+  } catch (err) {
+    loopErreurs++;
+    if (loopErreurs <= LOOP_ERREURS_DETAILLEES) {
+      console.error(`PULSAR — exception dans la boucle de rendu (image ${loopErreurs}) :`, err);
+      if (loopErreurs === LOOP_ERREURS_DETAILLEES) {
+        console.error('PULSAR — exceptions suivantes comptées sans détail (voir __pulsarDebug.loopErreurs).');
+      }
+    }
+  }
   requestAnimationFrame(raf);
 }
 requestAnimationFrame(raf);
@@ -2597,6 +2634,10 @@ if (import.meta.env.DEV) {
     loadDemo: () => void loadDemo(),
     get t() {
       return simT;
+    },
+    /** Exceptions avalées par la boucle de rendu depuis le chargement. Doit rester à 0. */
+    get loopErreurs() {
+      return loopErreurs;
     },
     /** Automatisation résolue à l'instant courant — vérification du lot D. */
     get automation() {
