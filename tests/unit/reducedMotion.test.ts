@@ -116,4 +116,45 @@ describe('critère 14 — le câblage de la préférence système', () => {
     // que l'utilisateur a cochée lui-même.
     expect(app).toContain('if (active && !reducedFlashing)');
   });
+
+  /**
+   * RÉGRESSION — le défaut le plus grave de la phase 2, signalé par Aaron :
+   * « quand je change le style du visuel et sa couleur [...] ça ne change pas
+   * du tout le visuel ».
+   *
+   * L'appel initial `applyReducedMotion(motionQuery.matches)` vivait au niveau
+   * module, à côté de la déclaration de la fonction — ce qui semblait propre.
+   * Quand la préférence système est ACTIVE, il appelle
+   * `applyActiveConfiguration()`, qui touche `SWATCHES`, `reactionEditor`,
+   * `layerComposer`... tous déclarés en `const` plus bas dans le fichier.
+   * Résultat : `ReferenceError: Cannot access 'SWATCHES' before initialization`,
+   * évaluation du module interrompue, `requestAnimationFrame(raf)` jamais
+   * atteint. **Canevas gelé, tous les contrôles morts.**
+   *
+   * Invisible pour moi : la branche ne s'exécute QUE si `prefers-reduced-motion`
+   * est actif, et il ne l'est pas sur cette machine. Reproduit ensuite en
+   * forçant `matchMedia` avant une réévaluation du module.
+   */
+  const ordre = (aiguille: string) => app.indexOf(aiguille);
+
+  it("l'installation de l'écoute vient APRÈS la configuration initiale", () => {
+    const config = ordre('\napplyActiveConfiguration();');
+    const install = ordre('\ninstallerReducedMotion();');
+    expect(config, 'la configuration initiale doit exister au niveau module').toBeGreaterThan(0);
+    expect(install, "l'installation doit exister au niveau module").toBeGreaterThan(0);
+    expect(install, 'installer avant la configuration initiale regèle le canevas').toBeGreaterThan(config);
+  });
+
+  it('la boucle de rendu est enregistrée AVANT tout cela', () => {
+    // Défense en profondeur : si quoi que ce soit lève plus bas, la boucle
+    // tourne déjà et l'image reste vivante au lieu de se figer.
+    expect(ordre('\nrequestAnimationFrame(raf);')).toBeLessThan(ordre('\napplyActiveConfiguration();'));
+  });
+
+  it("aucun appel à applyReducedMotion au niveau module avant l'installation", () => {
+    // Un appel nu en colonne 0, hors de `installerReducedMotion`, remettrait
+    // exactement le même piège.
+    const nus = [...app.matchAll(/\napplyReducedMotion\(/g)].map((m) => m.index ?? 0);
+    expect(nus, `appel(s) au niveau module : ${nus.length}`).toEqual([]);
+  });
 });

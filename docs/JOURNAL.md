@@ -6704,3 +6704,121 @@ ou de techno et ecouter si les frappes detectees tombent mieux.
 - **Les seuils eux-memes n'ont jamais ete calibres sur un corpus**, comme
   docs/05 le demande. Ils restent des « points de depart » ecrits a la main.
 - Les deux harnais de mesure ont ete archives dans `_corbeille/20260808/`.
+
+---
+
+## Correctif CRITIQUE — le visuel gele quand « Reduire les animations » est actif
+
+Signale par Aaron : « quand je change le style du visuel et sa couleurs et je
+pense aussi tout le reste, ca ne change pas du tout le visuel ».
+
+**C'est moi qui l'ai casse, au critere 14, et aucun de mes controles ne pouvait
+le voir.**
+
+### Ce que j'ai d'abord decouvert sur MOI
+
+En cherchant a reproduire, j'ai pose un compteur `requestAnimationFrame` dans le
+panneau navigateur :
+
+```
+images rAF depuis la pose du compteur : 0
+```
+
+**Zero.** Le panneau ne compose pas d'images, donc `requestAnimationFrame` ne se
+declenche jamais. Ce qui veut dire, sans detour : **je n'ai JAMAIS teste la
+vraie boucle de rendu de cette application.** Toutes mes mesures de la session —
+les huit styles, les onze presets, le critere 12, le critere 14 — forcaient les
+images une par une avec `__pulsarDebug.step()`. J'ai verifie la FONCTION de
+rendu ; jamais ce qu'un utilisateur voit.
+
+Je l'avais signale pour la suggestion de preset et pour la classification. Je ne
+l'avais pas compris pour la boucle elle-meme, et je l'ai ecrit « verifie au
+navigateur » des dizaines de fois.
+
+### Le defaut
+
+`applyReducedMotion(motionQuery.matches)` etait appele **ligne 825**, au niveau
+module, juste a cote de la declaration de la fonction — ce qui semblait propre.
+
+Quand `prefers-reduced-motion` est ACTIF, cette fonction appelle
+`applyActiveConfiguration()`, qui touche `SWATCHES`, `reactionEditor`,
+`layerComposer`... tous declares en `const` **plus bas dans le fichier**.
+
+```
+ReferenceError: Cannot access 'SWATCHES' before initialization
+```
+
+Zone morte temporelle. L'evaluation du module s'arrete net ligne 825, donc le
+`requestAnimationFrame(raf)` de la ligne 2548 **n'est jamais atteint**. Le
+canevas ne se repeint plus jamais et tous les controles sont morts. Exactement
+ce qu'Aaron decrit.
+
+### Pourquoi rien ne l'a vu
+
+La branche fautive ne s'execute QUE si la preference systeme est active. Elle ne
+l'est pas sur cette machine — je l'avais d'ailleurs ecrit noir sur blanc dans
+l'entree du critere 14 : « Je n'ai pas pu declencher la vraie preference
+systeme [...] le cablage est verifie par lecture de source ». **J'ai livre du
+code dont je savais qu'une branche entiere n'etait pas executee**, et cette
+branche cassait tout.
+
+### Reproduction
+
+En forcant `matchMedia` avant une reevaluation du module :
+
+```js
+window.matchMedia = (q) => q.includes('reduced-motion') ? { matches: true, … } : vrai(q);
+await import('/src/ui/App.ts?repro=' + Date.now());
+```
+
+```
+AVANT : { verdict: 'MODULE MORT', erreur: "ReferenceError: Cannot access 'SWATCHES' before initialization" }
+APRES : { verdict: 'MODULE VIVANT avec prefers-reduced-motion actif' }
+```
+
+### Correctif
+
+L'installation de l'ecoute descend dans `installerReducedMotion()`, appelee
+APRES `applyActiveConfiguration()`, la ou tout existe. La fonction
+`applyReducedMotion` porte desormais un avertissement en tete : ne jamais
+l'appeler pendant l'evaluation du module.
+
+### Trois tests, verifies comme de VRAIS garde-fous
+
+Remis le code casse en gardant les tests neufs :
+
+```
+=== tests NEUFS contre le code CASSE ===
+  × l'installation de l'écoute vient APRÈS la configuration initiale
+  × aucun appel à applyReducedMotion au niveau module avant l'installation
+  Tests  2 failed | 16 passed (18)
+--- correctif restaure ---
+  Tests  18 passed (18)
+```
+
+Le troisieme verrouille que `requestAnimationFrame(raf)` est enregistre AVANT la
+configuration initiale : defense en profondeur, pour qu'une exception plus bas
+laisse au moins l'image vivante.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 123 fichiers, 1187 tests (1184 -> 1187, +3)
+npm run test:arch   -> 1 test
+npm run build       -> 534,87 kB (gzip 153,30 kB), 2,16 s
+```
+
+### Ce que ca change pour la suite
+
+**Toute mention « verifie au navigateur » de cette session doit se lire :
+verifie en forcant les images a la main.** Le rendu automatique n'a jamais
+tourne ici. Les journaux precedents ne le disent pas, et c'est une exageration
+que je corrige ici plutot que de reecrire chaque entree.
+
+### Limites connues
+
+- **Je ne peux toujours pas executer la vraie boucle.** Le correctif est prouve
+  par reproduction du plantage de module, pas par une image animee.
+- **Le seul juge reste Aaron** : recharger la page et verifier que le visuel
+  bouge et que les styles changent quelque chose.

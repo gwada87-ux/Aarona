@@ -809,6 +809,21 @@ const advancedPanel = new AdvancedPanel({
  * La préférence ALLUME la réduction des flashs sans jamais l'éteindre : si elle
  * disparaît, une case cochée à la main le reste. L'inverse effacerait un
  * réglage que l'utilisateur a posé lui-même.
+ *
+ * ## Ne JAMAIS appeler ceci pendant l'évaluation du module
+ *
+ * `applyActiveConfiguration()` touche `reactionEditor`, `layerComposer`,
+ * `SWATCHES`... tous déclarés en `const` PLUS BAS dans ce fichier. L'appeler
+ * trop tôt lève une `ReferenceError` de zone morte temporelle, l'évaluation du
+ * module s'arrête net, et le `requestAnimationFrame(raf)` de la fin n'est
+ * jamais atteint : **canevas gelé, tous les contrôles morts.**
+ *
+ * C'est exactement ce qui est arrivé — signalé par Aaron, « ça ne change pas du
+ * tout le visuel ». L'appel initial vivait ici, à côté de la déclaration, ce
+ * qui semblait propre. Il ne se déclenchait QUE si la préférence système était
+ * active, donc jamais sur ma machine, et aucun de mes tests ne l'a vu.
+ * L'installation de l'écoute est faite tout en bas, après la configuration
+ * initiale (voir `installerReducedMotion`).
  */
 function applyReducedMotion(active: boolean): void {
   reducedMotion = active;
@@ -819,10 +834,6 @@ function applyReducedMotion(active: boolean): void {
     applyActiveConfiguration();
   }
 }
-
-const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-motionQuery.addEventListener('change', (event) => applyReducedMotion(event.matches));
-applyReducedMotion(motionQuery.matches);
 
 const presetEditorDialog = new PresetEditorDialog({
   onApply: (preset) => {
@@ -2551,6 +2562,19 @@ requestAnimationFrame(raf);
 // Configuration initiale ("Aucun" preset, style Pulse par défaut)
 // ---------------------------------------------------------------------------
 applyActiveConfiguration();
+
+/**
+ * Observation de `prefers-reduced-motion` — installée ICI, et pas à côté de
+ * `applyReducedMotion`, parce que l'appel initial peut déclencher
+ * `applyActiveConfiguration()` : tout ce qu'elle touche doit déjà exister.
+ * Voir l'avertissement en tête de `applyReducedMotion`.
+ */
+function installerReducedMotion(): void {
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  motionQuery.addEventListener('change', (event) => applyReducedMotion(event.matches));
+  applyReducedMotion(motionQuery.matches);
+}
+installerReducedMotion();
 
 void (async () => {
   try {
