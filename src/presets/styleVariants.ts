@@ -101,6 +101,25 @@ export const STYLE_VARIANTS: Readonly<Record<StyleId, readonly StyleVariant[]>> 
       blend: Object.freeze({ isoGrid: 'screen' as BlendMode }),
     },
   ]),
+  chambre: Object.freeze([
+    // Aucun rapprochement fort : serrer le cadre sur un style dont le sujet est
+    // l'espace vide entre les poussières le viderait de son intérêt.
+    { name: 'faisceau large', offsetX: 0.08, offsetY: 0, zoom: 1 },
+    { name: 'contre-jour', offsetX: -0.15, offsetY: 0.1, zoom: 1.12 },
+  ]),
+  eclats: Object.freeze([
+    { name: 'plein cadre', offsetX: 0, offsetY: 0, zoom: 1 },
+    // Recentrage sur le point d'impact, qui est décalé dans la couche.
+    { name: 'sur l\'impact', offsetX: -0.14, offsetY: 0.08, zoom: 1.3 },
+    // `difference` NON retenu ici malgré la tentation : il produit des sauts de
+    // luminance que le `FlashLimiter` écrêterait en permanence sur un break à
+    // 174 BPM, et le critère 13 n'a pas encore pu être mesuré (voir journal).
+    { name: 'décentré bas', offsetX: 0.16, offsetY: -0.12, zoom: 1.18 },
+  ]),
+  aurore: Object.freeze([
+    { name: 'horizon', offsetX: 0, offsetY: 0, zoom: 1 },
+    { name: 'rubans hauts', offsetX: -0.1, offsetY: -0.17, zoom: 1.14 },
+  ]),
   'spectrum-pro': Object.freeze([
     { name: 'plan large', offsetX: 0, offsetY: 0, zoom: 1 },
     // Barres poussées en bas de cadre : la moitié haute reste vide, ce qui est

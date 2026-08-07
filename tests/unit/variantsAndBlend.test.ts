@@ -19,6 +19,9 @@ import { createPulseStyle } from '../../src/visual/styles/pulse/createPulseStyle
 import { createSpectrumProStyle } from '../../src/visual/styles/spectrum-pro/createSpectrumProStyle';
 import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
 import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
+import { createChambreStyle } from '../../src/visual/styles/chambre/createChambreStyle';
+import { createEclatsStyle } from '../../src/visual/styles/eclats/createEclatsStyle';
+import { createAuroreStyle } from '../../src/visual/styles/aurore/createAuroreStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
 
@@ -75,6 +78,9 @@ describe('variantes de cadrage (§7.10)', () => {
       'spectrum-pro': createSpectrumProStyle().layers.map((l) => l.id),
       monolith: createMonolithStyle().layers.map((l) => l.id),
       'iso-pulse': createIsoPulseStyle().layers.map((l) => l.id),
+      chambre: createChambreStyle().layers.map((l) => l.id),
+      eclats: createEclatsStyle().layers.map((l) => l.id),
+      aurore: createAuroreStyle().layers.map((l) => l.id),
     };
     for (const id of STYLE_IDS) {
       for (const v of STYLE_VARIANTS[id]) {

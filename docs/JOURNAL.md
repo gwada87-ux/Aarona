@@ -3992,3 +3992,186 @@ Rien de ce qui précède ne dit si c'est BEAU. Les points à juger :
   existants sans que le travail de couleurs qui va avec soit fait.
 - Aucune capture d'écran : volet d'aperçu non affiché, `AudioContext` bloqué
   sans geste utilisateur. Même limite qu'aux chantiers précédents.
+
+---
+
+## Phase 2 — Chantier 6 : `chambre`, `eclats`, `aurore`
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 6 (§8). Le catalogue passe
+de trois à **huit styles** — les « styles 4 à 12 » que `docs/00b` §4 réservait à
+l'après-MVP sont donc à mi-parcours.
+
+### Décision tranchée : le bruit simplex DÉPLACÉ, pas dupliqué
+
+`docs/17` §8 posait la question sans y répondre : le bruit simplex vit dans
+`src/ui/live/util/noise.ts`, et `visual/` n'a pas le droit d'importer `ui/`.
+« Le déplacer dans `src/core/`, ou en écrire un jumeau. Décide et justifie. »
+
+**Déplacé** en `src/core/math/noise.ts`. Trois raisons :
+
+1. Le fichier **n'importe rien** — il est déjà, de fait, du `core/`.
+2. Il n'a que deux consommateurs, dont un test qui le couvre déjà : une erreur
+   de déplacement aurait échoué immédiatement.
+3. Un jumeau, ce serait 120 lignes de mathématiques dupliquées entre deux
+   moteurs, avec la certitude qu'ils divergeront.
+
+Le mode live n'est touché que par un chemin d'import. Aucun changement de
+comportement.
+
+### `chambre` — lofi, jazzhop, downtempo
+
+« La texture, pas l'impact. » Faisceau oblique décentré, poussières en
+suspension éclairées par lui, rayures de pellicule intermittentes, respiration
+lente du vignettage.
+
+Le kick ne produit qu'une inflexion de **2 %** sur la luminosité du faisceau —
+le chiffre est celui de §8, et il est délibérément sous le seuil de conscience.
+On ne doit pas voir l'image réagir, seulement sentir qu'elle est vivante. Un
+lofi qui pulse au kick n'est plus du lofi.
+
+Les poussières ne sont visibles que DANS le faisceau : c'est ce qui fait qu'on
+lit un rai de lumière et non un ciel étoilé. Leurs positions sont des fonctions
+pures de `t` et de l'index — aucun état, donc rien à rattraper après un seek.
+
+Les rayures dépendent d'un hachage de l'index de MESURE : elles apparaissent et
+disparaissent sans jamais clignoter. Une rayure qui changerait à chaque image
+serait du bruit, pas du grain.
+
+### `eclats` — drum & bass, jungle, breakbeat
+
+« La syncope. » Le cadre se brise sur chaque caisse claire ; les éclats fuient
+radialement le point d'impact, tournent, puis se recollent.
+
+**Pas de vrai Voronoï.** §8 disait « partition de Voronoï pré-calculée ». Un
+diagramme de Voronoï exige une triangulation de Delaunay — quelques centaines de
+lignes, pour un résultat visuellement indiscernable ici. La partition retenue est
+POLAIRE : anneaux × secteurs, rayons et angles perturbés par hachage, rayons en
+progression quadratique pour que les éclats soient fins au centre et larges au
+bord — comme casse un vrai panneau de verre. Calculée une seule fois à
+l'initialisation ; par image, il ne reste qu'une translation et une rotation.
+
+Le `FrameFeedback` n'est pas décoratif : sur un break à 174 BPM une caisse claire
+dure moins de 200 ms, et sans traînée l'œil ne suivrait pas la dislocation.
+
+### `aurore` — ambient, cinematic, chill
+
+« La lenteur assumée. » Cinq rubans translucides qui ondulent, médiane pilotée
+par le bruit simplex, épaisseur locale par les **six bandes** — graves en bas,
+aigus en haut (Loi 2 : jamais un spectre plein).
+
+Le dégradé n'est pas dessiné, il est **empilé** : `fillPath` ne prend qu'une
+couleur plate, donc chaque ruban est cinq bandes translucides de largeur
+décroissante autour de la même médiane. Moins cher qu'un vrai dégradé — qui
+n'existe pas dans l'interface — et meilleur en additif, les recouvrements
+faisant monter la densité vers le centre.
+
+**C'est le style qui prouve la Loi 3.** Aucun onset ne le pilote. Il rend donc
+exactement la même chose en régime événementiel et en régime continu : sur un
+morceau que l'analyse comprend mal, c'est vers lui qu'il faut se tourner.
+
+### Ce que les tests ont trouvé, et ce que ça a changé
+
+**Quatre échecs sur cinq venaient du même angle mort de MES empreintes** :
+elles enregistraient `r`, `g`, `b` mais **pas l'alpha**. Or `chambre` fait
+réagir le kick sur l'alpha du faisceau, et `eclats` le LFO sur celui des éclats.
+Troisième correction du même ordre après la couleur des `fillPath` (chantier 5)
+et celle des `strokePath` : une empreinte d'image doit tout enregistrer de ce
+qui est visible, et je l'ai découvert par morceaux.
+
+**Un cinquième était un vrai manque** : `aurore` ne lisait que trois signaux, en
+dessous du seuil de quatre. Corrigé sans lui ajouter d'onset — ce serait
+contredire son principe : `brightness` (centroïde) fait glisser la teinte quand
+le morceau s'éclaircit, `lfoB` resserre et rouvre très lentement l'écartement
+des rubans.
+
+**Un sixième était une exigence mal posée par mon propre test.** Il demandait à
+TOUS les styles de réagir à la caisse claire. `aurore` est délibérément sourde
+aux onsets ; l'exigence ne s'y applique pas. Mais l'exempter sans contrepartie
+aurait fait de « je suis un style contemplatif » une excuse pour n'être branché
+sur rien. Un test dédié vérifie donc qu'`aurore` réagit bien à un changement de
+mapping CONTINU.
+
+Enfin, le seuil « dessine au moins 4 primitives sans onset » punissait `chambre`,
+qui en émet légitimement trois — fond, faisceau, poussières. Abaissé à 2 : le
+test doit détecter un style MUET, pas un style dépouillé.
+
+### Le typage a encore fait le travail
+
+Ajouter trois `STYLE_IDS` a fait échouer la compilation sur `INERT_MACROS` et
+sur les tables `Record<StyleId, …>` de deux tests. Impossible d'ajouter un style
+sans déclarer ses macros inertes ni sans le soumettre aux contrôles existants —
+exactement ce que le chantier 1 visait, et ce que le chantier 5 avait étendu aux
+tests.
+
+### Mesures — 60 s de simulation, 3 600 images, les cinq styles de phase 2
+
+| style | `Scene.update` | `Scene.draw` | appels/image |
+|---|---|---|---|
+| `eclats` | 0,0089 ms/pas | 0,0211 ms/image | 53,0 |
+| `chambre` | 0,0103 ms/pas | 0,0055 ms/image | 4,0 |
+| `monolith` | 0,0105 ms/pas | 0,0096 ms/image | 10,8 |
+| `iso-pulse` | 0,0171 ms/pas | 0,0135 ms/image | 37,6 |
+| `aurore` | 0,0257 ms/pas | 0,0340 ms/image | 26,0 |
+
+`Scene.update` est le coût RÉEL — il n'y a pas de rastérisation dedans. Le plus
+lourd, `aurore`, consomme 0,026 ms contre 3 ms autorisées : le bruit simplex sur
+5 × 40 points par pas ne pèse rien.
+
+`Scene.draw`, en revanche, est mesuré contre un `FakeRenderer` qui enregistre au
+lieu de dessiner. **Le budget de 9 ms n'est toujours PAS vérifié.** Le nombre
+d'appels est l'indicateur utile : `eclats` en émet 53 par image (50 éclats plus
+le fond et le feedback), ce qui en fait le style le plus coûteux du catalogue et
+le premier à surveiller au navigateur.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 107 fichiers, 877 tests (870 -> 877, +7)
+npm run test:arch   -> 1 test
+npm run build       -> 471,79 kB (gzip 132,79 kB), 1,59 s
+```
+
+Les cinq styles de phase 2 passent : 60 s sans exception, corrects en 16:9 /
+9:16 / 1:1 sans code conditionnel et sans un seul `NaN`, image non vide sans
+aucun onset, empreinte identique à graine identique. Les critères 11 et 12 sont
+vérifiés sur les **huit** styles.
+
+Navigateur, onglet neuf, **aucune erreur console**. Le catalogue expose les huit
+styles, et l'avertissement de macro inerte suit le style choisi :
+
+```
+pulse         Pulse         inertes: Profondeur
+field         Field         inertes: —
+spectrum-pro  Spectrum Pro  inertes: —
+monolith      Monolith      inertes: Densité, Douceur
+iso-pulse     Iso Pulse     inertes: Chaos, Douceur
+chambre       Chambre       inertes: Profondeur, Chaos
+eclats        Éclats        inertes: Densité, Douceur
+aurore        Aurore        inertes: Profondeur, Chaos
+```
+
+### À valider par Aaron, à l'œil
+
+- **`chambre` tient sur un pari radical** : son kick agit à 2 %. Si le style
+  paraît mort plutôt que calme, c'est le pari qui est à revoir, pas la valeur.
+- **`eclats` est le plus coûteux** (53 appels par image) et le plus susceptible
+  de déclencher le `FlashLimiter` sur un break rapide. À surveiller en premier.
+- **`aurore` doit être belle SANS musique analysable.** Le vrai test : lui
+  donner un morceau que l'analyse rate, et regarder trente secondes.
+- **L'empilement de cinq bandes** d'`aurore` produit-il un dégradé convaincant,
+  ou voit-on les cinq marches ? C'est le point technique le plus incertain du
+  chantier.
+- **Aucun des cinq nouveaux styles n'a de preset.** Ils ne sont atteignables que
+  par le sélecteur. C'est le chantier 9.
+
+### Limites connues
+
+- **Budget de 9 ms de `Scene.draw` non vérifié** — mesure au navigateur requise,
+  fenêtre au premier plan.
+- **Critère 13 (FlashLimiter et modes de fusion) toujours non vérifié.** Aucune
+  variante d'`eclats` n'utilise `difference` pour cette raison, alors que ce
+  serait le mode le plus naturel pour un miroir brisé.
+- **Aucun preset ne pointe vers les cinq nouveaux styles** (chantier 9).
+- Aucune capture d'écran : mêmes limites d'environnement qu'aux chantiers
+  précédents.

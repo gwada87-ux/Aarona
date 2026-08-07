@@ -47,6 +47,16 @@ const INERT_MACROS: Readonly<Record<StyleId, readonly MacroName[]>> = Object.fre
   // déjà hachée — ni de lissage, la maille étant rigide par construction.
   monolith: Object.freeze(['density', 'smoothness'] as const),
   'iso-pulse': Object.freeze(['chaos', 'smoothness'] as const),
+  // Styles du chantier 6. Même discipline : on déclare inerte plutôt que de
+  // câbler de force une macro sur un paramètre qui trahirait le style.
+  // `chambre` n'a pas de chaos — rien n'y est brusque, c'est sa définition — ni
+  // de profondeur, la scène étant volontairement plate. `eclats` n'a pas de
+  // densité (la partition est figée à l'initialisation) ni de lissage (il se
+  // casse, il ne s'adoucit pas). `aurore` n'a ni chaos ni profondeur : le bruit
+  // simplex porte déjà l'irrégularité, et les rubans sont un aplat superposé.
+  chambre: Object.freeze(['chaos', 'depth'] as const),
+  eclats: Object.freeze(['density', 'smoothness'] as const),
+  aurore: Object.freeze(['chaos', 'depth'] as const),
 });
 
 export interface AdvancedPanelCallbacks {

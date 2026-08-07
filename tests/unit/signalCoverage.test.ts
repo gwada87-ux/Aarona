@@ -116,6 +116,9 @@ describe('couverture des signaux visuels (§6.1)', () => {
       'spectrum-pro': ['background/AnimatedDuotone.ts', 'spectrum/SpectrumBars.ts', 'waveform/FlatWaveform.ts'],
       monolith: ['background/DeepVignette.ts', 'geometry/MonolithMass.ts'],
       'iso-pulse': ['postfx/FrameFeedback.ts', 'background/AnimatedDuotone.ts', 'field/IsoGrid.ts'],
+      chambre: ['background/AnimatedDuotone.ts', 'particles/DustChamber.ts'],
+      eclats: ['postfx/FrameFeedback.ts', 'background/DeepVignette.ts', 'geometry/ShatterCells.ts'],
+      aurore: ['background/DeepVignette.ts', 'field/AuroraRibbons.ts'],
     };
 
     for (const [style, files] of Object.entries(styles)) {

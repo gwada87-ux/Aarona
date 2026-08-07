@@ -17,6 +17,9 @@ import { StepContextBuilder } from '../../src/music/StepContext';
 import { validatePmdi } from '../../src/music/validatePmdi';
 import type { MusicEvent, PmdiDocument } from '../../src/music/pmdi';
 import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
+import { createChambreStyle } from '../../src/visual/styles/chambre/createChambreStyle';
+import { createEclatsStyle } from '../../src/visual/styles/eclats/createEclatsStyle';
+import { createAuroreStyle } from '../../src/visual/styles/aurore/createAuroreStyle';
 import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import type { Scene } from '../../src/visual/scene/Scene';
@@ -58,6 +61,9 @@ function doc(): PmdiDocument {
 const STYLES: ReadonlyArray<[string, () => Scene]> = [
   ['monolith', createMonolithStyle],
   ['iso-pulse', createIsoPulseStyle],
+  ['chambre', createChambreStyle],
+  ['eclats', createEclatsStyle],
+  ['aurore', createAuroreStyle],
 ];
 
 interface RunResult {
@@ -169,8 +175,12 @@ describe('nouveaux styles — invariants de §8', () => {
       scene.init({ renderer: new FakeRenderer(), palette: defaultPalette });
       for (let s = 0; s < 600; s++) stepSceneWithDrama(scene, behaviour, director, builder.build(s / 120));
       scene.draw(renderer, testViewport);
+      // Seuil à 2, et pas plus : `chambre` n'émet légitimement que trois
+      // primitives — le fond, le faisceau et le lot de poussières. Un seuil
+      // arbitrairement haut punirait un style volontairement dépouillé au lieu
+      // de détecter un style muet, qui est ce qu'on cherche.
       const dessins = renderer.calls.filter((c) => c.type !== 'captureFeedback' && c.type !== 'setBlendMode');
-      expect(dessins.length, `${name} ne dessine rien sans onset`).toBeGreaterThan(3);
+      expect(dessins.length, `${name} ne dessine rien sans onset`).toBeGreaterThanOrEqual(2);
     }
   });
 

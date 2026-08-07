@@ -20,7 +20,7 @@
  * §3.7 liste justement comme piege.
  */
 
-import { CurlField } from '../util/noise';
+import { CurlField } from '../../../core/math/noise';
 import { resetCompositing } from '../render/LayerStack';
 import { DECAY_HAT, DECAY_KICK, DECAY_SNARE, withGridFloor } from '../util/accent';
 import type { LiveFrame, LiveScene, SceneContext, SceneTag, Viewport } from './types';

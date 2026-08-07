@@ -30,6 +30,9 @@ import { createPulseStyle } from '../../src/visual/styles/pulse/createPulseStyle
 import { createSpectrumProStyle } from '../../src/visual/styles/spectrum-pro/createSpectrumProStyle';
 import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
 import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
+import { createChambreStyle } from '../../src/visual/styles/chambre/createChambreStyle';
+import { createEclatsStyle } from '../../src/visual/styles/eclats/createEclatsStyle';
+import { createAuroreStyle } from '../../src/visual/styles/aurore/createAuroreStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import type { Scene } from '../../src/visual/scene/Scene';
 import { openFrameWithCamera, stepSceneWithDrama } from '../../src/visual/scene/dramaFrame';
@@ -112,12 +115,12 @@ function imageAt(makeScene: () => Scene, untilT: number): string {
         out.push(`sc ${r(call.radius)} ${r(call.lineWidth)} ${r(call.color.a)}`);
         break;
       case 'fillRadialGradient':
-        out.push(`rg ${r(call.outerRadius)} ${r(call.inner.r)} ${r(call.inner.g)} ${r(call.inner.b)}`);
+        out.push(`rg ${r(call.outerRadius)} ${r(call.inner.r)} ${r(call.inner.g)} ${r(call.inner.b)} ${r(call.inner.a)}`);
         break;
       case 'strokePath':
         out.push(
           `sp ${r(call.lineWidth)} ${r(call.ys[0] ?? 0)} ${r(call.ys[7] ?? 0)} ` +
-            `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+            `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)} ${r(call.color.a)}`,
         );
         break;
       case 'fillPath':
@@ -125,7 +128,7 @@ function imageAt(makeScene: () => Scene, untilT: number): string {
         // `mappingChangesImage.test.ts`, voir la note qui s'y trouve.
         out.push(
           `fp ${r(call.ys[0] ?? 0)} ${r(call.ys[2] ?? 0)} ` +
-            `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+            `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)} ${r(call.color.a)}`,
         );
         break;
       case 'drawSprite': {
@@ -149,6 +152,9 @@ const STYLES: ReadonlyArray<[string, () => Scene]> = [
   ['spectrum-pro', createSpectrumProStyle],
   ['monolith', createMonolithStyle],
   ['iso-pulse', createIsoPulseStyle],
+  ['chambre', createChambreStyle],
+  ['eclats', createEclatsStyle],
+  ['aurore', createAuroreStyle],
 ];
 
 /** Les quatre moments du livrable, plus un refrain pour servir de repère. */

@@ -13,7 +13,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { SCENE_REGISTRY, playableScenes, sceneById } from '../../../src/ui/live/scenes';
 import { capFor, CURL_FLOW_BUCKETS } from '../../../src/ui/live/scenes/CurlFlowScene';
-import { CurlField, SimplexNoise } from '../../../src/ui/live/util/noise';
+import { CurlField, SimplexNoise } from '../../../src/core/math/noise';
 import { QUALITY_PROFILES } from '../../../src/ui/live/render/FrameBudget';
 
 const SCENES_DIR = join(process.cwd(), 'src', 'ui', 'live', 'scenes');

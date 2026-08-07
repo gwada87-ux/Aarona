@@ -28,6 +28,9 @@ import { createPulseStyle } from '../../src/visual/styles/pulse/createPulseStyle
 import { createSpectrumProStyle } from '../../src/visual/styles/spectrum-pro/createSpectrumProStyle';
 import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
 import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
+import { createChambreStyle } from '../../src/visual/styles/chambre/createChambreStyle';
+import { createEclatsStyle } from '../../src/visual/styles/eclats/createEclatsStyle';
+import { createAuroreStyle } from '../../src/visual/styles/aurore/createAuroreStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import type { Scene } from '../../src/visual/scene/Scene';
 import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
@@ -98,7 +101,7 @@ function fingerprint(makeScene: () => Scene, mapping: MappingSchema, frames = 24
           out.push(`sc ${r(call.radius)} ${r(call.lineWidth)} ${r(call.color.a)}`);
           break;
         case 'fillRadialGradient':
-          out.push(`rg ${r(call.outerRadius)} ${r(call.inner.r)} ${r(call.inner.g)} ${r(call.inner.b)}`);
+          out.push(`rg ${r(call.outerRadius)} ${r(call.inner.r)} ${r(call.inner.g)} ${r(call.inner.b)} ${r(call.inner.a)}`);
           break;
         case 'strokePath':
           // Couleur incluse, pour la même raison que `fillPath` ci-dessous :
@@ -106,7 +109,7 @@ function fingerprint(makeScene: () => Scene, mapping: MappingSchema, frames = 24
           // en damier, pas sur leur tracé.
           out.push(
             `sp ${r(call.lineWidth)} ${r(call.xs[0] ?? 0)} ${r(call.ys[0] ?? 0)} ${r(call.ys[7] ?? 0)} ` +
-              `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+              `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)} ${r(call.color.a)}`,
           );
           break;
         case 'fillPath':
@@ -116,7 +119,7 @@ function fingerprint(makeScene: () => Scene, mapping: MappingSchema, frames = 24
           // ne réagir à rien.
           out.push(
             `fp ${r(call.xs[0] ?? 0)} ${r(call.ys[0] ?? 0)} ${r(call.ys[2] ?? 0)} ` +
-              `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+              `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)} ${r(call.color.a)}`,
           );
           break;
         case 'drawSprite': {
@@ -158,7 +161,24 @@ const STYLES: ReadonlyArray<[string, () => Scene]> = [
   ['spectrum-pro', createSpectrumProStyle],
   ['monolith', createMonolithStyle],
   ['iso-pulse', createIsoPulseStyle],
+  ['chambre', createChambreStyle],
+  ['eclats', createEclatsStyle],
+  ['aurore', createAuroreStyle],
 ];
+
+/**
+ * `aurore` est DÉLIBÉRÉMENT sourde aux onsets : c'est le style qui prouve la
+ * Loi 3 (« un morceau non analysable doit rester beau »), et il n'est piloté
+ * que par des niveaux continus et les six bandes.
+ *
+ * L'exempter des assertions sur la caisse claire et le charley n'est donc pas
+ * un contournement — l'exigence ne s'y applique pas. Mais il n'échappe pas au
+ * critère 11 pour autant : un test dédié vérifie plus bas qu'il réagit bien à
+ * un changement de mapping CONTINU. Un style qu'aucune entrée du mapping
+ * n'atteindrait resterait un défaut, quelle que soit son intention.
+ */
+const ONSET_FREE = new Set(['aurore']);
+const ONSET_DRIVEN = STYLES.filter(([name]) => !ONSET_FREE.has(name));
 
 describe('critère 11 — le mapping atteint réellement l\'image', () => {
   it('un mapping identique produit une image identique (Loi 1)', () => {
@@ -169,9 +189,9 @@ describe('critère 11 — le mapping atteint réellement l\'image', () => {
     }
   });
 
-  it('couper la CAISSE CLAIRE change l\'image des trois styles', () => {
+  it('couper la CAISSE CLAIRE change l\'image de tous les styles à onsets', () => {
     const muted: MappingSchema = { ...defaultMapping, accent: { from: ['SNARE', 'CLAP'], gain: 0, decay: 0.18 } };
-    for (const [name, make] of STYLES) {
+    for (const [name, make] of ONSET_DRIVEN) {
       expect(
         fingerprint(make, muted),
         `${name} ne réagit pas à la caisse claire — c'était le défaut d'origine`,
@@ -179,10 +199,25 @@ describe('critère 11 — le mapping atteint réellement l\'image', () => {
     }
   });
 
-  it('couper le CHARLEY change l\'image des trois styles', () => {
+  it('couper le CHARLEY change l\'image de tous les styles à onsets', () => {
     const muted: MappingSchema = { ...defaultMapping, tick: { from: ['HAT', 'PERC'], gain: 0, decay: 0.06 } };
-    for (const [name, make] of STYLES) {
+    for (const [name, make] of ONSET_DRIVEN) {
       expect(fingerprint(make, muted), `${name} ne réagit pas au charley`).not.toBe(fingerprint(make, defaultMapping));
+    }
+  });
+
+  it('les styles SANS onset réagissent quand même au mapping continu', () => {
+    // Sinon « je suis un style contemplatif » deviendrait une excuse pour
+    // n'être branché sur rien du tout.
+    const autre: MappingSchema = {
+      ...defaultMapping,
+      drive: { from: 'feature:energy', rise: 0.9, fall: 0.05 },
+      brightness: { from: 'feature:centroid', rise: 0.9, fall: 0.05 },
+    };
+    for (const [name, make] of STYLES.filter(([n]) => ONSET_FREE.has(n))) {
+      expect(fingerprint(make, autre), `${name} ignore aussi les niveaux continus`).not.toBe(
+        fingerprint(make, defaultMapping),
+      );
     }
   });
 
@@ -190,7 +225,7 @@ describe('critère 11 — le mapping atteint réellement l\'image', () => {
     // Le gain reste identique : seule la FORME de l'enveloppe bouge. C'est le
     // réglage le plus fin du mapping ; s'il passe, les plus grossiers passent.
     const slow: MappingSchema = { ...defaultMapping, impact: { from: ['KICK'], gain: 1, decay: 0.6 } };
-    for (const [name, make] of STYLES) {
+    for (const [name, make] of ONSET_DRIVEN) {
       expect(fingerprint(make, slow), name).not.toBe(fingerprint(make, defaultMapping));
     }
   });

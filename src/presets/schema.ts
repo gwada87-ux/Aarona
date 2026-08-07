@@ -21,7 +21,7 @@ export const PRESET_SCHEMA_VERSION = 1;
  * `monolith` et `iso-pulse` ajoutés au chantier 5 de la phase 2 — les styles 4
  * et 5 des « styles 4 à 12 » que `docs/00b` §4 réservait à l'après-MVP.
  */
-export const STYLE_IDS = ['pulse', 'field', 'spectrum-pro', 'monolith', 'iso-pulse'] as const;
+export const STYLE_IDS = ['pulse', 'field', 'spectrum-pro', 'monolith', 'iso-pulse', 'chambre', 'eclats', 'aurore'] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
 /**
@@ -41,6 +41,9 @@ export const STYLE_LABELS: Readonly<Record<StyleId, string>> = Object.freeze({
   'spectrum-pro': 'Spectrum Pro',
   monolith: 'Monolith',
   'iso-pulse': 'Iso Pulse',
+  chambre: 'Chambre',
+  eclats: 'Éclats',
+  aurore: 'Aurore',
 });
 
 /**
