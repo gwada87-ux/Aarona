@@ -8,6 +8,7 @@
  */
 import type { MappingEntry } from '../behaviour/mapping/MappingSchema';
 import { ANTICIPATION_CURVES, type AnticipationCurve } from '../behaviour/signals/Anticipation';
+import { LFO_WAVEFORMS, isLfoWaveform } from '../behaviour/signals/Lfo';
 import type {
   ClapThresholds,
   HatThresholds,
@@ -277,23 +278,60 @@ function checkBloom(value: unknown, errors: string[]): void {
 }
 
 /**
- * Contrôle le SEUL champ de `mapping` capable de tuer la boucle de rendu : le
- * nom de courbe d'une entrée d'anticipation.
+ * Contrôle les IDENTIFIANTS de `mapping` : ceux qui doivent désigner quelque
+ * chose d'existant dans le moteur.
  *
- * Le reste de `mapping` reste délibérément non validé — ce sont des diffs
+ * Le reste de `mapping` demeure délibérément non validé — ce sont des diffs
  * partiels dont chaque champ est optionnel, comme l'explique le commentaire de
- * `validatePreset`. Cette exception a été payée cher : quatre presets livrés au
- * chantier 9 déclaraient `curve: "easeInOutSine"`, absente alors de la table du
- * moteur, et les sélectionner levait une `TypeError` qui figeait l'image sans
- * le moindre message. Un nom de courbe est un identifiant qui doit exister ;
- * ce n'est pas un réglage libre.
+ * `validatePreset`. Un `gain` de 3 est discutable, pas invalide. Un NOM, si.
+ *
+ * Deux défauts ont payé cette distinction, tous deux de la même famille :
+ *
+ * 1. `curve: "easeInOutSine"` dans quatre presets, absente alors de la table du
+ *    moteur : sélectionner l'un d'eux levait une `TypeError` qui figeait
+ *    l'image sans le moindre message.
+ * 2. Plus insidieux : `resolve()` (behaviour/mapping) n'a **aucun `else`**. Une
+ *    entrée dont le `from` ne correspond à aucune des quatre familles est
+ *    simplement ABSENTE de la table résolue. Pas d'erreur, pas de trace : le
+ *    signal reste à zéro pour toujours. `lfo:bogus` échoue à `isLfoEntry`, qui
+ *    exige une onde connue, et disparaît exactement comme ça.
+ *
+ * Le premier tuait bruyamment, le second tue en silence. Le silence est pire.
  */
-function checkMappingCurves(value: unknown, errors: string[]): void {
+function checkMappingNames(value: unknown, errors: string[]): void {
   if (!isRecord(value)) return;
   for (const [signal, entree] of Object.entries(value)) {
-    if (!isRecord(entree) || entree.curve === undefined) continue;
-    if (!ANTICIPATION_CURVES.includes(entree.curve as AnticipationCurve)) {
-      errors.push(`"mapping.${signal}.curve" doit être l'un de ${ANTICIPATION_CURVES.join(', ')}`);
+    if (!isRecord(entree)) continue;
+    const ou = `"mapping.${signal}`;
+
+    if (entree.curve !== undefined && !ANTICIPATION_CURVES.includes(entree.curve as AnticipationCurve)) {
+      errors.push(`${ou}.curve" doit être l'un de ${ANTICIPATION_CURVES.join(', ')}`);
+    }
+
+    const from = entree.from;
+    if (from === undefined) continue;
+    // Impulsion : un tableau de types d'événements. `EventType` est une chaîne
+    // libre par convention (docs/04, principe #3 : un type inconnu est ignoré),
+    // donc on ne contrôle que la FORME, pas le vocabulaire.
+    if (Array.isArray(from)) {
+      if (from.length === 0) errors.push(`${ou}.from" ne doit pas être un tableau vide`);
+      else if (from.some((t) => typeof t !== 'string' || t.length === 0)) {
+        errors.push(`${ou}.from" doit ne contenir que des types d'événements non vides`);
+      }
+      continue;
+    }
+    if (typeof from !== 'string') {
+      errors.push(`${ou}.from" doit être un tableau d'événements ou une chaîne préfixée`);
+      continue;
+    }
+    if (from.startsWith('lfo:')) {
+      const onde = from.slice('lfo:'.length);
+      if (!isLfoWaveform(onde)) {
+        errors.push(`${ou}.from" nomme une onde inconnue "${onde}" — attendu ${LFO_WAVEFORMS.join(', ')}`);
+      }
+    } else if (!from.startsWith('feature:') && !from.startsWith('anticipate:')) {
+      // Le cas qui disparaissait sans bruit.
+      errors.push(`${ou}.from" doit commencer par "feature:", "anticipate:" ou "lfo:"`);
     }
   }
 }
@@ -317,7 +355,7 @@ export function validatePreset(value: unknown): ValidationResult {
   checkPalette(value.palette, errors);
   checkMacros(value.macros, errors);
   checkBloom(value.bloom, errors);
-  checkMappingCurves(value.mapping, errors);
+  checkMappingNames(value.mapping, errors);
 
   if (value.version !== PRESET_SCHEMA_VERSION) {
     warnings.push(`version de schéma ${String(value.version)} différente de celle supportée (${PRESET_SCHEMA_VERSION})`);

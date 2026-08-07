@@ -6433,3 +6433,134 @@ pas tous essayes**, et aucun test ne le faisait a ma place. Le nouveau
   `MappingSchema` (Impulse, Continuous, Lfo) peuvent avoir le meme genre de
   nom-qui-doit-exister non verifie : `lfo:triangle`, `lfo:random`... Non
   verifie, a faire.
+
+---
+
+## Audit des quatre familles de mapping
+
+Demande par Aaron apres le correctif des courbes d'anticipation, dont la
+derniere ligne de limites disait : « seule la famille Anticipation a ete
+auditee ».
+
+### Methode
+
+Un harnais de MESURE, pas de lecture : il inventorie ce que les onze presets
+CITENT, le confronte a ce que le moteur CONNAIT et a ce que le document
+CONTIENT, puis fait tourner `BehaviourEngine` sur 60 s et releve le maximum
+atteint par chaque signal. Un signal qui plafonne a zero est mort.
+
+### Trouvaille principale : `sectionShift` etait mort depuis toujours
+
+```
+sectionShift   max = 0.0000   <<<< MORT
+```
+
+Il est cable sur `from: ['SECTION']` dans `behaviour/mapping/defaults.ts`
+depuis le MVP, dans les onze presets, et « Frontiere de section » figure dans
+l'editeur de reaction. **Aucun producteur n'a jamais existe.**
+
+- `structure.ts` n'emet AUCUN evenement — pas une seule ligne `type:`. Il
+  remplit le tableau `sections`.
+- `finalize.ts` range ce tableau dans le document et s'arrete la. Son propre
+  commentaire le dit : « `structure.ts` detecte des SECTIONS par energie, un
+  concept different ».
+
+Le signal etait donc a zero sur TOUT document, depuis toujours, pendant que
+onze presets pretendaient s'en servir.
+
+Les donnees existaient pourtant : `doc.sections` porte les frontieres. Il ne
+manquait que la conversion. `derivedSectionEvents` la fait dans
+`buildMusicTimeline` — pas dans `finalize.ts`, pour trois raisons :
+
+1. Les projets DEJA ENREGISTRES n'ont pas d'evenements `SECTION` ; la timeline
+   est traversee par tous les documents, anciens comme neufs.
+2. C'est le seul point traverse a la fois par la preview ET par l'export — le
+   piege de l'Etape 25.
+3. Le PMDI reste le contrat d'analyse ; on ne le reecrit pas pour reparer un
+   cablage.
+
+Trois decisions, chacune defendable autrement :
+
+- **Le document fait autorite.** S'il porte deja des `SECTION`, rien n'est
+  ajoute — le jour ou l'analyse en produira, la derivation s'efface au lieu de
+  doubler chaque frontiere.
+- **La premiere frontiere est ignoree.** Le debut du morceau n'est pas un
+  changement, et un flash a t=0 serait un artefact.
+- **`intensity: 1`, pas un delta d'energie.** Ponderer par l'ecart d'energie
+  inventerait une semantique que personne n'a specifiee, et rendrait MUETTES
+  les transitions entre deux sections de meme intensite — justement celles ou
+  le repere visuel sert le plus.
+
+Mesure apres correctif : `sectionShift max = 1.0000`. Au navigateur, pic de
+mouvement **0,1000** a la frontiere de 18 s contre **0,0074** de moyenne
+ailleurs, soit treize fois.
+
+### Le defaut silencieux : `resolve()` n'a pas d'`else`
+
+Une entree dont le `from` ne correspond a aucune des quatre familles est
+simplement ABSENTE de la table resolue. Pas d'erreur, pas de trace : le signal
+reste a zero pour toujours. `lfo:trianlge`, une simple faute de frappe, echoue
+a `isLfoEntry` qui exige une onde connue, et disparait exactement comme ca.
+
+**Le correctif des courbes tuait bruyamment ; celui-ci tue en silence. Le
+silence est pire** — c'est ce qui a permis a `sectionShift` de rester mort tout
+ce temps.
+
+`validatePreset` refuse desormais, en les nommant : un prefixe de `from`
+inconnu, une onde de LFO inconnue, un tableau d'impulsion vide. Il continue de
+**n'imposer aucun vocabulaire aux types d'evenements** — docs/04 principe #3,
+`EventType` est une chaine libre et un type inconnu est ignore ; controler le
+vocabulaire rejetterait a tort un document d'analyse plus riche.
+
+### Ce qui est SAIN
+
+- **Les cinq ondes de LFO** citees (sine, triangle, saw, square, random) sont
+  toutes connues du moteur.
+- **Les trois features** citees (energy, centroid, band.sub) sont toutes
+  produites par `AnalysisPipeline`.
+- **Les six types percussifs** (KICK, SNARE, CLAP, HAT, PERC, SUB_HIT) et DROP
+  sont tous emis par l'analyse.
+- **Les treize cles de signal** correspondent exactement a `SIGNAL_NAMES` +
+  `LFO_NAMES`.
+- **`resolve()` ne perd aucune entree** sur les onze presets du catalogue.
+
+### Une limite de la DEMO, pas un defaut du moteur
+
+```
+subImpact      max = 0.0000   <<<< MORT
+```
+
+Distinction qui compte : `SUB_HIT` EST emis par l'analyse ; c'est la piste de
+demonstration qui n'en contient aucun, comme elle ne contient ni CLAP ni PERC.
+Sur un vrai morceau, `subImpact` doit vivre — **non verifie**, faute d'import
+reel dans cette session. Ajouter un SUB_HIT a la demo la rendrait plus
+representative : deux lignes, pas faites, a decider.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 122 fichiers, 1173 tests (1160 -> 1173, +13)
+npm run test:arch   -> 1 test
+npm run build       -> 533,73 kB (gzip 153,08 kB), 2,17 s
+```
+
+Au navigateur, sur une page rechargee A NEUF : onze presets essayes, **zero
+exception**.
+
+### A valider par Aaron
+
+**Ceci change l'image de tous les projets** : il y a maintenant une reaction a
+chaque frontiere de section, la ou il n'y en avait aucune. C'est ce que les
+presets demandaient depuis le debut, mais l'effet est nouveau a l'oeil. Si
+c'est trop marque, `intensity` ou le `decay` de `sectionShift` se reglent ; si
+ce n'etait pas voulu du tout, `derivedSectionEvents` se neutralise en rendant
+un tableau vide.
+
+### Limites connues
+
+- **Les seuils de classification** (`preset.classification.*`) n'ont pas ete
+  audites : meme famille de risque, des noms et des bornes lus a l'execution.
+- **`intensity: 1` est un choix**, pas une mesure. Aucune specification ne dit
+  quelle force doit avoir une frontiere de section.
+- Le harnais de mesure a ete archive dans `_corbeille/20260808/`.

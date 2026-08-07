@@ -140,8 +140,53 @@ function tempoAtImpl(tempoMap: readonly TempoPoint[], t: number): number {
   return tempoMap[Math.max(0, idx)]!.bpm;
 }
 
+/**
+ * Événements `SECTION` DÉRIVÉS des frontières de section.
+ *
+ * ## Le défaut que ceci corrige
+ *
+ * `sectionShift` est câblé sur `from: ['SECTION']` depuis le MVP —
+ * `behaviour/mapping/defaults.ts`, les onze presets, et « Frontière de
+ * section » dans l'éditeur de réaction. **Aucun producteur n'a jamais
+ * existé.** `structure.ts` n'émet aucun événement : il remplit le tableau
+ * `sections`, ce que le commentaire de `finalize.ts` appelle d'ailleurs « un
+ * concept différent ». Mesuré sur 60 s de démo, `sectionShift` plafonnait à
+ * **0,0000** — le signal était mort sur tout document, depuis toujours.
+ *
+ * Les données existaient pourtant : `doc.sections` porte les frontières. Il ne
+ * manquait que la conversion. La faire ICI plutôt que dans `finalize.ts` a une
+ * raison précise : les projets déjà enregistrés n'ont pas d'événements
+ * `SECTION`, et la timeline est le seul endroit traversé par TOUS les
+ * documents, anciens comme neufs, en preview comme à l'export (le piège de
+ * l'Étape 25).
+ *
+ * ## Décisions
+ *
+ * - **Le document fait autorité** : s'il contient déjà des `SECTION`, on
+ *   n'ajoute rien. Un jour l'analyse en produira peut-être elle-même.
+ * - **La première frontière est ignorée.** Le début du morceau n'est pas un
+ *   changement de section, et un flash à t=0 serait un artefact.
+ * - **`intensity: 1`**, pas un delta d'énergie. Une frontière est une
+ *   frontière ; pondérer par l'écart d'énergie inventerait une sémantique que
+ *   personne n'a spécifiée, et rendrait muettes les transitions entre deux
+ *   sections de même intensité — précisément celles où le repère visuel est le
+ *   plus utile.
+ * - **`confidence` recopiée de la section**, Loi 3 : toute détection porte sa
+ *   confiance.
+ */
+function derivedSectionEvents(doc: PmdiDocument): MusicEvent[] {
+  if (doc.events.some((e) => e.type === 'SECTION')) return [];
+  const sections = sortedByT(doc.sections ?? []);
+  return sections.slice(1).map((s) => ({
+    t: s.t,
+    type: 'SECTION',
+    intensity: 1,
+    confidence: s.confidence,
+  }));
+}
+
 export function buildMusicTimeline(doc: PmdiDocument): MusicTimeline {
-  const events = sortedByT(doc.events);
+  const events = sortedByT([...doc.events, ...derivedSectionEvents(doc)]);
   const byType = new Map<EventType, MusicEvent[]>();
   for (const event of events) {
     let list = byType.get(event.type);

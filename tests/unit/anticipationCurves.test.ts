@@ -94,7 +94,7 @@ describe('validatePreset — le nom de courbe est refusé à l\'entrée', () => 
     p.mapping.tension = { from: 'anticipate:DROP', window: 3, curve: 'easeOutBounce' };
     const r = validatePreset(p);
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toContain('mapping.tension.curve');
+    expect(r.ok ? '' : r.errors.join(' ')).toContain('mapping.tension.curve');
   });
 
   it('accepte les trois courbes du moteur', () => {
