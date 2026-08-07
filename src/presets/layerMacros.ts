@@ -31,6 +31,7 @@
 import { applyMacroCurves, type MacroCurveTable } from './macros';
 import type { PresetMacros, StyleId } from './schema';
 import type { Scene } from '../visual/scene/Scene';
+import { isOverlayLayer } from '../visual/scene/Layer';
 
 export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
   density: Object.freeze({
@@ -111,11 +112,17 @@ export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
  * Remplace ENTIÈREMENT `layer.params` (comme avant l'extraction) : un appelant qui a besoin d'y
  * ajouter un réglage supplémentaire (ex. `bandCount` de `spectrumBars`, Étape 25 — piloté par le
  * niveau de qualité, pas par les macros) doit le faire APRÈS cet appel, pas avant.
+ *
+ * LES COUCHES D'HABILLAGE SONT EXCLUES (chantier 8). `LAYER_MACRO_CURVES` est indexee par STYLE, et
+ * la pochette comme le texte n'appartiennent a aucun style : leur prefixe n'y figure jamais, donc
+ * cette boucle leur assignerait invariablement un objet VIDE. Leurs reglages propres (`size`,
+ * `opacity`) seraient effaces a chaque mouvement de curseur de macro.
  */
 export function applyLayerMacrosToScene(scene: Scene, macros: PresetMacros, styleId: StyleId): void {
   const flat = applyMacroCurves(macros, LAYER_MACRO_CURVES);
   const layerPrefix = `${styleId}.`;
   for (const layer of scene.layers) {
+    if (isOverlayLayer(layer)) continue;
     const paramPrefix = `${layerPrefix}${layer.id}.`;
     const params: Record<string, number> = {};
     for (const [path, value] of Object.entries(flat)) {

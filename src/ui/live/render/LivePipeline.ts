@@ -114,7 +114,12 @@ export class LivePipeline {
   private passes = 0;
   private rngState = 0x2545f491;
 
-  constructor(private readonly config: LiveConfig) {
+  // `readonly` retire au chantier 8 (docs/17 §9.3) pour le SEUL besoin de
+  // `setSlamText`. Le champ est remplace par un objet neuf, jamais mute en
+  // place : les sous-objets deja distribues aux composants du pipeline
+  // (`LayerStack`, `Bloom`, `PostFX`...) restent donc ceux du constructeur, et
+  // aucun d'eux ne lit `content`.
+  constructor(private config: LiveConfig) {
     this.stack = new LayerStack(config.render);
     this.palette = new PaletteBook(config.content.forcedPalette >= 0 ? config.content.forcedPalette : 0);
     this.camera = new Camera();
@@ -160,6 +165,22 @@ export class LivePipeline {
 
   get currentScene(): LiveScene | null {
     return this.scene;
+  }
+
+  /**
+   * Change les textes de `type-slam` SANS redemarrer le panneau (docs/17 §9.3,
+   * chantier 8).
+   *
+   * `TypeSlamScene` lit `config.content.slamText` dans son `init`, appele une
+   * seule fois par scene. Baisser `sceneInited` le fait rejouer a la trame
+   * suivante avec la configuration neuve. C'est la seule voie qui evite un
+   * `start()` complet - lequel repartirait de zero sur l'analyse, donc perdrait
+   * le verrou de tempo, ce qu'un VJ ne pardonnerait pas au milieu d'un morceau.
+   */
+  setSlamText(slamText: readonly string[]): void {
+    this.config = { ...this.config, content: { ...this.config.content, slamText } };
+    this.sceneInited = false;
+    this.nextSceneInited = false;
   }
 
   /** Une transition est-elle en cours ? `FrameBudget` doit alors etre gele (§3.7). */

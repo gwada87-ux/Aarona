@@ -74,8 +74,24 @@ export class FakeRenderer implements Renderer {
     return { size }; // ne pas invoquer `_draw` : aucun OffscreenCanvasRenderingContext2D en environnement Node
   }
 
+  /**
+   * COPIE EN PROFONDEUR des transformations, pas seulement du tableau.
+   *
+   * `SpriteTransform` est mutable par conception (docs/10 : un pool de
+   * particules mute ses transformations en place plutot que d'en reallouer), et
+   * une couche a parfaitement le droit de reutiliser UN SEUL objet pour tous ses
+   * appels - c'est ce que fait `TextLayer`, un glyphe a la fois. Un
+   * `transforms.slice()` ne copierait que le tableau : toutes les entrees
+   * enregistrees pointeraient sur le meme objet, et un test lisant `x` apres
+   * coup ne verrait que la DERNIERE valeur ecrite, identique partout.
+   */
   drawSprite(sprite: SpriteHandle, transforms: readonly SpriteTransform[], count: number): void {
-    this.calls.push({ type: 'drawSprite', sprite, transforms: transforms.slice(0, count), count });
+    const snapshot: SpriteTransform[] = [];
+    for (let i = 0; i < count; i++) {
+      const t = transforms[i]!;
+      snapshot.push({ x: t.x, y: t.y, scale: t.scale, alpha: t.alpha });
+    }
+    this.calls.push({ type: 'drawSprite', sprite, transforms: snapshot, count });
   }
 
   applyShake(dx: number, dy: number): void {

@@ -108,6 +108,8 @@
     .macro-note { font-size: 0.72rem; opacity: 0.55; margin: 0 0 0.4rem; }
     select, input[type="number"] { width: 100%; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.3rem; }
     input[type="range"] { width: 100%; }
+    #text-content { width: 100%; box-sizing: border-box; resize: vertical; background: #1b1d24; color: #e8e8ec; border: 1px solid #2c2e38; border-radius: 4px; padding: 0.35rem; font: inherit; font-size: 0.85rem; }
+    #text-status { font-size: 0.72rem; opacity: 0.75; margin: 0.3rem 0 0; min-height: 1em; }
 
     #palette-swatch { display: flex; gap: 4px; height: 20px; border-radius: 4px; overflow: hidden; margin-top: 0.3rem; }
     #palette-swatch span { flex: 1; }
@@ -233,6 +235,44 @@
         </label>
         <button id="btn-cover-clear" type="button">Retirer</button>
         <p id="cover-status"></p>
+      </fieldset>
+
+      <!-- Texte (docs/17 §9.3 et §7.6) : contenu, mise en page, animation.
+           Les <option> des six selecteurs sont peuplees par App.ts depuis les
+           tables de `visual/text/textConfig.ts` : les ecrire ici obligerait a
+           modifier deux fichiers pour ajouter une animation, et rien ne
+           garantirait qu'ils restent d'accord. -->
+      <fieldset>
+        <legend>Texte</legend>
+        <label>
+          <textarea id="text-content" rows="2" placeholder="LIVE" spellcheck="false"></textarea>
+        </label>
+        <p class="macro-note">Entrée = nouvelle ligne. Vide = aucun texte.</p>
+        <label>Mise en page
+          <select id="text-layout"></select>
+        </label>
+        <label>Animation
+          <select id="text-animation"></select>
+        </label>
+        <label>Rejoue
+          <select id="text-every"></select>
+        </label>
+        <label>Police
+          <select id="text-family"></select>
+        </label>
+        <label>Graisse
+          <select id="text-weight"></select>
+        </label>
+        <label>Casse
+          <select id="text-case"></select>
+        </label>
+        <label>Couleur
+          <select id="text-color"></select>
+        </label>
+        <label>Taille
+          <div class="macro-row"><input type="range" id="text-size" min="0.4" max="2" step="0.05" value="1" /></div>
+        </label>
+        <p id="text-status"></p>
       </fieldset>
 
       <fieldset>

@@ -6,7 +6,7 @@ import { BehaviourEngine } from '../behaviour/BehaviourEngine';
 import { VisualDirector } from '../behaviour/VisualDirector';
 import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import type { Scene } from '../visual/scene/Scene';
-import { applyLayerBlends, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
 import { variantFor } from '../presets/styleVariants';
 import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
@@ -112,6 +112,11 @@ export async function runExport(
   // qu'un futur appelant pourrait oublier de transmettre.
   const variant = variantFor(config.styleId, config.projectSeed);
   applyLayerBlends(scene, variant.blend);
+  // Cadrage NEUTRE des que la scene porte un habillage (chantier 8) : le meme
+  // arbitrage que l'apercu, calcule ici plutot que recu, pour la meme raison que
+  // les trois reglages ci-dessous. Sans lui, l'export decadrerait le titre
+  // exactement comme l'apercu le faisait avant ce chantier.
+  const framing = framingFor(scene, variant);
   // docs/10 règle non négociable #2 : l'export fige TOUJOURS le bloom au niveau HIGH, quel que
   // soit le niveau courant de la preview — figé ICI plutôt que délégué à l'appelant (`ExportDialog`
   // gèle déjà `getStyleFactory` de la même façon, mais un second point d'application indépendant,
@@ -143,7 +148,7 @@ export async function runExport(
         stepSceneWithDrama(scene, behaviourEngine, director, stepper.build(simT));
       }
 
-      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director, variant);
+      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director, framing);
       scene.draw(target.renderer, target.viewport);
       target.renderer.endFrame();
       if (config.watermarked) drawWatermark(target.renderer, target.viewport);

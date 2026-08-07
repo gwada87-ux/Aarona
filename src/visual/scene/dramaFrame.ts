@@ -27,7 +27,7 @@ import type { Viewport } from '../../render/Viewport';
 import type { StepContext } from '../../music/StepContext';
 import type { BehaviourEngine } from '../../behaviour/BehaviourEngine';
 import type { VisualDirector } from '../../behaviour/VisualDirector';
-import type { BlendMode } from './Layer';
+import { isOverlayLayer, type BlendMode } from './Layer';
 import type { Scene } from './Scene';
 
 /**
@@ -75,6 +75,38 @@ export function stepSceneWithDrama(
  * qui est le comportement voulu — la secousse est une modulation du cadrage,
  * pas un cadrage concurrent.
  */
+/**
+ * Cadrage de variante EFFECTIF pour cette scene (chantier 8).
+ *
+ * MESURE QUI A IMPOSE CETTE FONCTION
+ * ----------------------------------
+ * Au navigateur, un titre centre a sa taille par defaut etait COUPE au bord
+ * droit du cadre sur la majorite des graines. Le decalage mesure du centre du
+ * texte allait de -20 a +125 px sur un cadre de 893, et il suivait la graine :
+ * c'est la variante qui deplacait tout, pas la mise en page.
+ *
+ * Le calcul le confirme. `STYLE_VARIANTS` va jusqu'a 0,17 de decalage et 1,30 de
+ * zoom ; avec la derive de la dramaturgie par-dessus, la demi-largeur encore
+ * visible tombe a (0,889 - 0,22) / 1,45 = 0,46, alors qu'un titre centre en
+ * occupe 0,71. Un tiers du titre sort du cadre.
+ *
+ * LA REGLE
+ * --------
+ * Le cadrage de variante decrit un STYLE. Les habillages n'appartiennent a aucun
+ * style (`withCover`, `withText`) : une scene qui en porte un garde donc le
+ * cadrage NEUTRE. La camera de la dramaturgie, elle, reste - elle est dix fois
+ * plus discrete (0,085 de derive, 1,12 de zoom au maximum) et c'est le morceau
+ * qui la dicte, pas la graine. Un titre doit suivre le morceau, pas un tirage.
+ *
+ * Le remede n'est pas de rapetisser le texte : il faudrait le ramener a 55 % de
+ * la largeur du cadre pour survivre au pire cadrage, ce qui reviendrait a
+ * supprimer le titre plein cadre pour parer un cas de bord.
+ */
+export function framingFor(scene: Scene, framing: Framing | undefined): Framing | undefined {
+  if (!framing) return undefined;
+  return scene.layers.some(isOverlayLayer) ? undefined : framing;
+}
+
 export function openFrameWithCamera(
   renderer: Renderer,
   viewport: Viewport,
@@ -106,9 +138,18 @@ export function openFrameWithCamera(
  * Remet explicitement à `undefined` les couches que la variante ne mentionne
  * pas. Sans ça, changer de variante laisserait en place les modes de la
  * précédente, et le style dériverait à chaque relance de graine.
+ *
+ * LES COUCHES D'HABILLAGE SONT EXCLUES (chantier 8). Une variante decrit un
+ * STYLE ; la pochette et le texte n'appartiennent a aucun style, donc aucune
+ * variante ne les mentionne, donc cette remise a `undefined` les frapperait
+ * toutes les deux. Pour le texte, la consequence est nette : il declare
+ * `blend = 'normal'` pour rester lisible, et sans cette exclusion il
+ * redeviendrait additif au premier `applyLayerMacros()` - c'est-a-dire au
+ * premier mouvement de curseur.
  */
 export function applyLayerBlends(scene: Scene, blend: Readonly<Record<string, BlendMode>> | undefined): void {
   for (const layer of scene.layers) {
+    if (isOverlayLayer(layer)) continue;
     layer.blend = blend?.[layer.id];
   }
 }

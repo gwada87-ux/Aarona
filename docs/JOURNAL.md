@@ -4338,3 +4338,232 @@ qu'une pochette a imposé la sienne.
 - La palette extraite l'emporte sur celle du preset tant qu'une pochette est
   active. Changer de preset ne la reprend donc pas ; il faut retirer la
   pochette. C'est délibéré, et le bouton le rend explicite.
+
+---
+
+## Phase 2 — Chantier 8 : texte et ses animations
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 8 (§9.3 et §7.6), plus
+l'exposition de `slamText` côté live. Aaron : « on peut faire un visuel avec des
+choses qui sont écrites en lettres, comme LIVE, il faut pouvoir marquer ce que
+l'on veut. »
+
+### Le grain retenu : UN SPRITE PAR GLYPHE
+
+§9.3 laissait le choix entre ajouter `drawText` à l'interface `Renderer` et
+rastériser dans `createSprite`, en recommandant la seconde. Elle est suivie —
+donc, comme au chantier 7, **aucune extension de l'interface**. Le grain, lui,
+n'était pas donné : ligne ou glyphe.
+
+C'est le glyphe, et ce n'est pas un détail de découpage. **Un sprite ne se
+dessine qu'entier** : un sprite par ligne rendrait impossibles la machine à
+écrire et l'entrée mot par mot, soit deux des six animations de §7.6. En prime
+il est plus FIN à mémoire égale — une ligne de vingt caractères dans un carré de
+512 donne vingt-cinq pixels par caractère, vingt carrés de 160 en donnent cent
+soixante.
+
+Les sprites sont mutualisés par CARACTÈRE : « MEL VEL » a six glyphes et quatre
+sprites. Le côté du sprite décroît avec le nombre de glyphes, de sorte que la
+mémoire totale reste bornée quel que soit le texte.
+
+### Les deux animations que l'absence de `clip()` interdisait
+
+Quatre des six animations demandées se posent directement sur `drawSprite`, qui
+accepte position, échelle et alpha. Deux ne le pouvaient pas : « révélation par
+masque » et « découpe en tranches » demandent un masque animé, et §4 est
+formelle — pas de `clip()` pour les couches.
+
+Résolues par le même mécanisme : **chaque glyphe est rastérisé une seconde fois
+en trois TRANCHES horizontales**, chacune un sprite à part, découpée dans le
+`createSprite` où `clip()` est licite. Les tranches se déplacent alors
+indépendamment, ce qui donne la bande qui s'ouvre depuis le centre pour l'une,
+les bandes qui glissent en sens alterné pour l'autre. Les tranches ne sont
+construites que si l'animation choisie en a besoin, et ne sont dessinées que
+pendant l'animation — au repos, c'est le sprite net qui repasse.
+
+Sens de départ des tranches donné par leur PARITÉ, jamais tiré au sort :
+`step.rng` est partagé entre les couches, en consommer décalerait toutes les
+autres.
+
+### Ce qui est calé sur les mesures, pas sur les secondes
+
+§7.6 : « chaque animation calée sur la grille musicale, pas sur une durée en
+secondes. C'est ce que CapCut ne sait pas faire. » `textAnimations.ts` ne connaît
+donc qu'un `progress` de 0 à 1, que la couche dérive de `bar.index + bar.phase`.
+Aucune seconde, aucune horloge : sept fonctions pures d'un scalaire, testables
+sans rendu, et conformes à la Loi 1 par construction.
+
+Le curseur de la machine à écrire clignote lui aussi sur le BEAT (`pulse`), pas
+à 500 ms fixes.
+
+**L'invariant qui compte : à `progress === 1`, les sept animations reviennent à
+l'identité.** Un décalage résiduel donnerait un texte légèrement de travers en
+permanence, sans que rien ne bouge à l'écran pour l'expliquer, et le symptôme
+serait attribué à la mise en page. Vérifié sur les sept, glyphes et tranches.
+
+### Le défaut le plus important du chantier : le texte sortait du cadre
+
+Trouvé au navigateur, pas à la lecture. Un titre centré à sa taille par défaut
+était **coupé au bord droit du cadre**. Le centre du texte allait de -20 à
++125 px sur un cadre de 893 px, et il suivait la GRAINE : ce n'était pas la mise
+en page, c'était le cadrage de variante du chantier 4 qui déplaçait tout.
+
+Le calcul le confirme : `STYLE_VARIANTS` va jusqu'à 0,17 de décalage et 1,30 de
+zoom ; avec la dérive de la dramaturgie par-dessus, la demi-largeur encore
+visible tombe à (0,889 - 0,22) / 1,45 = 0,46, alors qu'un titre centré en occupe
+0,71. Un tiers du titre dehors.
+
+**La règle posée** — `framingFor(scene, variant)` : le cadrage de variante décrit
+un STYLE, les habillages n'appartiennent à aucun style, donc une scène qui en
+porte un garde le cadrage NEUTRE. La caméra de la dramaturgie reste : elle est
+dix fois plus discrète et c'est le morceau qui la dicte, pas un tirage. Un titre
+doit suivre le morceau.
+
+La règle vaut aussi pour la POCHETTE du chantier 7, qui avait le même défaut
+sans que personne l'ait vu — une pochette à moitié hors cadre ne remplit pas
+mieux sa fonction qu'un titre coupé.
+
+Le remède n'était PAS de rapetisser le texte : il aurait fallu le ramener à 55 %
+de la largeur du cadre pour survivre au pire cadrage, c'est-à-dire supprimer le
+titre plein cadre pour parer un cas de bord.
+
+Reste la caméra de dramaturgie. Mesurée plutôt qu'estimée : 122 échantillons sur
+46 s de la piste de démonstration, la marge droite minimale tombait à **1 px**
+au moment où la caméra pousse (t = 7,7 s, le titre passant de 752 à 843 px). D'où
+`CAMERA_HEADROOM = 0.88`, l'inverse arrondi du zoom maximal. Après correction,
+sur 118 échantillons : **marge minimale 51 px**, et le titre fait encore 83 % du
+cadre.
+
+### Deux balayages indexés par STYLE frappaient les habillages
+
+Trouvé en relisant le câblage, avant toute exécution, puis mis sous test.
+
+`applyLayerBlends` et `applyLayerMacrosToScene` parcourent TOUTES les couches et
+écrasent respectivement `blend` et `params`, à partir de tables indexées par
+style. Une couche d'habillage n'y figure par construction jamais — donc les deux
+lui remettaient ses valeurs à vide.
+
+Pour le texte la conséquence était nette : il déclare `blend = 'normal'` pour
+rester lisible (du texte additif sur fond clair s'éclaircit jusqu'au blanc), et
+il serait redevenu additif **au premier mouvement de curseur de macro**.
+
+Les deux fonctions sautent désormais les couches d'habillage, reconnues par
+`isOverlayLayer` — la même notion que celle qui justifie `withCover` et
+`withText`, remontée dans `Layer.ts` pour n'exister qu'une fois.
+
+### Le mode live partage le MÊME champ
+
+§9.3 : « `LiveConfig.content.slamText` existe [...] mais aucune interface ne
+l'expose. Expose-le. » Fait par le même champ que le texte du mode fichier :
+Aaron écrit son label une fois, il sert aux deux moteurs. Deux champs séparés
+auraient demandé de choisir lequel fait foi.
+
+`LivePipeline.setSlamText` baisse `sceneInited` pour que `TypeSlamScene.init`
+relise la configuration à la trame suivante. C'est la seule voie qui évite un
+`start()` complet — lequel repartirait de zéro sur l'analyse, donc perdrait le
+verrou de tempo au milieu d'un morceau.
+
+### Ce qui a été décidé de NE PAS faire
+
+- **Pas de substitution `{bpm}` en mode fichier.** Le mode live la fait, et c'est
+  légitime là-bas : son texte tient dans un calque réutilisable qu'un changement
+  de chaîne reconstruit sans drame. Ici, un texte qui change en cours de lecture
+  voudrait dire reconstruire N sprites PENDANT la boucle. Le texte du mode
+  fichier est donc fixe.
+- **Pas de police téléchargée.** Trois piles système. Une police web absente au
+  moment du rendu produirait un export à la police de repli sans que rien ne le
+  signale — et c'est aussi ce qui rend inutile ici la danse autour de
+  `document.fonts.ready` que fait `TypeSlamScene`. Écrit dans le fichier : le
+  piège reviendrait à la première police web ajoutée.
+- **Pas de rotation.** `Renderer` n'expose pas `setTransform`. La mise en page
+  « diagonale » décale les lignes en escalier ; le mot décrit la disposition du
+  bloc, pas l'inclinaison des glyphes.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 112 fichiers, 1007 tests (902 -> 1007, +105)
+npm run test:arch   -> 1 test
+npm run build       -> 491,14 kB (gzip 139,75 kB), 1,99 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**. Toutes les mesures qui
+suivent sont faites en lisant les PIXELS du canevas d'aperçu (893x502), la
+simulation étant pilotée pas à pas.
+
+**Les sept animations vivent** (pixels clairs, min -> max sur un cycle) :
+
+| animation | amplitude mesurée |
+|---|---|
+| `none` | 46 076 -> 47 314 (respiration du kick seule) |
+| `word` | 46 009 -> 50 209 |
+| `typewriter` | 45 853 -> 47 002 |
+| `reveal` | **251 -> 50 446** |
+| `scale` | **30 -> 51 289** |
+| `rgb` | 1 146 -> 51 296 |
+| `slice` | 13 055 -> 50 319 |
+
+**Le décalage RVB pose vraiment de la couleur** — pixels franchement rouges /
+bleus, même scène, texte posé :
+
+| | rouges | bleus |
+|---|---|---|
+| sans `rgb` | 1 864 | 8 458 |
+| avec `rgb` | **13 200** | **16 626** |
+
+**Les cinq mises en page placent le texte ailleurs** (centre et largeur d'encre) :
+
+| mise en page | centre | largeur |
+|---|---|---|
+| `center` | (457, 215) | 661 |
+| `lower-third` | (400, 312) | 692 |
+| `diagonal` | (456, 217) | 553 |
+| `oversize` | (446, 204) | **893, bord à bord** |
+| `third` | (527, 136) | 430 |
+
+`diagonal` sur trois lignes : bords gauches à 235, 295, 348 px — l'escalier est
+bien là.
+
+**Coût par image** (`update` + `beginFrame` + `draw` + `endFrame` +
+`FlashLimiter`, 120 appels chronométrés) :
+
+| | ms |
+|---|---|
+| sans texte | 3,405 |
+| titre posé, 6 glyphes | 3,719 (**+0,31**) |
+| 2 lignes, 22 glyphes, tranches | 4,063 (**+0,66**) |
+
+Trois familles de police donnent trois rendus distincts (hauteurs d'encre 154 /
+167 / 138 px) : `measureText` est bien lu, la mise en page n'est pas sur des
+avances forfaitaires. La troncature est SIGNALÉE : « Texte tronqué à 40
+caractères (hors espaces). »
+
+### À valider par Aaron, à l'œil
+
+- **La taille par défaut d'un titre centré** : 83 % de la largeur du cadre après
+  la marge de caméra. C'est un parti pris fort ; le curseur « Taille » le
+  rattrape dans les deux sens.
+- **Le curseur de la machine à écrire.** Sa logique est sous test, mais son tracé
+  n'a pas pu être isolé au pixel. À regarder : clignote-t-il sur le beat, et
+  reste-t-il collé au bon caractère ?
+- **La `slice` sur trois tranches.** Trois est le minimum qui se lise comme des
+  tranches. Si ça fait pauvre, c'est le nombre qu'il faut monter, pas la course.
+- **`framingFor` est le seul changement qui touche l'EXISTANT** : avec une
+  pochette ou un texte, le cadrage de variante ne s'applique plus. Comparer un
+  projet avec et sans texte pour juger si la perte de cadrage se voit.
+- **Le rendu en 9:16**, où la zone sûre remonte le bloc de 34 % du petit côté.
+  Non vérifiable à l'aperçu, qui reste en 16:9 quel que soit le format d'export.
+
+### Limites connues
+
+- **Le texte n'est PAS persisté** — perdu au rechargement, comme la pochette du
+  chantier 7 et pour la même raison : c'est `docs/13_PROJECT_FORMAT.md`, à
+  traiter avec l'interface du chantier 10. C'est la limite la plus gênante des
+  deux, un texte se retapant plus souvent qu'une image ne se réimporte.
+- **Aucun preset ne pose de texte.** Il n'est atteignable que par le panneau
+  (chantier 9).
+- **Mesures de coût à 893x502**, pas à 1080p : le rapport entre les trois
+  colonnes tient, la valeur absolue non.
+- **Aucune capture d'écran** : mêmes limites d'environnement qu'aux chantiers
+  précédents. Tout ce qui est affirmé ci-dessus est un comptage de pixels.

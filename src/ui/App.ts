@@ -34,8 +34,22 @@ import { createEclatsStyle } from '../visual/styles/eclats/createEclatsStyle';
 import { createAuroreStyle } from '../visual/styles/aurore/createAuroreStyle';
 import type { Scene } from '../visual/scene/Scene';
 import { withCover } from '../visual/scene/withCover';
+import { withText } from '../visual/scene/withText';
+import {
+  TEXT_ANIMATION_LABELS,
+  TEXT_LAYOUT_LABELS,
+  normaliseTextConfig,
+  textStructureKey,
+  type TextAnimationId,
+  type TextColorRole,
+  type TextConfig,
+  type TextFamily,
+  type TextLayoutId,
+  type TextWeight,
+} from '../visual/text/textConfig';
+import { planText } from '../visual/text/textLayout';
 import { importCover, CoverImportError } from './coverImport';
-import { applyLayerBlends, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
@@ -137,6 +151,16 @@ let coverImage: ImageBitmap | null = null;
 let coverPalette: Palette | null = null;
 /** La scène courante porte-t-elle la couche pochette ? Sert à détecter qu'il faut la reconstruire. */
 let sceneHasCover = false;
+/** Texte affiche (docs/17 §9.3). Vide = la couche `TextLayer` est absente. */
+let textConfig: TextConfig = normaliseTextConfig({});
+/**
+ * Cle structurelle du texte pour laquelle `scene` a ete construite. Meme role
+ * que `sceneStyleId` : changer le texte, la police ou l'animation change les
+ * SPRITES, donc exige une reconstruction ; changer la taille n'en exige aucune.
+ */
+let sceneTextKey = textStructureKey(textConfig);
+/** Multiplicateur de taille du texte, envoye en `params` (aucune reconstruction). */
+let textSize = 1;
 /**
  * Déclaré ICI et non près de son écouteur, plus bas : `refreshVariant()` y
  * écrit, et `refreshVariant` est appelée depuis la résolution de preset, qui
@@ -254,21 +278,27 @@ function applyActiveConfiguration(): void {
 
   const styleChanged = currentStyleId !== sceneStyleId;
   const coverChanged = (coverImage !== null) !== sceneHasCover;
+  const textChanged = textStructureKey(textConfig) !== sceneTextKey;
 
-  if (styleChanged || coverChanged) {
+  if (styleChanged || coverChanged || textChanged) {
     // Le plafond du niveau de qualité courant s'applique dès la construction (voir `applyQualityLevel`
     // pour le cas où le niveau change alors que le style `field` est DÉJÀ actif).
-    // La pochette est AJOUTÉE après coup, en dernière couche : elle n'appartient
-    // à aucun style, elle se pose par-dessus celui qu'on a choisi.
-    scene = withCover(
-      STYLE_FACTORIES[currentStyleId](
-        QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
-        QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
+    // La pochette puis le texte sont AJOUTÉS après coup, en dernières couches :
+    // ils n'appartiennent à aucun style, ils se posent par-dessus celui qu'on a
+    // choisi. Le texte EN DERNIER : il porte de l'information, une pochette non.
+    scene = withText(
+      withCover(
+        STYLE_FACTORIES[currentStyleId](
+          QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
+          QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
+        ),
+        coverImage !== null,
       ),
-      coverImage !== null,
+      textConfig,
     );
     sceneStyleId = currentStyleId;
     sceneHasCover = coverImage !== null;
+    sceneTextKey = textStructureKey(textConfig);
     scene.init({ renderer, palette: currentPalette, cover: coverImage });
     if (currentTimeline) scene.reset(simT);
   } else if (scene) {
@@ -276,6 +306,7 @@ function applyActiveConfiguration(): void {
   }
   refreshVariant();
   applyLayerMacros();
+  applyTextParams();
   renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom);
   renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[currentQualityLevel].chromaticAberration);
   renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[currentQualityLevel].internalResolutionScale);
@@ -384,6 +415,19 @@ function applyLayerMacros(): void {
   }
 }
 
+/**
+ * Reglages continus du texte (§9.3). APRES `applyLayerMacros()`, jamais avant.
+ *
+ * `applyLayerMacrosToScene` epargne desormais les couches d'habillage (chantier
+ * 8), donc ces `params` survivraient de toute facon - mais l'ordre reste celui
+ * qu'impose sa docstring depuis l'Etape 25, et le respecter ici evite de faire
+ * dependre ce fichier d'un detail interne de l'autre.
+ */
+function applyTextParams(): void {
+  const layer = scene?.layers.find((l) => l.id === 'text');
+  if (layer) layer.params = { size: textSize };
+}
+
 /** Première couche de la Scene active à exposer `particleStats()` (au plus une, aujourd'hui : `ParticleField`). */
 function findParticleStats(): { readonly live: number; readonly capacity: number } | null {
   if (!scene) return null;
@@ -470,18 +514,30 @@ const exportDialog = new ExportDialog({
   getPalette: () => currentPalette!,
   // docs/10 règle non négociable #2 : l'export fige TOUJOURS le niveau à `EXPORT_QUALITY_LEVEL`
   // (HIGH), quel que soit le niveau courant de la preview — jamais `currentQualityLevel` ici.
-  // `withCover` ICI AUSSI, et pas seulement dans la boucle d'aperçu : sans
-  // cette ligne, l'export produirait la même image MOINS la pochette, et le
-  // défaut ne se verrait sur aucune vignette. C'est très exactement le piège de
-  // l'Étape 25, où les macros de couche avaient été branchées d'un seul côté.
-  getStyleFactory: () => () =>
-    withCover(
-      STYLE_FACTORIES[currentStyleId](
-        QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
-        QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+  // `withCover` et `withText` ICI AUSSI, et pas seulement dans la boucle
+  // d'aperçu : sans ces lignes, l'export produirait la même image MOINS la
+  // pochette et MOINS le texte, et le défaut ne se verrait sur aucune vignette.
+  // C'est très exactement le piège de l'Étape 25, où les macros de couche
+  // avaient été branchées d'un seul côté. Un test lit ce fichier pour le
+  // vérifier, sur les deux habillages.
+  getStyleFactory: () => () => {
+    const built = withText(
+      withCover(
+        STYLE_FACTORIES[currentStyleId](
+          QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
+          QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+        ),
+        coverImage !== null,
       ),
-      coverImage !== null,
-    ),
+      textConfig,
+    );
+    // Les `params` du texte ne passent NI par les macros NI par le preset : le
+    // pipeline d'export ne les poserait donc jamais, et un texte agrandi à
+    // l'aperçu sortirait à sa taille par défaut dans la vidéo.
+    const layer = built.layers.find((l) => l.id === 'text');
+    if (layer) layer.params = { size: textSize };
+    return built;
+  },
   getCover: () => coverImage,
   getMacros: () => currentMacros,
   getStyleId: () => currentStyleId,
@@ -1108,6 +1164,159 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
   applyActiveConfiguration();
 });
 
+// --- Texte (docs/17 §9.3, §7.6) --------------------------------------------
+
+const textContent = document.querySelector<HTMLTextAreaElement>('#text-content')!;
+const textStatus = document.querySelector<HTMLElement>('#text-status')!;
+const textLayoutSelect = document.querySelector<HTMLSelectElement>('#text-layout')!;
+const textAnimationSelect = document.querySelector<HTMLSelectElement>('#text-animation')!;
+const textEverySelect = document.querySelector<HTMLSelectElement>('#text-every')!;
+const textFamilySelect = document.querySelector<HTMLSelectElement>('#text-family')!;
+const textWeightSelect = document.querySelector<HTMLSelectElement>('#text-weight')!;
+const textCaseSelect = document.querySelector<HTMLSelectElement>('#text-case')!;
+const textColorSelect = document.querySelector<HTMLSelectElement>('#text-color')!;
+const textSizeInput = document.querySelector<HTMLInputElement>('#text-size')!;
+
+/**
+ * Peuple un `<select>` depuis une table de libelles.
+ *
+ * Les options ne sont PAS ecrites dans `index.html` : ajouter une animation
+ * demanderait alors de modifier deux fichiers, et rien ne garantirait qu'ils
+ * restent d'accord. Meme raison que pour `#style-select` (chantier 1).
+ */
+function fillSelect(select: HTMLSelectElement, entries: readonly (readonly [string, string])[], selected: string): void {
+  select.replaceChildren(
+    ...entries.map(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === selected;
+      return option;
+    }),
+  );
+}
+
+fillSelect(textLayoutSelect, Object.entries(TEXT_LAYOUT_LABELS), textConfig.layout);
+fillSelect(textAnimationSelect, Object.entries(TEXT_ANIMATION_LABELS), textConfig.animation);
+fillSelect(
+  textEverySelect,
+  [
+    ['0', 'Une seule fois, au début'],
+    ['4', 'Toutes les 4 mesures'],
+    ['8', 'Toutes les 8 mesures'],
+    ['16', 'Toutes les 16 mesures'],
+  ],
+  String(textConfig.everyBars),
+);
+fillSelect(
+  textFamilySelect,
+  [
+    ['sans', 'Sans (grotesque)'],
+    ['mono', 'Monospace'],
+    ['serif', 'Serif'],
+  ],
+  textConfig.family,
+);
+fillSelect(
+  textWeightSelect,
+  [
+    ['400', 'Normale'],
+    ['700', 'Grasse'],
+    ['900', 'Très grasse'],
+  ],
+  String(textConfig.weight),
+);
+fillSelect(
+  textCaseSelect,
+  [
+    ['upper', 'MAJUSCULES'],
+    ['none', 'Telle que saisie'],
+    ['lower', 'minuscules'],
+  ],
+  textConfig.textCase,
+);
+fillSelect(
+  textColorSelect,
+  [
+    ['white', 'Blanc'],
+    ['accent', 'Accent'],
+    ['primary', 'Primaire'],
+    ['secondary', 'Secondaire'],
+    ['glow', 'Halo'],
+  ],
+  textConfig.color,
+);
+
+/**
+ * Relit les huit contrôles et reconstruit la scène si nécessaire.
+ *
+ * `normaliseTextConfig` borne `durationBars` en fonction de `everyBars` : une
+ * animation plus longue que sa période redémarrerait avant d'avoir fini, et le
+ * texte ne serait jamais entièrement posé.
+ */
+function readTextControls(): void {
+  const everyBars = Number(textEverySelect.value);
+  textConfig = normaliseTextConfig({
+    text: textContent.value,
+    layout: textLayoutSelect.value as TextLayoutId,
+    animation: textAnimationSelect.value as TextAnimationId,
+    family: textFamilySelect.value as TextFamily,
+    weight: Number(textWeightSelect.value) as TextWeight,
+    textCase: textCaseSelect.value as 'none' | 'upper' | 'lower',
+    color: textColorSelect.value as TextColorRole,
+    everyBars,
+    // Une mesure d'animation par defaut ; sur une periode de 4 mesures ou plus,
+    // deux mesures laissent le geste respirer sans mordre sur le temps pose.
+    durationBars: everyBars === 0 || everyBars >= 8 ? 2 : 1,
+  });
+
+  // Une troncature SILENCIEUSE donnerait un texte amputé sans explication.
+  const plan = planText(textConfig.text, textConfig.textCase);
+  textStatus.textContent = plan.truncated
+    ? `Texte tronqué à ${plan.glyphs.length} caractères (hors espaces).`
+    : '';
+
+  applyActiveConfiguration();
+  // Le mode live partage CE texte : c'est la reponse a « `slamText` existe mais
+  // aucune interface ne l'expose » (§9.3). Un seul champ, deux moteurs.
+  liveVisualPanel?.setSlamText(slamLinesFromText(textConfig.text));
+}
+
+/**
+ * Le texte du mode fichier, converti pour `LiveConfig.content.slamText`.
+ *
+ * Le mode live fait DEFILER ses lignes, une toutes les deux mesures : chaque
+ * ligne saisie devient donc une phrase du defile. Un texte vide rend le tableau
+ * vide, ce que `TypeSlamScene` traite deja en repli sur le BPM puis sur `LIVE`.
+ */
+function slamLinesFromText(text: string): readonly string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+for (const control of [
+  textLayoutSelect,
+  textAnimationSelect,
+  textEverySelect,
+  textFamilySelect,
+  textWeightSelect,
+  textCaseSelect,
+  textColorSelect,
+]) {
+  control.addEventListener('change', readTextControls);
+}
+textContent.addEventListener('input', readTextControls);
+
+textSizeInput.addEventListener('input', () => {
+  // La taille ne touche AUCUN sprite : elle se lit à chaque image. Passer par
+  // `applyActiveConfiguration` reconstruirait la scène à chaque pixel de course
+  // du curseur, pour rien.
+  textSize = Number(textSizeInput.value);
+  applyTextParams();
+});
+
 // --- "Nouvelle variante" (docs/13 : régénère la graine, effet fort, coût nul) ---
 
 document.querySelector<HTMLButtonElement>('#btn-variant')!.addEventListener('click', () => {
@@ -1241,7 +1450,7 @@ function loop(nowMs: number): void {
     // Sans director (aucun morceau chargé), la caméra est simplement neutre :
     // on ouvre l'image comme avant.
     if (visualDirector) {
-      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector, currentVariant);
+      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector, framingFor(scene, currentVariant));
     } else {
       renderer.beginFrame(viewport);
       renderer.clear(currentPalette.bg[1]);

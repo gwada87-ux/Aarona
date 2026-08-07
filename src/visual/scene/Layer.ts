@@ -34,6 +34,25 @@ export type LayerKind =
   | 'text'
   | 'cover';
 
+/**
+ * Familles qui n'appartiennent A AUCUN STYLE : elles se posent par-dessus celui
+ * qu'on a choisi (`withCover` chantier 7, `withText` chantier 8).
+ *
+ * La distinction n'est pas cosmetique. Deux fonctions parcourent TOUTES les
+ * couches d'une scene et ecrasent leurs champs : `applyLayerMacrosToScene`
+ * remplace `params` en entier, `applyLayerBlends` remplace `blend`. Toutes deux
+ * travaillent a partir de tables indexees par STYLE. Une couche d'habillage n'y
+ * figure par construction jamais, donc elles lui remettraient ses valeurs a
+ * vide - le texte redeviendrait additif, et un titre additif sur fond clair
+ * s'eclaircit jusqu'au blanc.
+ */
+export const OVERLAY_KINDS: readonly LayerKind[] = Object.freeze(['cover', 'text']);
+
+/** `true` si la couche est un habillage, pose par-dessus le style. */
+export function isOverlayLayer(layer: { readonly kind: LayerKind }): boolean {
+  return OVERLAY_KINDS.includes(layer.kind);
+}
+
 /** Sérialisable, animable (docs/02) — chaque couche interprète ses propres clés. */
 export type LayerParams = Readonly<Record<string, number | string | boolean>>;
 

@@ -51,6 +51,8 @@ export class LiveVisualPanel {
   private audioContext: AudioContext | null = null;
   private motionQuery: MediaQueryList | null = null;
   private reducedMotion = false;
+  /** Textes de `type-slam` poses par l'interface, survivant a `stop()`/`start()`. */
+  private pendingSlamText: readonly string[] | null = null;
 
   private rafId: number | null = null;
   /**
@@ -100,6 +102,9 @@ export class LiveVisualPanel {
     }
     this.engine = new LiveAnalysisEngine(this.config, sampleRate, source.fftSizeOnset, source.fftSizeBands);
     this.pipeline = new LivePipeline(this.config);
+    // Texte pose par l'interface AVANT le demarrage : le mode live ne demarre
+    // que sur un pont WebRTC entrant, donc c'est le cas courant, pas l'exception.
+    if (this.pendingSlamText) this.pipeline.setSlamText(this.pendingSlamText);
     this.director = new LiveDirector(this.config.director);
     this.intensity = new IntensityDirector(this.config.intensity);
     this.overlays = new OverlayDirector(this.config.director);
@@ -209,6 +214,23 @@ export class LiveVisualPanel {
     const entry = wanted && playable.includes(wanted) ? wanted : playable[0];
     if (!entry) return;
     this.pipeline.setScene(entry.create());
+  }
+
+  /**
+   * Textes de `type-slam` (docs/17 §9.3, chantier 8).
+   *
+   * §9.3 : « `LiveConfig.content.slamText` existe [...] mais aucune interface ne
+   * l'expose. Expose-le. » C'est fait par le MEME champ que le texte du mode
+   * fichier : Aaron ecrit son label une fois, et il sert aux deux moteurs. Deux
+   * champs separes auraient demande de choisir lequel des deux fait foi.
+   *
+   * Memorise meme panneau arrete : le mode live ne demarre que sur un pont
+   * WebRTC entrant, donc le texte est presque toujours saisi AVANT que le
+   * panneau existe.
+   */
+  setSlamText(lines: readonly string[]): void {
+    this.pendingSlamText = lines;
+    this.pipeline?.setSlamText(lines);
   }
 
   /** Etat courant du moteur - expose pour la verification Playwright. */
