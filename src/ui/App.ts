@@ -55,7 +55,7 @@ import {
 } from '../visual/text/textConfig';
 import { planText } from '../visual/text/textLayout';
 import { importCover, CoverImportError } from './coverImport';
-import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
@@ -65,6 +65,7 @@ import type { PresetPaletteConfig } from '../presets/schema';
 import { DEFAULT_PRESET_BLOOM, resolveBloom } from '../presets/bloom';
 import { PALETTE_CATALOGUE, cataloguePaletteById } from '../presets/paletteCatalogue';
 import { renderStyleThumbnail } from './styleThumbnails';
+import { addPoint, automationValue, clearLane, hasLane, normaliseAutomation, removePointNear, type Automation } from '../core/automation/Automation';
 import { ReactionEditor } from './panels/ReactionEditor';
 import { LayerComposer } from './panels/LayerComposer';
 import { readLooks, removeLook, writeLook, type Look } from './looks';
@@ -223,6 +224,88 @@ let layerEnabled: LayerComposition = {};
 let layerOrder: readonly string[] = [];
 /** Dernière composition appliquée — sert à peupler le panneau avec ce qui est RÉELLEMENT dessiné. */
 let lastComposition: ComposeResult | null = null;
+/** Courbes d'automatisation (§7.3). Vide = aucune, et le rendu est alors EXACTEMENT celui d'avant. */
+let automation: Automation = [];
+/** Cible en cours d'édition sur la frise. */
+let automationTarget = 'intensity';
+/**
+ * Automatisation résolue à `t`, réutilisée en place.
+ *
+ * Un objet MUTÉ et non recréé : `stepSceneWithDrama` est appelée à chaque
+ * sous-pas de simulation (120 Hz), et un littéral par appel serait une
+ * allocation dans la boucle chaude - ce que docs/10 interdit.
+ */
+const automationFrame = { intensity: 1, cameraX: 0, cameraY: 0, cameraZoom: 1 };
+
+/**
+ * Évalue les quatre courbes à `t`.
+ *
+ * Court-circuit sur `automation.length === 0` : le cas courant - aucune
+ * automatisation - ne doit pas payer quatre parcours de tableau par sous-pas.
+ */
+function automationAt(t: number): AutomationFrame {
+  if (automation.length === 0) return NEUTRAL_AUTOMATION;
+  automationFrame.intensity = automationValue(automation, 'intensity', t, 1);
+  // Les trois pistes de caméra sont ÉTALÉES, et une vérification au navigateur
+  // l'a imposé : la frise ne produit que des valeurs de 0 à 1, or `applyCamera`
+  // borne le zoom à [1, 2] — une piste de zoom brute était donc TOUJOURS sous 1,
+  // c'est-à-dire toujours écrêtée à la neutralité. Une option de plus qui ne
+  // change rien, exactement ce que cette phase est censée éliminer.
+  //
+  // Le neutre reste ATTEIGNABLE et intuitif : milieu de la frise pour un
+  // décalage nul, bas de la frise pour aucun zoom.
+  automationFrame.cameraX = hasLane(automation, 'cameraX')
+    ? (automationValue(automation, 'cameraX', t, 0.5) - 0.5) * 2 * CAMERA_SHIFT_MAX
+    : 0;
+  automationFrame.cameraY = hasLane(automation, 'cameraY')
+    ? (automationValue(automation, 'cameraY', t, 0.5) - 0.5) * 2 * CAMERA_SHIFT_MAX
+    : 0;
+  automationFrame.cameraZoom = hasLane(automation, 'cameraZoom')
+    ? 1 + automationValue(automation, 'cameraZoom', t, 0) * (CAMERA_ZOOM_MAX - 1)
+    : 1;
+  return automationFrame;
+}
+
+/** Décalage maximal d'une piste de caméra, en unités normalisées. */
+const CAMERA_SHIFT_MAX = 0.3;
+/** Zoom maximal d'une piste de caméra. `applyCamera` borne de toute façon à 2. */
+const CAMERA_ZOOM_MAX = 1.8;
+
+/**
+ * Macros après automatisation, ou `currentMacros` telles quelles.
+ *
+ * Les macros ne se lisent PAS par image : `applyLayerMacrosToScene` remplace
+ * `layer.params` en entier, donc une allocation par couche. Les recalculer à
+ * 120 Hz serait exactement ce que docs/10 proscrit. Elles sont donc réappliquées
+ * seulement quand une valeur automatisée a bougé de plus de `MACRO_EPSILON` —
+ * assez fin pour qu'aucune transition ne se voie par paliers, assez grossier
+ * pour que la boucle n'y touche presque jamais.
+ */
+const MACRO_EPSILON = 0.01;
+let automatedMacros: PresetMacros | null = null;
+
+function refreshAutomatedMacros(t: number): void {
+  if (automation.length === 0) {
+    automatedMacros = null;
+    return;
+  }
+  let changed = automatedMacros === null;
+  const next: Record<string, number> = { ...currentMacros };
+  for (const name of MACRO_NAMES) {
+    const target = `macro:${name}`;
+    if (!hasLane(automation, target)) continue;
+    const v = Math.min(1, Math.max(0, automationValue(automation, target, t, currentMacros[name])));
+    next[name] = v;
+    if (!automatedMacros || Math.abs(automatedMacros[name] - v) > MACRO_EPSILON) changed = true;
+  }
+  if (!changed) return;
+  automatedMacros = next as unknown as PresetMacros;
+  if (scene) {
+    applyLayerMacrosToScene(scene, automatedMacros, currentStyleId);
+    applyLayerBlends(scene, currentVariant?.blend);
+    applyTextParams();
+  }
+}
 /** Palette du preset actif, en hexadecimal : point de depart de l'editeur. */
 let presetPaletteConfig: PresetPaletteConfig | null = null;
 let reducedFlashing = false;
@@ -686,6 +769,9 @@ const exportDialog = new ExportDialog({
   getMacros: () => currentMacros,
   getStyleId: () => currentStyleId,
   getBloom: () => currentBloom,
+  // Sans cette ligne, la video ignorerait toutes les images-cles : le meme
+  // piege de l'Etape 25 que pour la pochette, le texte et les couches.
+  getAutomation: () => automation,
   getAudioBuffer: () => currentAudioBuffer,
   getProjectSeed: () => projectSeed,
   seekToStart: () => handleSeek(0, 'release'),
@@ -739,7 +825,33 @@ const timelineCanvas = document.querySelector<HTMLCanvasElement>('#timeline-canv
 const timelineComponent = new Timeline({
   canvas: timelineCanvas,
   onSeek: (t, kind) => handleSeek(t, kind),
+  onAutomationPoint: (t, value, remove) => {
+    automation = remove
+      ? removePointNear(automation, automationTarget, t)
+      : addPoint(automation, automationTarget, { t, value });
+    refreshAutomationLane();
+    refreshAutomationStatus();
+    // La macro automatisée doit se voir tout de suite, même à l'arrêt : le
+    // premier point posé n'aurait sinon d'effet qu'à la lecture suivante.
+    automatedMacros = null;
+    refreshAutomatedMacros(simT);
+    scheduleAutosave();
+  },
 });
+
+/** Passe la piste courante à la frise, ou `null` quand l'automatisation est repliée. */
+function refreshAutomationLane(): void {
+  const ouvert = document.querySelector<HTMLDetailsElement>('#groupe-automation')?.open === true;
+  if (!ouvert) {
+    timelineComponent.setAutomation(null);
+    return;
+  }
+  const lane = automation.find((l) => l.target === automationTarget);
+  timelineComponent.setAutomation({
+    label: `${AUTOMATION_LABELS[automationTarget] ?? automationTarget} — clic pour poser, clic droit pour retirer`,
+    points: lane?.points ?? [],
+  });
+}
 
 function resizeTimelineCanvas(): void {
   const rect = timelineCanvas.getBoundingClientRect();
@@ -1014,6 +1126,7 @@ function buildCurrentProject(): Project | null {
       ...(Object.keys(layerEnabled).length > 0 || layerOrder.length > 0
         ? { layers: { enabled: layerEnabled, order: layerOrder } }
         : {}),
+      ...(automation.length > 0 ? { automation: automation as unknown as readonly Record<string, unknown>[] } : {}),
     },
     export: { format: '16:9', resolution: [1920, 1080], fps: 30, bitrateMbps: 12, codec: 'h264' },
     // `prefs.quality` (type déjà anticipé en P13, câblé au vrai `QualityGovernor` en P14/Étape 16) :
@@ -1155,6 +1268,12 @@ async function restoreVisualExtras(project: Project, coverBlob: Blob | null): Pr
   // --- Composition des couches (SS7.7, lot C) ------------------------------
   layerEnabled = project.visual.layers?.enabled ?? {};
   layerOrder = project.visual.layers?.order ?? [];
+  // `normaliseAutomation` TRIE les points : `valueAt` fait une recherche
+  // dichotomique, et un fichier écrit à la main ne garantit pas l'ordre.
+  automation = normaliseAutomation(project.visual.automation);
+  automatedMacros = null;
+  refreshAutomationLane();
+  refreshAutomationStatus();
   // Invalide la scène pour que le chemin normal la reconstruise avec la
   // composition restaurée : `applyDocCore`, appelé juste après, ne regarde que
   // le style, et une couche désactivée n'en change pas.
@@ -1446,6 +1565,71 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
 // Le groupe « Visuel » ne rend ses vignettes qu'une fois ouvert : les huit
 // scènes simulées ne se paient donc que si quelqu'un les regarde.
 document.querySelector<HTMLDetailsElement>('#groupe-visuel')?.addEventListener('toggle', () => refreshStyleThumbnails());
+
+// --- Automatisation par images-clés (docs/17 §7.3) -------------------------
+
+/**
+ * Cibles automatisables : l'intensité globale, les huit macros et les
+ * paramètres de caméra — la liste de §7.3, mot pour mot.
+ *
+ * Table construite ICI et non dans `core/automation` : les noms de macros
+ * viennent de `presets/`, que `core/` n'a pas le droit d'importer. C'est ce qui
+ * fait de `AutomationLane.target` une chaîne libre, validée au point de
+ * consommation — exactement le traitement réservé à `EventType` et `FeatureId`.
+ */
+const AUTOMATION_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  intensity: 'Intensité globale',
+  cameraX: 'Caméra — horizontale (milieu = centré)',
+  cameraY: 'Caméra — verticale (milieu = centré)',
+  cameraZoom: 'Caméra — zoom (bas = aucun)',
+  ...Object.fromEntries(MACRO_NAMES.map((n) => [`macro:${n}`, `Macro — ${n}`])),
+});
+
+const automationTargetSelect = document.querySelector<HTMLSelectElement>('#automation-target')!;
+const automationStatus = document.querySelector<HTMLElement>('#automation-status')!;
+
+automationTargetSelect.replaceChildren(
+  ...Object.entries(AUTOMATION_LABELS).map(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }),
+);
+
+function refreshAutomationStatus(): void {
+  const lane = automation.find((l) => l.target === automationTarget);
+  const n = lane?.points.length ?? 0;
+  const autres = automation.filter((l) => l.target !== automationTarget).length;
+  automationStatus.textContent =
+    n === 0
+      ? autres > 0
+        ? `Aucune image-clé sur cette piste — ${autres} autre(s) piste(s) automatisée(s).`
+        : 'Aucune image-clé.'
+      : `${n} image(s)-clé(s) sur cette piste.`;
+}
+
+automationTargetSelect.addEventListener('change', () => {
+  automationTarget = automationTargetSelect.value;
+  refreshAutomationLane();
+  refreshAutomationStatus();
+});
+
+document.querySelector<HTMLDetailsElement>('#groupe-automation')!.addEventListener('toggle', () => {
+  refreshAutomationLane();
+  refreshAutomationStatus();
+});
+
+document.querySelector<HTMLButtonElement>('#btn-automation-clear')!.addEventListener('click', () => {
+  automation = clearLane(automation, automationTarget);
+  refreshAutomationLane();
+  refreshAutomationStatus();
+  // Les macros reviennent à leur valeur de preset : sans cette invalidation,
+  // `refreshAutomatedMacros` verrait un écart nul et ne réappliquerait rien.
+  automatedMacros = null;
+  refreshAutomatedMacros(simT);
+  scheduleAutosave();
+});
 
 // --- « Looks » (docs/17 §7.7) ----------------------------------------------
 
@@ -2031,9 +2215,12 @@ function loop(nowMs: number): void {
       const step = stepper.build(simT);
       // Dramaturgie appliquée par le MÊME point que l'export (chantier 3) :
       // deux boucles d'images distinctes, un seul endroit qui les dose.
-      stepSceneWithDrama(scene, behaviourEngine, visualDirector, step);
+      stepSceneWithDrama(scene, behaviourEngine, visualDirector, step, automationAt(simT));
       lastRegime = step.regime;
     }
+    // Les macros automatisées, elles, sont revues UNE FOIS par image et non par
+    // sous-pas : elles remplacent `layer.params` en entier, donc allouent.
+    if (steps > 0) refreshAutomatedMacros(simT);
     timelineComponent.setPlayhead(simT);
   }
   const updateMs = performance.now() - updateStartMs;
@@ -2043,7 +2230,7 @@ function loop(nowMs: number): void {
     // Sans director (aucun morceau chargé), la caméra est simplement neutre :
     // on ouvre l'image comme avant.
     if (visualDirector) {
-      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector, framingFor(scene, currentVariant));
+      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector, framingFor(scene, currentVariant), automationAt(simT));
     } else {
       renderer.beginFrame(viewport);
       renderer.clear(currentPalette.bg[1]);
@@ -2123,6 +2310,10 @@ if (import.meta.env.DEV) {
     loadDemo: () => void loadDemo(),
     get t() {
       return simT;
+    },
+    /** Automatisation résolue à l'instant courant — vérification du lot D. */
+    get automation() {
+      return { pistes: automation.length, frame: { ...automationAt(simT) }, macros: automatedMacros };
     },
   };
 }

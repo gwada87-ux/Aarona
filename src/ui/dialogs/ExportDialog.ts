@@ -16,6 +16,7 @@ import type { MusicTimeline } from '../../music/MusicTimeline';
 import type { Palette } from '../../visual/palette/Palette';
 import type { Scene } from '../../visual/scene/Scene';
 import type { PresetBloomConfig, PresetMacros, StyleId } from '../../presets/schema';
+import type { Automation } from '../../core/automation/Automation';
 
 export interface ExportDialogOptions {
   readonly canvas: HTMLCanvasElement;
@@ -30,6 +31,8 @@ export interface ExportDialogOptions {
   readonly getStyleId: () => StyleId;
   /** Intention de bloom du preset actif (docs/17 SS6.5, chantier 9). */
   readonly getBloom: () => PresetBloomConfig;
+  /** Courbes d'automatisation (docs/17 SS7.3, chantier 10 lot D). */
+  readonly getAutomation: () => Automation;
   readonly getAudioBuffer: () => AudioBuffer | null;
   /** Graine du projet (docs/13_PROJECT_FORMAT.md) — DOIT être la même qu'en preview pour un export reproductible au pixel près. */
   readonly getProjectSeed: () => number;
@@ -104,6 +107,7 @@ export class ExportDialog {
             macros: this.options.getMacros(),
             styleId: this.options.getStyleId(),
             bloom: this.options.getBloom(),
+            automation: this.options.getAutomation(),
             palette: this.options.getPalette(),
             fps,
             durationSec,

@@ -6,13 +6,14 @@ import { BehaviourEngine } from '../behaviour/BehaviourEngine';
 import { VisualDirector } from '../behaviour/VisualDirector';
 import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import type { Scene } from '../visual/scene/Scene';
-import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, framingFor, openFrameWithCamera, stepSceneWithDrama, NEUTRAL_AUTOMATION } from '../visual/scene/dramaFrame';
 import { variantFor } from '../presets/styleVariants';
 import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
 import { EXPORT_QUALITY_LEVEL, QUALITY_LEVEL_CONFIGS } from '../perf/qualityLevels';
 import { applyLayerMacrosToScene } from '../presets/layerMacros';
-import type { PresetBloomConfig, PresetMacros, StyleId } from '../presets/schema';
+import { MACRO_NAMES, type PresetBloomConfig, type PresetMacros, type StyleId } from '../presets/schema';
+import { automationValue, hasLane, type Automation } from '../core/automation/Automation';
 import { resolveBloom } from '../presets/bloom';
 import type { FrameEncoder } from './encoders/FrameEncoder';
 import { drawWatermark } from './watermark';
@@ -65,6 +66,11 @@ export interface ExportConfig {
    * `cover` : un appelant ecrit avant reste valide.
    */
   readonly bloom?: PresetBloomConfig;
+  /**
+   * Courbes d'automatisation (docs/17 SS7.3, chantier 10 lot D). Absentes = le
+   * rendu est EXACTEMENT celui d'avant ce lot, ligne pour ligne.
+   */
+  readonly automation?: Automation;
   readonly palette: Palette;
   readonly fps: Fps;
   readonly durationSec: number;
@@ -151,6 +157,20 @@ export async function runExport(
   try {
     await encoder.start();
 
+    // Automatisation resolue par image (SS7.3). Objet MUTE, comme cote apercu :
+    // un litteral par sous-pas serait une allocation dans la boucle chaude.
+    const auto = { intensity: 1, cameraX: 0, cameraY: 0, cameraZoom: 1 };
+    const curves = config.automation ?? [];
+    const automatedMacroNames = MACRO_NAMES.filter((n) => hasLane(curves, `macro:${n}`));
+    const evaluate = (t: number) => {
+      if (curves.length === 0) return NEUTRAL_AUTOMATION;
+      auto.intensity = automationValue(curves, 'intensity', t, 1);
+      auto.cameraX = automationValue(curves, 'cameraX', t, 0);
+      auto.cameraY = automationValue(curves, 'cameraY', t, 0);
+      auto.cameraZoom = automationValue(curves, 'cameraZoom', t, 1);
+      return auto;
+    };
+
     let simT = 0;
     for (let f = 0; f < totalFrames; f++) {
       if (config.signal?.aborted) throw new ExportCancelledError();
@@ -158,10 +178,22 @@ export async function runExport(
       const targetT = f / config.fps;
       while (simT < targetT - 1e-9) {
         simT += FIXED_DT;
-        stepSceneWithDrama(scene, behaviourEngine, director, stepper.build(simT));
+        stepSceneWithDrama(scene, behaviourEngine, director, stepper.build(simT), evaluate(simT));
       }
 
-      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director, framing);
+      // Macros automatisees : reappliquees par IMAGE et non par sous-pas, pour
+      // la meme raison que cote apercu - elles remplacent `layer.params` en
+      // entier, donc allouent un objet par couche.
+      if (automatedMacroNames.length > 0) {
+        const macros: Record<string, number> = { ...config.macros };
+        for (const n of automatedMacroNames) {
+          macros[n] = Math.min(1, Math.max(0, automationValue(curves, `macro:${n}`, targetT, config.macros[n])));
+        }
+        applyLayerMacrosToScene(scene, macros as unknown as PresetMacros, config.styleId);
+        applyLayerBlends(scene, variant.blend);
+      }
+
+      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director, framing, evaluate(targetT));
       scene.draw(target.renderer, target.viewport);
       target.renderer.endFrame();
       if (config.watermarked) drawWatermark(target.renderer, target.viewport);

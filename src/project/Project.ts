@@ -125,6 +125,14 @@ export interface ProjectVisual {
    * ordre voulu. Une couche absente de `enabled` est ACTIVE, et un `order` vide
    * signifie « celui de la fabrique du style ».
    */
+  /**
+   * Courbes d'automatisation (§7.3, chantier 10 lot D) : cible vers
+   * images-clés. Objet opaque, même raison que `mapping` : `project/` ne peut
+   * importer que `music/`. `normaliseAutomation` le remet en forme au
+   * chargement — points triés compris, ce dont dépend la dichotomie de
+   * `valueAt`.
+   */
+  readonly automation?: readonly Readonly<Record<string, unknown>>[];
   readonly layers?: {
     readonly enabled?: Readonly<Record<string, boolean>>;
     readonly order?: readonly string[];
@@ -260,6 +268,9 @@ function checkVisual(visual: unknown, errors: string[]): void {
   }
   if (visual.mapping !== undefined && !isRecord(visual.mapping)) {
     errors.push('"visual.mapping" doit être un objet quand présent');
+  }
+  if (visual.automation !== undefined && !Array.isArray(visual.automation)) {
+    errors.push('"visual.automation" doit être un tableau quand présent');
   }
   if (visual.layers !== undefined && !isRecord(visual.layers)) {
     errors.push('"visual.layers" doit être un objet quand présent');

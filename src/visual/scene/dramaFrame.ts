@@ -46,6 +46,30 @@ export interface Framing {
 }
 
 /**
+ * Automatisation résolue à l'instant courant (§7.3, chantier 10 lot D).
+ *
+ * Quatre nombres déjà évalués, pas les courbes : ce module n'a pas à savoir
+ * qu'il existe des images-clés, et `Automation` vit dans `core/` justement pour
+ * n'être lu que par ceux qui en ont besoin. Les valeurs NEUTRES sont 1 et 0,
+ * de sorte que l'absence d'automatisation soit un no-op exact.
+ */
+export interface AutomationFrame {
+  /** Multiplie l'amplitude et le niveau du budget de dramaturgie. 1 = neutre. */
+  readonly intensity: number;
+  readonly cameraX: number;
+  readonly cameraY: number;
+  /** Multiplie le zoom. 1 = neutre. */
+  readonly cameraZoom: number;
+}
+
+export const NEUTRAL_AUTOMATION: AutomationFrame = Object.freeze({
+  intensity: 1,
+  cameraX: 0,
+  cameraY: 0,
+  cameraZoom: 1,
+});
+
+/**
  * Un pas de simulation, dramaturgie comprise.
  *
  * L'ordre compte : le budget est calculé AVANT la modulation, et la modulation
@@ -57,9 +81,20 @@ export function stepSceneWithDrama(
   behaviour: BehaviourEngine,
   director: VisualDirector,
   step: StepContext,
+  automation: AutomationFrame = NEUTRAL_AUTOMATION,
 ): void {
   const budget = director.update(step);
-  scene.update(step, director.modulate(behaviour.update(step), budget));
+  // L'automatisation est le DERNIER étage, après le preset, les macros et la
+  // dramaturgie (§7.3 : « même position que les surcharges utilisateur de
+  // `resolve.ts` »). Elle multiplie l'amplitude du budget plutôt que les signaux
+  // un par un : `modulate` applique déjà `amplitude` à tout ce qui est une
+  // frappe, et refaire ce dosage ici en dupliquerait la table - avec la
+  // certitude qu'une des deux copies oublierait un signal au prochain ajout.
+  const scaled =
+    automation.intensity === 1
+      ? budget
+      : { ...budget, amplitude: budget.amplitude * automation.intensity, level: budget.level * automation.intensity };
+  scene.update(step, director.modulate(behaviour.update(step), scaled));
 }
 
 /**
@@ -113,6 +148,7 @@ export function openFrameWithCamera(
   clearColor: Color,
   director: VisualDirector,
   framing?: Framing,
+  automation: AutomationFrame = NEUTRAL_AUTOMATION,
 ): void {
   renderer.beginFrame(viewport);
   renderer.clear(clearColor);
@@ -124,9 +160,14 @@ export function openFrameWithCamera(
   // Les zooms se multiplient plutôt que de s'additionner — deux rapprochements
   // successifs sont un produit d'échelles, pas une somme. Le `Renderer` borne
   // le résultat à [1, 2] de toute façon (ADR-011).
-  const dx = cameraX + (framing?.offsetX ?? 0);
-  const dy = cameraY + (framing?.offsetY ?? 0);
-  const zoom = cameraZoom * (framing?.zoom ?? 1);
+  //
+  // L'automatisation s'ajoute au bout de la même chaîne (§7.3, lot D) : la
+  // variante dit d'où on regarde, la dramaturgie ce que le morceau fait au
+  // cadre, l'automatisation ce que l'utilisateur a décidé à cet instant précis.
+  // Elle est la dernière parce qu'elle est la plus explicite des trois.
+  const dx = cameraX + (framing?.offsetX ?? 0) + automation.cameraX;
+  const dy = cameraY + (framing?.offsetY ?? 0) + automation.cameraY;
+  const zoom = cameraZoom * (framing?.zoom ?? 1) * automation.cameraZoom;
   if (dx !== 0 || dy !== 0 || zoom !== 1) renderer.applyCamera(dx, dy, zoom);
 }
 

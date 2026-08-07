@@ -252,6 +252,19 @@
       <p class="macro-note" data-mode="avance">Ajustée automatiquement selon les performances de ta machine. Un choix ici devient un plafond : la remontée automatique ne le dépassera jamais, mais la descente automatique reste active en cas de saccades.</p>
     </details>
 
+    <!-- ============================================ AUTOMATISATION ======= -->
+    <!-- docs/17 §7.3 : une piste par cible, éditée directement sur la frise.
+         Les <option> sont peuplées par App.ts. -->
+    <details class="groupe" id="groupe-automation">
+      <summary>Automatisation</summary>
+      <p class="macro-note">Ouvre ce groupe puis clique sur la frise : chaque clic pose une image-clé, le clic droit en retire une. Le haut du cadre vaut 1, le bas 0.</p>
+      <label>
+        <select id="automation-target"></select>
+      </label>
+      <p id="automation-status" class="macro-note"></p>
+      <button id="btn-automation-clear" type="button">Effacer cette piste</button>
+    </details>
+
     <!-- ================================================== EXPORT ========= -->
     <details class="groupe" id="groupe-export">
       <summary>Export</summary>

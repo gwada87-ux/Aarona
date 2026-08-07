@@ -56,10 +56,20 @@ describe('le thème passe par des VARIABLES (§10.1)', () => {
   });
 });
 
-describe('cinq groupes par intention (§10.1)', () => {
-  it('les cinq groupes existent, dans l\'ordre', () => {
+describe('groupes par intention (§10.1)', () => {
+  it('les groupes existent, dans l\'ordre', () => {
+    // Cinq au lot A (Visuel / Couleurs / Texte / Réactivité / Export), plus
+    // Automatisation au lot D. Elle vient AVANT l'export : on règle une courbe
+    // pendant qu'on regarde, on exporte à la fin.
     const ids = [...html.matchAll(/<details class="groupe" id="([^"]+)"/g)].map((m) => m[1]);
-    expect(ids).toEqual(['groupe-visuel', 'groupe-couleurs', 'groupe-texte', 'groupe-reactivite', 'groupe-export']);
+    expect(ids).toEqual([
+      'groupe-visuel',
+      'groupe-couleurs',
+      'groupe-texte',
+      'groupe-reactivite',
+      'groupe-automation',
+      'groupe-export',
+    ]);
   });
 
   it('les onglets FILTRENT au lieu de découper', () => {

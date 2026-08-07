@@ -5311,3 +5311,159 @@ temps avance — un accroc à la Loi 1 que je ne veux pas poser en fin de lot.
   fois plus de code que ce qu'elle remplace.
 - **La reconstruction de scène en pause** — voir ci-dessus, antérieur au lot.
 - Aucune capture d'écran : mêmes limites d'environnement.
+
+---
+
+## Phase 2 — Chantier 10, lot D : automatisation par images-clés
+
+§7.3 : « Aujourd'hui tout est automatique : l'utilisateur subit l'analyse. Il ne
+peut pas dire "à 1:20, monte le glow" ni "ici, coupe tout". »
+
+### Le module fait quatre-vingts lignes, et c'est le sujet
+
+§7.3 le dit avant moi : « `render(t)` est déjà une fonction pure de `t` (Loi 1).
+Une courbe d'automatisation EST littéralement `f(t)`. » Il n'y a donc dans
+`core/automation/` qu'une recherche dichotomique et une interpolation linéaire —
+aucun état de lecture, aucune position courante, rien à réinitialiser sur un
+seek. Dans un monteur vidéo, la même fonction demanderait tout cela. Un test
+vérifie explicitement la pureté : mêmes entrées, même sortie, quel que soit
+l'ordre des appels.
+
+Deux choix de comportement, tous deux écrits dans le module :
+
+- **Tenue aux extrémités, pas d'extrapolation.** Prolonger la pente donnerait des
+  valeurs hors bornes en fin de morceau, sur une automatisation dont
+  l'utilisateur n'a rien demandé au-delà de ce qu'il a posé.
+- **Deux points au même instant font une MARCHE.** C'est le seul comportement qui
+  ne divise pas par zéro, et il est utile : « ici, coupe tout » de §7.3 est
+  exactement une marche.
+
+**Cible en chaîne libre**, comme `EventType` et `FeatureId`. Les noms de macros
+vivent dans `presets/`, que ni `core/` ni `behaviour/` n'ont le droit
+d'importer — la table des douze cibles est donc construite dans `ui/`, seule
+couche qui connaît à la fois les macros et la caméra.
+
+### Trois points d'application, trois cadences
+
+§7.3 : « à appliquer APRÈS le preset et les macros, comme dernier étage — même
+position que les surcharges utilisateur de `resolve.ts` ». Les trois familles de
+cibles n'ont pas le même coût, et c'est ce qui décide de leur cadence :
+
+- **L'intensité globale** multiplie `amplitude` et `level` du budget de
+  dramaturgie, à chaque SOUS-PAS (120 Hz). Multiplier le budget plutôt que les
+  signaux un par un évite de dupliquer la table de `modulate` — avec la
+  certitude qu'une des deux copies oublierait un signal au prochain ajout.
+- **La caméra** s'ajoute au bout de la chaîne existante, une fois par IMAGE : la
+  variante dit d'où on regarde, la dramaturgie ce que le morceau fait au cadre,
+  l'automatisation ce que l'utilisateur a décidé à cet instant. Elle est la
+  dernière parce qu'elle est la plus explicite des trois.
+- **Les huit macros** sont revues une fois par image, et seulement si la valeur a
+  bougé de plus de `MACRO_EPSILON`. `applyLayerMacrosToScene` remplace
+  `layer.params` en entier : une allocation par couche, que les 120 Hz de la
+  simulation transformeraient en exactement ce que docs/10 proscrit.
+
+L'objet passé au moteur est MUTÉ en place et non recréé, et l'absence
+d'automatisation court-circuite tout : un projet sans image-clé rend exactement
+la même image qu'avant ce lot, ligne pour ligne. Un test fige les valeurs
+neutres — 1 et 0 — pour que ça reste vrai.
+
+### Le défaut que seule la vérification a montré
+
+Les trois pistes de caméra étaient INERTES. La frise ne produit que des valeurs
+de 0 à 1, or `applyCamera` borne le zoom à [1, 2] : une piste de zoom brute
+valait donc toujours moins de 1, c'est-à-dire toujours écrêtée à la neutralité.
+Et `cameraX` ne pouvait décaler que dans un sens, le neutre n'étant atteignable
+qu'à la valeur 0, en bas du cadre.
+
+Trois options de plus qui ne changent rien — exactement ce que cette phase est
+censée éliminer. Les pistes sont désormais ÉTALÉES à la lecture, avec un neutre
+atteignable et intuitif : milieu de la frise pour un décalage nul, bas de la
+frise pour aucun zoom. Les libellés le disent.
+
+### L'édition tient sur la frise
+
+Pas de piste séparée sous la timeline : la frise EST l'axe des temps, et une
+seconde bande n'aurait fait que doubler la hauteur d'un panneau déjà chargé.
+Groupe « Automatisation » ouvert, la frise passe en mode édition — un voile
+sombre, la courbe, ses points — et le clic pose une image-clé au lieu de
+déplacer la tête de lecture. Sans cette bascule il faudrait viser une bande de
+quelques pixels pour éditer, et chercher où cliquer pour naviguer.
+
+Le clic droit retire, et le menu contextuel du navigateur est neutralisé pour ne
+pas le voler. Poser et retirer par le même geste modifié plutôt que par un mode
+à basculer, qu'il faudrait ensuite penser à quitter.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 117 fichiers, 1099 tests (1080 -> 1099, +19)
+npm run test:arch   -> 1 test
+npm run build       -> 526,58 kB (gzip 150,53 kB), 2,14 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**. Douze cibles proposées :
+l'intensité globale, les trois paramètres de caméra et les huit macros — la
+liste de §7.3, mot pour mot.
+
+**L'intensité atteint l'image.** Luminance moyenne du cadre sur une fenêtre de
+quatre secondes de lecture :
+
+| piste d'intensité | moyenne | pic |
+|---|---|---|
+| 0,1 sur tout le morceau | 12,49 | 12,71 |
+| **1,0** | **19,73** | **23,88** |
+
+**Une macro automatisée aussi**, avec la valeur résolue lue au passage :
+
+| piste `macro:glow` | moyenne | pic | macro vue par le moteur |
+|---|---|---|---|
+| 0 | 13,24 | 13,59 | 0,00 |
+| **1** | **14,98** | **16,12** | **1,00** |
+
+**Les pistes de caméra, après correction de l'étalement :**
+
+| geste | valeur résolue |
+|---|---|
+| zoom, haut de la frise | **1,80** |
+| zoom, bas de la frise | 1,00 (neutre) |
+| horizontale, milieu | 0,00 (centré) |
+| horizontale, haut | **+0,30** |
+
+**Édition et persistance.** Deux pistes posées — trois images-clés sur
+l'intensité, deux sur `macro:glow` —, sauvegarde automatique, **rechargement
+complet de la page**, réouverture depuis « Projets » : les deux pistes reviennent
+avec le bon nombre de points, et le moteur lit bien `intensity = 0,80` et
+`glow = 0,90` à `t = 1,04 s`. Une piste jamais posée le dit sans se confondre
+avec les autres : « Aucune image-clé sur cette piste — 2 autre(s) piste(s)
+automatisée(s). »
+
+Un compteur d'images-clés qui ne se mettait pas à jour au clic a été corrigé au
+passage : `refreshAutomationStatus` manquait dans le gestionnaire de pose.
+
+### À valider par Aaron
+
+- **Les amplitudes de caméra** : ±0,3 de décalage et 1,8 de zoom maximal. Ce sont
+  les seules valeurs vraiment arbitraires du lot.
+- **L'interpolation est LINÉAIRE.** Une courbe en S serait plus douce sur une
+  montée lente ; la ligne droite est plus lisible et prévisible. À voir sur un
+  vrai morceau lequel des deux manque le plus.
+- **Le geste d'édition** : le groupe ouvert change ce que fait un clic sur la
+  frise. C'est cohérent, mais ça se découvre.
+- **L'intensité automatisée multiplie la dramaturgie**, elle ne la remplace pas :
+  poser 1 partout ne « désactive » pas le `VisualDirector`, ça le laisse faire.
+  C'est voulu — mais si Aaron attend un contrôle absolu, c'est là qu'il faut
+  changer.
+
+### Limites connues
+
+- **Aucun déplacement de point.** On pose et on retire ; corriger un point se
+  fait en recliquant à côté, ce qui le remplace. Un glisser demanderait une
+  gestion du pointeur que la frise ne fait pas aujourd'hui.
+- **Les courbes ne sont pas dans les « Looks ».** Une automatisation est liée à
+  un morceau — les instants n'ont aucun sens sur un autre.
+- **`MACRO_EPSILON` vaut 0,01** : une transition de macro très lente peut se voir
+  par paliers. Assez fin en pratique, mais c'est un compromis, pas une garantie.
+- **La reconstruction de scène en pause** (voir lot C) rend une automatisation
+  invisible tant qu'on n'a pas relancé la lecture.
+- Aucune capture d'écran : mêmes limites d'environnement.
