@@ -21,6 +21,8 @@
  */
 
 import { resetCompositing } from '../render/LayerStack';
+import { DECAY_HAT, DECAY_KICK, DECAY_SNARE, withGridFloor } from '../util/accent';
+import { easeInOutSine } from '../util/easing';
 import type { LiveFrame, LiveScene, SceneContext, SceneTag, Viewport } from './types';
 
 interface Variant {
@@ -77,6 +79,7 @@ export class GridHorizonScene implements LiveScene {
     // cadre a chaque trame, ce qui rend la scene lisible en 21:9 comme en 9:16.
   }
 
+  // hot-path (§8.9) : corps de trame.
   render(ctx: CanvasRenderingContext2D, frame: LiveFrame): void {
     const view = frame.view;
     const amp = frame.reducedMotion ? 1 / Math.max(1, this.reducedDivider) : 1;
@@ -94,12 +97,21 @@ export class GridHorizonScene implements LiveScene {
     this.lastBeatIndex = frame.beat.beatIndex;
     this.lastBeatPhase = frame.beat.visualBeatPhase;
 
-    const kick = frame.onsets.envelope('kick', 0.35);
-    const snare = frame.onsets.envelope('snare', 0.2);
-    const hat = frame.onsets.envelope('hat', 0.08);
+    // La ligne d'horizon est un element MASSIF : elle a droit au depassement
+    // de 8 % de §2.7.8. Plancher de grille (§2.7.8, derniere phrase) : sur un
+    // motif a kick sur 1 et 3, sans lui le sol se souleverait une fois sur deux.
+    const kick = withGridFloor(frame.onsets.envelope('kick', DECAY_KICK, 0.08), frame.gridAccent(DECAY_KICK), 1);
+    const snare = frame.onsets.envelope('snare', DECAY_SNARE);
+    const hat = frame.onsets.envelope('hat', DECAY_HAT);
 
-    const horizonY = (v.horizon - 0.5) * view.h;
-    const vanishX = v.vanishX * view.w;
+    // MICRO-VARIATION de phrase (§4.3) : « aucun plan statique plus de quelques
+    // secondes ». Le defilement bat le tempo mais le CADRAGE, lui, ne bougeait
+    // pas d'un pixel sur toute la duree d'une scene. L'horizon respire donc de
+    // +/- 1,5 % de hauteur et le point de fuite derive de +/- 2 % de largeur sur
+    // la phrase - assez pour que l'image vive, trop peu pour se remarquer.
+    const breath = easeInOutSine(frame.beat.phrasePhase) * 2 - 1;
+    const horizonY = (v.horizon + breath * 0.015 - 0.5) * view.h;
+    const vanishX = (v.vanishX + breath * 0.02) * view.w;
     const depth = v.closeUp ? 0.55 : 1;
     const bottom = view.h / 2;
 

@@ -3,7 +3,10 @@
 Refonte du visualiseur live (PROMPT-live-visual-upgrade v2). Ce fichier est le
 journal impose par le prompt (§0, fin de chaque etape de §9).
 
-**Avancement : etapes 1 a 4 de §9 livrees. Etapes 5 et 6 non commencees.**
+**Avancement : les 6 etapes de §9 sont livrees. Les 6 scenes de la passe 1 de
+§4.2 sont au registre. Reste la validation humaine listee en fin de fichier -
+dont la mesure de latence son -> image, que l'etape 6 a rendue FAISABLE (mire
+de calibration, touche `C`) mais qui demande un tournage a 240 fps.**
 
 ## RACCOURCIS CLAVIER (§4.5)
 
@@ -22,6 +25,7 @@ documentation - elle vit dans `Controls.ts`.
 | fleches haut/bas | reglage de synchro (`userTrimMs`) |
 | `Echap` | panic : scene d'attente, tous overlays coupes, immediat |
 | `D` | HUD de debug |
+| `C` | mire de calibration de `userTrimMs` : carre blanc sur UNE trame au temps 1 |
 | `?` | panneau d'aide |
 
 Persistes dans `localStorage` sous `live-visual-controls` : intensite, trim de
@@ -716,3 +720,431 @@ l'exige. C'est le repli qui fonctionne, pas un defaut.
 Les trois scenes restantes de §4.2 - `laser-tunnel`, `mandala-32`, `type-slam`
 - sont l'etape 5. Le polish de §9.6 - easings, affinage du grain et du bloom,
 calibration de `userTrimMs` - est l'etape 6.
+
+---
+
+## Etape 5 - Les trois scenes restantes
+
+Le registre contient desormais les SIX scenes de la passe 1 de §4.2.
+
+| scene | accent principal | kick | snare | charley |
+|---|---|---|---|---|
+| `laser-tunnel` | anneaux emis sur le kick | emission et epaisseur | deplacement du point de fuite | etincelles sur les parois |
+| `mandala-32` | onde de choc du kick | onde et rayon interne | occultation d'un secteur sur deux | graduations exterieures |
+| `type-slam` | bloc de fond | bloc et impulsion de cadre | entree du texte et revelation | separation RVB |
+
+Nombre de secteurs de `mandala-32` : 6 -> 8 -> 12 -> 16 sur frontiere de
+mesure, exactement la suite de §4.2.
+
+### Un calque pour les scenes, sous le MEME plafond memoire
+
+`type-slam` doit rasteriser son texte dans un buffer dedie. Le laisser appeler
+`document.createElement('canvas')` lui ferait echapper a l'inventaire de §3.1 -
+et Safari plafonne la memoire canvas GLOBALE, au-dela de quoi `getContext()`
+renvoie `null` sans lever. `SceneContext.layers` donne donc aux scenes un acces
+aux calques qui passe par `LayerStack`, avec des cles prefixees pour qu'une
+scene ne puisse pas ecraser un calque du pipeline.
+
+La mesure le confirme : `type-slam` consomme 2,87 Mo de memoire canvas contre
+2,71 pour les deux autres. L'ecart, c'est son buffer de texte - visible dans
+l'inventaire, comme il doit l'etre.
+
+### Pourquoi `mandala-32` n'est pas un spectrogramme (interdit §6.1)
+
+Le test de §6.1 est explicite : « si retirer l'audio rend la scene identique a
+un analyseur de spectre, elle est interdite ». Retirer l'audio ici laisse une
+structure segmentee qui tourne sur la phrase, dont le nombre de secteurs change
+sur la mesure, et dont un secteur sur deux est occulte au rythme du snare.
+
+Les 32 bandes ne sont pas LUES, elles sont REPLIEES : chaque secteur n'en
+montre qu'un sous-ensemble, mis en miroir un secteur sur deux. §6.1 nomme
+explicitement ce cas comme un usage legitime - « un sous-ensemble de bandes »,
+un materiau.
+
+Et pour §6.2 - « l'anneau centre dont le seul parametre anime est le volume » -
+la scene pilote CINQ parametres par CINQ sources : nombre de secteurs (mesure),
+rotation (phrase), longueur des bandes (spectre), onde de choc (kick),
+occultation (snare). §6.2 en demande deux.
+
+### `type-slam` : deux pieges de typographie, tous deux traites
+
+1. **`measureText` jamais dans la boucle** (§3.7). Il alloue un `TextMetrics`
+   ET re-rasterise un glyphe de 400 px a chaque appel. Le texte est rasterise
+   une fois dans un buffer dedie, au changement de texte ou de taille.
+2. **`document.fonts.ready` attendu, graisses prechargees.** Sans ca, le
+   premier rendu utilise la police de repli, le buffer est mis en cache AVEC,
+   et la vraie police n'apparait jamais : le cache masque le probleme au lieu
+   de le resoudre. La cle de cache porte donc l'etat de chargement des polices,
+   et le buffer est invalide quand elles arrivent.
+
+Texte : `content.slamText`, par defaut `['LIVE', '{bpm}', '{palette}']`, avec
+substitution. Vide => le BPM seul ; BPM non verrouille => `LIVE`. Pile de repli
+`"IBM Plex Mono", ui-monospace, monospace`.
+
+### Mesures - 60 s par scene (§9.3, applique aux nouvelles)
+
+Chrome, canvas 640x360, click track 128 BPM.
+
+| scene | trames | exceptions | croissance du tas | memoire canvas | passes (pic) |
+|---|---|---|---|---|---|
+| `laser-tunnel` | 2881 | 0 | +1,31 Mo | 2,71 Mo | 6,41 / 10 |
+| `mandala-32` | 2881 | 0 | **-0,33 Mo** | 2,71 Mo | 6,41 / 10 |
+| `type-slam` | 2881 | 0 | **-0,08 Mo** | 2,87 Mo | 6,41 / 10 |
+
+Tempo verrouille sur les trois pendant tout le soak (126 a 127 kicks acceptes
+sur 128, zero rejete, aucune resynchronisation dure).
+
+### Verification de composition sans capture d'ecran
+
+Le volet de previsualisation etant masque une partie du temps, les captures
+n'etaient pas disponibles. La composition a donc ete verifiee par
+echantillonnage direct du canvas en grille 44x18 de luminance :
+
+- `laser-tunnel` : structure concentrique diffuse, densite decalee A GAUCHE du
+  centre - c'est le point de fuite de la variante 0 (`vanishX = -0.18`).
+- `mandala-32` : structure radiale centree avec noyau lumineux et decroissance
+  symetrique.
+- `type-slam` : trois rangees lumineuses au milieu formant une bande, avec des
+  variations de densite de type glyphe - le texte est bien rasterise.
+
+Aucune erreur console sur aucune des trois.
+
+### A valider par un humain
+
+- **`laser-tunnel` est la plus sombre des six** : 0,009 de luminance moyenne,
+  contre 0,015 pour `mandala-32` et 0,039 pour `type-slam`. Ses anneaux sont
+  des traits fins sur un cadre presque vide, ce qui est conforme a §3.6 mais
+  peut paraitre timide en enchainement. A juger a l'oeil, sur de la vraie
+  musique, avant de toucher aux reglages.
+- **Le choix des textes de `type-slam`** : `['LIVE', BPM, nom de palette]` est
+  le defaut du prompt. C'est un choix editorial.
+- **La suite 6 -> 8 -> 12 -> 16 de `mandala-32`** change a chaque mesure, donc
+  toutes les deux secondes a 120 BPM. Le prompt l'impose ; a l'usage, ca peut
+  etre trop rapide.
+
+### Ce qui n'est PAS dans l'etape 5
+
+L'etape 6 : easings, affinage du grain et du bloom, garde-fou de saturation
+regle finement, et surtout la calibration de `userTrimMs` - le seul point de
+§8 qui exige de filmer l'ecran et le son a 240 fps.
+
+---
+
+## Etape 6 - Polish
+
+§9.6 : « easings, grain, bloom, garde-fou de saturation, affinage de
+`userTrimMs` ». Relire §2.7.8 en entier avant cette etape a fait apparaitre
+deux manques que les etapes 3 a 5 avaient laisses passer, tous deux corriges
+ici.
+
+### Ce qui est livre
+
+- `util/easing.ts` : `easeOutCubic`, `easeOutQuint`, `easeInOutSine`,
+  `overshootLobe`, `impact`, `anticipation`. Fonctions pures, sans allocation.
+- `util/accent.ts` : `beatWeight`, `gridAccent`, `withGridFloor`, et les trois
+  constantes de decroissance `DECAY_KICK` / `DECAY_SNARE` / `DECAY_HAT`.
+- `LiveFrame.gridAccent(decayBeats)` : accent pilote par l'HORLOGE, fourni par
+  le pipeline, pondere par la confiance.
+- Micro-variation de phrase (§4.3) ajoutee aux quatre scenes qui n'en avaient
+  pas : `grid-horizon`, `curl-flow`, `slice-displace`, `type-slam`.
+- Grain DOSE par la luminance mesuree, hysteresis sur le garde-fou de
+  saturation, descente de deux crans du `FrameBudget` sur recurrence.
+- Mire de calibration de `userTrimMs` (touche `C`).
+- Trois nouveaux tests : `liveEasing.test.ts` (12), `liveHotPath.test.ts` (2),
+  plus le critere temporel de §8.10 et l'hysteresis dans les fichiers existants.
+
+### Manque n°1 - l'enveloppe d'onset ne revenait jamais au repos
+
+§2.7.8 : « retour au repos sur 0,3 a 0,6 temps ». `OnsetView.envelope` etait une
+exponentielle `strength * exp(-t / (decayBeats * periode))`. Une exponentielle
+ne revient pas au repos : a `tau` elle vaut encore 0,37, et il faut environ
+3 `tau` pour passer sous 5 %. Avec `decayBeats = 0,35`, la reaction du kick
+etait donc encore a 37 % un tiers de temps plus tard et a 6 % un temps entier
+apres - allumee quand la frappe suivante arrivait, ce qui mange exactement le
+contraste qu'elle devait creer.
+
+`impact()` atteint zero EXACTEMENT a l'echeance. Ce n'est pas une substitution
+en place : la duree VISIBLE d'une exponentielle vaut environ trois fois sa
+constante de temps, donc reprendre 0,35 / 0,2 / 0,08 aurait rendu toutes les
+reactions trois fois plus breves. Les appelants ont ete reregles :
+
+| canal | avant (constante d'exp) | duree visible avant | apres (retour au repos) |
+|---|---|---|---|
+| kick | 0,35 | ~1,05 temps | **0,50** |
+| snare | 0,2 | ~0,60 temps | **0,35** |
+| charley | 0,08 | ~0,24 temps | **0,18** |
+
+Le kick passe donc de 1,05 a 0,50 temps : c'est un CHANGEMENT VISIBLE,
+volontaire, et c'est le coeur de §2.7.8. Le charley sort de la bande 0,3-0,6
+deliberement : en doubles croches il frappe toutes les 0,25 temps, et une
+decroissance de 0,3 ne reviendrait jamais au repos - le scintillement
+deviendrait un voile continu.
+
+Le transitoire d'aberration du pipeline reste plus court encore (0,18 / 0,14) :
+il doit marquer l'instant de la frappe, pas la porter.
+
+### Manque n°2 - les temps faibles ne recevaient aucun accent
+
+§2.7.8, derniere phrase : « Les temps faibles et contretemps recoivent un accent
+reduit (30-50 %) plutot qu'aucun. » C'est une regle en creux, facile a manquer.
+Un moteur qui ne reagit qu'aux onsets DETECTES laisse les temps faibles a zero :
+sur un motif ou seuls les temps 1 et 3 portent un kick, le visuel bat a
+demi-vitesse alors que l'horloge, elle, est juste.
+
+`gridAccent` comble le creux. Trois precautions :
+
+1. **C'est un PLANCHER, pas un terme.** `withGridFloor` fait un `max`, jamais une
+   somme - une somme ferait exactement ce que §2.7.7 interdit, et sur un temps
+   ou l'onset EST detecte les deux se cumuleraient a 1,4.
+2. **Il est pondere par la confiance.** L'accent de grille est une affirmation
+   de l'horloge (« il y a un temps ici, meme si rien n'a ete detecte ») ; tant
+   que l'horloge n'est pas sure, cette affirmation ferait battre l'image a cote
+   de la musique, un defaut pire que l'absence qu'elle corrige. En mode tap
+   manuel la confiance vaut 1, la grille reprend donc toute son autorite.
+3. **Le temps 1 est DANS la bande 30-50 %, a 0,5.** Premiere version : 1,0. C'est
+   une erreur, et de la pire espece - un plancher a 1 n'est plus un plancher,
+   c'est un remplacement. Il forcait chaque mesure a l'amplitude maximale meme
+   sans kick joue, donc pendant un breakdown, en contradiction directe avec le
+   plancher de vide et le plafond de luminance de §2.8 ; et il ECRASAIT la
+   dynamique, un kick de force 0,3 tombant sur le temps 1 ressortant a 1,0. Le
+   plein accent doit venir de la frappe detectee.
+
+Poids retenus : temps 1 `0,50`, temps fort secondaire `0,40`, temps faibles
+`0,35`, contretemps `0,30`. Tous dans la bande, hierarchie preservee.
+
+`laser-tunnel` et `mandala-32` ne peuvent pas utiliser un `max` : elles EMETTENT
+des objets discrets (anneaux, ondes). Elles emettent donc sur les temps
+d'horloge sans frappe, a la force du poids de grille. La frontiere y est
+detectee sur le REBOUCLAGE de `visualBeatPhase`, pas sur l'increment de
+`beatIndex` : `beatIndex` avance a la frontiere BRUTE, s'y fier ferait naitre
+l'anneau a l'instant ou l'analyse voit le temps et non a celui ou l'auditeur
+l'entend - decale de `syncOffsetMs`, la quantite meme que §2.5 corrige partout
+ailleurs.
+
+### Ecart assume n°10 - la regle ESLint de §8.9 est portee en test
+
+§8.9 : « Une regle ESLint locale interdit `new`, `[]`, `{}`, `.map/.filter/.slice`
+et les litteraux de fonction dans les fichiers marques `// hot-path`. » Le projet
+n'a pas ESLint, et §7 interdit d'ajouter la moindre dependance : installer
+`eslint` plus un plugin pour une seule regle contredirait la consigne plus
+fortement que de la porter ailleurs. `typescript` est deja une devDependency et
+expose l'AST ; `liveHotPath.test.ts` lit donc le meme arbre qu'une regle ESLint
+aurait lu et echoue de la meme facon.
+
+Extension : le marqueur est accepte au niveau FICHIER (comme demande) ET au
+niveau METHODE. Sans le second, `CurlField.sample` - la fonction la plus chaude
+du mode, jusqu'a 6 000 appels par trame - serait intestable, son fichier allouant
+legitimement ses tables de permutation au constructeur.
+
+Dix zones marquees, **zero violation** : `util/easing.ts` et `util/accent.ts`
+en entier, `SimplexNoise.noise2`, `fbm2`, `CurlField.sample`, et les `render()`
+des sept scenes. Un garde-fou fait echouer la suite si tous les marqueurs
+disparaissent - une regle qui ne s'applique a rien passe toujours.
+
+### §8.10 - la garantie temporelle n'etait pas tenue
+
+Les tests existants verifiaient le MECANISME de descente (8 trames sur 12) ;
+§8.10 demande autre chose : « une descente a un niveau tenable en < 1 s ».
+
+Le premier test ecrit echouait sur une scene a 20 ms, la zone morte allant
+jusqu'a 1,5 x la periode. C'etait un artefact du simulateur : `sample()` recoit
+des horodatages de `requestAnimationFrame`, pas des couts CPU, et sur un ecran
+a frequence fixe ils sont QUANTIFIES au vsync. Une scene a 20 ms ne produit
+jamais de trame a 20 ms, elle rate son vsync et presente a 33,4. Le test
+quantifie donc desormais.
+
+Reste un vrai defaut : a deux fois le budget, trois crans successifs prenaient
+**1 369 ms**, chaque cran coutant une fenetre pleine PLUS le delai anti-rebond.
+Correction : deux crans d'un coup quand une descente vient deja d'avoir lieu
+(`severeWindowMs`, 1 200 ms). Le critere est la RECURRENCE, pas l'ampleur : une
+premiere version comparait `medianMs / referenceMs` a 3 et ne se declenchait
+jamais, la quantification vsync faisant saturer ce rapport a 2.
+
+Mesure apres correction, quantification vsync a 60 Hz :
+
+| cout de scene a Q3 | temps de stabilisation | niveau atteint |
+|---|---|---|
+| 20 ms | 400 ms | 2 |
+| 25 ms | 901 ms | 0 |
+| 33,4 ms | 901 ms | 0 |
+| 50 ms | aucun niveau tenable, descente complete | 0 |
+
+Le cas a 25 ms sur-degrade d'un cran (le niveau 1 aurait suffi) : c'est le prix
+de l'heuristique, et la remontee automatique le rattrape en 90 trames rapides.
+
+### Garde-fou de saturation - il battait a la frequence de trame
+
+§2.8 demande trois reductions quand la moyenne glissante de luminance depasse
+0,55 : bloom, densite, nombre d'overlays. Les trois etaient bien la. Le defaut
+etait ailleurs : `saturated = moyenne > seuil`, une comparaison seche.
+
+Ce garde-fou est une boucle de regulation - il fait BAISSER la luminance, donc
+repasser sous le seuil, donc se relacher, donc la luminance remonte. Sans
+hysteresis il bascule a chaque trame. Le budget d'overlays etait deja protege
+(`OverlayDirector` ne bascule qu'aux frontieres de mesure) mais bloom et densite
+sautaient de 30 % d'une trame a l'autre. `saturationRelease: 0.85` : le
+relachement demande de repasser sous 0,85 x le seuil. Mesure : **1 bascule au
+plus sur 600 trames** de luminance oscillant autour du seuil, contre une par
+trame avant.
+
+Supprime au passage : `lumAccum` / `lumTime`, deux accumulateurs jamais lus.
+
+### Grain - dose a l'inverse de la luminance
+
+Le grain tournait a plein regime en permanence. Il ne sert pourtant qu'a
+DITHERER le banding, et le banding n'existe que dans les degrades sombres : sur
+8 bits, deux niveaux voisins sont separes de 1/255 en valeur mais de bien plus
+en luminance percue pres du noir. Sur une image claire, le grain n'a plus rien a
+corriger et ne fait que salir.
+
+`grainDose = 1 - 0,5 * min(1, luminance * 4)`, sur la luminance de la trame
+precedente (un retard d'une trame, invisible). Sur les six scenes mesurees la
+luminance moyenne va de 0,016 a 0,044, donc le grain reste entre 0,91 et 0,97 :
+l'effet est reel mais discret, et il n'agit vraiment que sur un drop tres clair.
+Mesure : la luminance moyenne de `curl-flow` passe de 0,0172 a 0,0159, ce qui
+confirme que le dosage est bien actif.
+
+### Bloom - non touche, et pourquoi
+
+§9.6 cite le bloom. Aucune valeur n'a ete changee, faute de mesure fiable pour
+le faire : les six scenes tournent entre 0,016 et 0,044 de luminance moyenne
+dans le banc, mais le banc est en BOOT sans audio, donc a intensite 0 et tous
+accents au repos. Regler le gain de bloom sur une image au repos reglerait la
+mauvaise chose. `bloomGain: 0.85`, `bloomThreshold`, `bloomSigmaAt1080: 9`
+restent aux valeurs de l'etape 2. C'est un point de validation humaine, pas un
+oubli.
+
+### Mesures - cout de trame en 1920x1080, qualite 3 forcee
+
+§8.10 demande « le frame time median sur 600 trames a qualite 3, en 1920x1080,
+consigne pour chaque scene ». **Le chiffre demande - la mediane des deltas de
+`requestAnimationFrame` - n'est PAS obtenable ici** : les deux navigateurs
+disponibles ont leur onglet en arriere-plan, et un onglet en arriere-plan ne
+recoit aucun `requestAnimationFrame`. Mesure : **0 trame en 1 000 ms**. C'est
+le meme blocage que celui note a l'etape 3.
+
+Ce qui a ete mesure a la place : le cout de rendu synchrone d'une trame, avec un
+`getImageData(0,0,1,1)` juste apres pour forcer la synchronisation GPU - sans ce
+vidage, `performance.now()` autour du code Canvas 2D renvoie une valeur qui ne
+veut rien dire. Les scenes sont mesurees en ROUND-ROBIN (10 tours de 20 trames
+chacune, en alternance) pour que la derive de charge machine les affecte toutes
+egalement.
+
+| scene | mediane | p25 | p95 |
+|---|---|---|---|
+| `witness` (temoin, ne dessine presque rien) | **37,9 ms** | 36,6 | 46,2 |
+| `slice-displace` | 38,4 ms | 36,8 | 47,8 |
+| `type-slam` | 38,7 ms | 37,4 | 47,7 |
+| `mandala-32` | 39,1 ms | 37,7 | 51,6 |
+| `grid-horizon` | 39,8 ms | 38,2 | 48,8 |
+| `laser-tunnel` | 39,9 ms | 38,4 | 48,7 |
+| `curl-flow` (6 000 particules) | 40,2 ms | 38,4 | 53,4 |
+
+Les valeurs ABSOLUES sont inutilisables : l'onglet est en arriere-plan, donc
+depriorise par l'ordonnanceur, et le build est en mode dev non minifie. Le
+facteur de sur-cout est d'environ 4 a 6 (une premiere lecture en onglet moins
+charge donnait 24,7 ms pour `grid-horizon`).
+
+Le RAPPORT, lui, est solide, et c'est le resultat interessant : **la scene
+temoin coute 37,9 ms et la plus lourde 40,2 ms**. L'ecart entre « ne rien
+dessiner » et « 6 000 particules en sept groupes de chemins » est de **2,3 ms,
+soit 6 %**. Autrement dit, en 1920x1080 le temps de trame est entierement
+domine par la chaine de POST - 6,36 passes plein ecran - et le choix de scene
+n'y change presque rien. La consequence pratique : le tableau par scene que
+demande §8.10 ne discriminera jamais les scenes ; c'est le budget de passes qui
+gouverne, et c'est lui que `FrameBudget` regle deja.
+
+**A refaire par Aaron, fenetre au premier plan** - `frametime()` a ete ajoute au
+banc pour ca. Il redimensionne le canvas a 1920x1080, force la qualite a 3, jette
+60 trames de rodage puis mesure 600 deltas de `requestAnimationFrame` reels, et
+signale `document.hidden` s'il vaut `true` :
+
+```js
+await __liveBench.frametime('curl-flow')
+```
+
+### Verification navigateur apres l'etape 6
+
+Six scenes, 200 trames chacune, canvas 1920x1080, qualite 3 forcee :
+
+| scene | luminance | couverture | passes | memoire canvas |
+|---|---|---|---|---|
+| `grid-horizon` | 0,0435 | 0,117 | 6,36 | 24,3 Mo |
+| `curl-flow` | 0,0159 | 0,003 | 6,36 | 24,3 Mo |
+| `slice-displace` | 0,0161 | 0 | 6,36 | 24,3 Mo |
+| `laser-tunnel` | 0,0161 | 0 | 6,36 | 24,3 Mo |
+| `mandala-32` | 0,0170 | 0,015 | 6,36 | 24,3 Mo |
+| `type-slam` | 0,0358 | 0,049 | 6,36 | 26,2 Mo |
+
+**Zero erreur console**, aucune degradation memoire, passes inchangees.
+
+La couverture nulle de `slice-displace` et `laser-tunnel` n'est pas un defaut :
+le banc etait en BOOT sans audio, donc confiance 0, donc accent de grille nul.
+C'est precisement le comportement voulu - pas de musique, pas d'image. Ca
+confirme au passage que la ponderation par la confiance fonctionne : la grille
+n'invente pas de temps quand l'horloge ne sait rien.
+
+### Calibration de `userTrimMs` - le mecanisme, pas la valeur
+
+La valeur finale ne peut pas etre determinee sans la mesure a 240 fps qu'Aaron
+seul peut faire. Ce que l'etape 6 livre, c'est ce qui rend cette mesure
+faisable. Sans mire, l'operateur doit reperer sur la video l'instant ou une
+scene « reagit » - et une enveloppe qui monte en trois trames ne donne aucun
+front net a mesurer.
+
+Touche `C` : un carre blanc a bord franc, coin bas-droit, allume sur **une seule
+trame**, au temps 1 VISUEL (rebouclage de `visualBarPhase`, pas `barIndex`). Un
+cadre gris permanent montre ou regarder. Procedure :
+
+1. Click track de BPM connu, `C` pour allumer la mire, `D` pour le HUD.
+2. Filmer ecran + son a 240 fps.
+3. Compter les images entre l'attaque du clic dans la forme d'onde et la
+   premiere image ou le carre est allume. Chaque image vaut **4,17 ms**.
+4. Regler aux fleches haut/bas (pas de 2 ms) jusqu'a annuler l'ecart. Positif =
+   le visuel tombe en avance.
+5. La valeur est persistee dans `localStorage`. La mire, elle, ne l'est pas :
+   c'est un outil de mesure, pas un reglage.
+
+Un CARRE au huitieme du cote, pas un plein ecran : la mire passe par le
+`FlashLimiter` comme tout le reste (§6.9), et un plein ecran blanc y serait
+ecrete - la mire mesurerait alors le limiteur et non la latence.
+
+### Resultat du portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 99 fichiers, 793 tests
+npm run test:arch   -> 1 test
+npm run build       -> 448,07 kB (gzip 125,24 kB), 202 modules, 1,82 s
+```
+
+### A valider par un humain
+
+Nouveau, propre a l'etape 6 :
+
+- **La decroissance du kick passe de ~1,05 a 0,50 temps.** C'est le changement
+  le plus visible de cette etape. L'image doit paraitre plus nette et plus
+  contrastee sur chaque frappe ; si elle parait au contraire seche ou nerveuse,
+  `DECAY_KICK` dans `util/accent.ts` est le seul point a bouger, et 0,6 reste
+  dans la bande autorisee par §2.7.8.
+- **L'accent de grille sur les temps sans frappe.** A juger sur un morceau a
+  kick sur 1 et 3 : le visuel doit battre a la noire, pas a la blanche. Si les
+  temps 2 et 4 paraissent trop presents, baisser `WEIGHT_WEAK`.
+- **Les anneaux et ondes de grille** de `laser-tunnel` et `mandala-32` doivent
+  se distinguer nettement de ceux d'une vraie frappe (0,35-0,50 contre ~1,0).
+- **Les micro-variations de phrase** doivent etre invisibles en tant que telles :
+  si on voit l'horizon bouger, l'amplitude est trop grande.
+- **Le bloom**, non regle faute de mesure fiable (voir plus haut).
+- **La mire de calibration** et la valeur finale de `userTrimMs`.
+
+Toujours ouvert depuis les etapes precedentes : lisibilite du tempo son coupe,
+impression de qualite d'image, gout sur les 8 palettes, rythme des coupes,
+esthetique des six overlays, `laser-tunnel` la plus sombre des six, cadence
+6 -> 8 -> 12 -> 16 du mandala, textes de `type-slam`.
+
+### Ce qui n'est PAS dans l'etape 6
+
+- La passe 2 de §4.2 (scenes supplementaires) - hors des six demandees.
+- Le reglage du bloom, faute de mesure exploitable en onglet d'arriere-plan.
+- Le tableau §8.10 par scene en `requestAnimationFrame` reel : `frametime()` est
+  livre, la mesure demande une fenetre au premier plan.

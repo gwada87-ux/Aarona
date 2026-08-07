@@ -73,8 +73,6 @@ export class IntensityDirector {
     grainOnly: false,
   };
 
-  private lumAccum = 0;
-  private lumTime = 0;
   private darkBeats = 0;
   private lastBeatIndex = Number.NEGATIVE_INFINITY;
   private lastPhraseIndex = Number.NEGATIVE_INFINITY;
@@ -195,9 +193,15 @@ export class IntensityDirector {
     const w = this.config.saturationWindowSec;
     const a = 1 - Math.exp(-dt / Math.max(w, 0.1));
     this.meanLuminance += (frameLuminance - this.meanLuminance) * a;
-    this.lumAccum += frameLuminance * dt;
-    this.lumTime += dt;
-    this.saturated = this.meanLuminance > this.config.saturationLimit;
+    // HYSTERESIS. Une comparaison seche `moyenne > seuil` bascule a chaque
+    // trame quand la moyenne stationne sur le seuil - ce qui est le cas normal,
+    // puisque le garde-fou fait justement BAISSER la luminance et donc repasser
+    // sous le seuil. Bloom et densite sautaient alors de 30 % a la frequence de
+    // trame : un scintillement, cause par le correctif cense l'eviter. Le
+    // budget d'overlays, lui, etait deja protege - `OverlayDirector` ne bascule
+    // qu'aux frontieres de mesure.
+    const limit = this.config.saturationLimit;
+    this.saturated = this.meanLuminance > (this.saturated ? limit * this.config.saturationRelease : limit);
   }
 
   /**
@@ -238,8 +242,6 @@ export class IntensityDirector {
     this.saturated = false;
     this.forcingVoid = false;
     this.voidSatisfied = false;
-    this.lumAccum = 0;
-    this.lumTime = 0;
     this.darkBeats = 0;
     this.lastBeatIndex = Number.NEGATIVE_INFINITY;
     this.lastPhraseIndex = Number.NEGATIVE_INFINITY;

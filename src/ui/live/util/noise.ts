@@ -41,7 +41,11 @@ export class SimplexNoise {
     for (let i = 0; i < 512; i++) this.perm[i] = source[i & 255]!;
   }
 
-  /** Bruit simplex 2D, approximativement dans [-1, 1]. */
+  /**
+   * Bruit simplex 2D, approximativement dans [-1, 1].
+   *
+   * hot-path (§8.9) - jusqu'a trois octaves par particule et par trame.
+   */
   noise2(xin: number, yin: number): number {
     const s = (xin + yin) * F2;
     const i = Math.floor(xin + s);
@@ -87,6 +91,8 @@ export class SimplexNoise {
    * Bruit fractal a `octaves` couches. Chaque octave double la frequence et
    * halve l'amplitude : c'est ce qui donne au champ des tourbillons a
    * plusieurs echelles au lieu d'une seule taille de cellule.
+   *
+   * hot-path (§8.9) - dans la boucle des particules.
    */
   fbm2(x: number, y: number, octaves: number): number {
     let amp = 1;
@@ -120,6 +126,9 @@ export class CurlField {
   /**
    * Remplit `out` (longueur >= 2) avec la vitesse au point `(x, y)`.
    * `twist` deforme le potentiel : c'est par lui que la basse tord le champ.
+   *
+   * hot-path (§8.9) - la fonction la plus chaude du mode live : jusqu'a
+   * 6 000 appels par trame.
    */
   sample(x: number, y: number, twist: number, octaves: number, out: Float32Array): void {
     const e = this.epsilon;

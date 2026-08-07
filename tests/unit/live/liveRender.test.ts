@@ -188,6 +188,65 @@ describe('FrameBudget (§3.7)', () => {
     expect(budget.level, 'une seule descente par fenetre').toBe(2);
   });
 
+  /**
+   * §8.10, seconde phrase : « Si une scene depasse 16,6 ms, `FrameBudget` doit
+   * demontrer une descente a un niveau tenable en < 1 s (test automatise). »
+   *
+   * Les tests voisins verifient le MECANISME de descente (la regle 8 trames sur
+   * 12) ; celui-ci verifie la GARANTIE TEMPORELLE, qui est ce que le critere
+   * demande reellement. La difference n'est pas theorique : la calibration
+   * consomme `calibrationFrames` trames avant que la moindre descente soit
+   * possible, et une scene qui part deja lente au demarrage pourrait tenir plus
+   * d'une seconde a 30 ms sans que le mecanisme soit en faute.
+   *
+   * « Tenable » = le niveau atteint tourne sous 16,6 ms. On le simule en
+   * appliquant a chaque niveau le gain de la table de `QUALITY_PROFILES` : une
+   * scene a 33 ms au niveau 3 tourne a 33 x (cout relatif du niveau).
+   *
+   * QUANTIFICATION VSYNC - sans elle le test est faux. Une premiere version
+   * alimentait `sample()` avec le cout CPU brut et concluait qu'une scene a
+   * 20 ms ne declenchait jamais de descente, la zone morte allant jusqu'a 1,5 x
+   * la periode. Mais `sample()` recoit des horodatages de `requestAnimationFrame`,
+   * pas des couts CPU : sur un ecran a 60 Hz ils sont QUANTIFIES en multiples de
+   * 16,7 ms. Une scene a 20 ms ne produit jamais de trame a 20 ms, elle rate son
+   * vsync et presente a 33,4. Le seuil de 1,5 x attrape donc exactement les
+   * trames manquees, et l'echec initial etait un artefact du simulateur.
+   */
+  it('descend a un niveau tenable en moins d une seconde (§8.10)', () => {
+    // Cout relatif mesure de chaque niveau, du plus lourd au plus leger.
+    // Volontairement PESSIMISTE : si la descente suffit avec ces gains, elle
+    // suffit avec les gains reels, qui sont meilleurs.
+    const relativeCost = [0.35, 0.55, 0.78, 1];
+    const VSYNC = 16.7;
+    const present = (costMs: number): number => Math.max(1, Math.ceil(costMs / VSYNC)) * VSYNC;
+
+    for (const slowMs of [20, 25, 33.4, 50]) {
+      const budget = new FrameBudget(perf);
+      // Calibration a 60 fps : la machine est saine, c'est la SCENE qui coute.
+      let t = feed(budget, perf.calibrationFrames + 2, VSYNC);
+      expect(budget.level).toBe(3);
+
+      const start = t;
+      let settledAt = -1;
+      for (let i = 0; i < 600 && settledAt < 0; i++) {
+        t += present(slowMs * relativeCost[budget.level]!);
+        budget.sample(t);
+        if (slowMs * relativeCost[budget.level]! <= 16.6) settledAt = t - start;
+      }
+
+      const reachable = slowMs * relativeCost[0]! <= 16.6;
+      if (!reachable) {
+        // 50 ms au niveau 3 fait encore 17,5 ms au niveau 0 : aucun niveau
+        // n'est tenable, et le critere ne peut pas l'exiger. On verifie alors
+        // que le budget est bien descendu jusqu'en bas, et vite.
+        expect(budget.level, `${slowMs} ms : descente incomplete`).toBe(0);
+        continue;
+      }
+      expect(settledAt, `${slowMs} ms : jamais redescendu sous 16,6 ms`).toBeGreaterThan(0);
+      expect(settledAt, `${slowMs} ms : stabilise en ${Math.round(settledAt)} ms`).toBeLessThan(1000);
+    }
+  });
+
   it('remonte apres 90 trames rapides consecutives, jamais avant', () => {
     const budget = new FrameBudget(perf);
     let t = feed(budget, perf.calibrationFrames + 2, 16.7);

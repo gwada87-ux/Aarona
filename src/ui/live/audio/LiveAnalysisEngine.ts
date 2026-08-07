@@ -29,6 +29,7 @@ import {
 import { TempoEstimator } from './TempoEstimator';
 import { SectionEnergy } from './SectionEnergy';
 import { MACRO_BAND_IDS, type LiveConfig } from '../LiveConfig';
+import { impact } from '../util/easing';
 import type { OnsetSet } from '../scenes/types';
 
 export type EngineState = 'BOOT' | 'IDLE' | 'REACTIVE' | 'LOCKED';
@@ -71,6 +72,10 @@ class OnsetView implements OnsetSet {
     return this.engine.onsets.lastStrength(kind);
   }
 
+  lastTime(kind: OnsetKind): number {
+    return this.engine.onsets.lastTime(kind);
+  }
+
   /**
    * MUST §2.7.2 : decroissance selon le TEMPS ECOULE depuis l'attaque, jamais
    * selon `beatPhase`. Avec `beatPhase`, l'enveloppe remonte a 1 sur TOUS les
@@ -78,14 +83,22 @@ class OnsetView implements OnsetSet {
    * attenuee.
    *
    * Une nouvelle attaque REMPLACE l'enveloppe (`max`), elle ne s'y ajoute pas.
+   *
+   * ETAPE 6 - la decroissance etait exponentielle. `exp(-t/tau)` ne « revient
+   * jamais au repos » : a `tau` elle vaut encore 0,37, et il faut environ 3
+   * `tau` pour descendre sous 5 %. La consigne de §2.7.8 - « retour au repos
+   * sur 0,3 a 0,6 temps » - n'etait donc pas tenue : avec `decayBeats` a 0,35
+   * la reaction du kick restait allumee bien apres le temps suivant, ce qui
+   * mange exactement le contraste que la frappe devait creer. `impact()` atteint
+   * zero EXACTEMENT a `decayBeats`. Les appelants ont ete reregles en
+   * consequence (constantes `DECAY_*`), ce n'est pas une simple substitution.
    */
-  envelope(kind: OnsetKind, decayBeats: number): number {
+  envelope(kind: OnsetKind, decayBeats: number, overshoot = 0): number {
     const period = this.engine.beat.periodSec;
     if (period <= 0) return 0;
     const since = this.engine.audioTime - this.engine.onsets.lastTime(kind);
     if (!(since >= 0) || !Number.isFinite(since)) return 0;
-    const tau = Math.max(1e-3, decayBeats * period);
-    return this.engine.onsets.lastStrength(kind) * Math.exp(-since / tau);
+    return this.engine.onsets.lastStrength(kind) * impact(since / period, decayBeats, overshoot);
   }
 }
 

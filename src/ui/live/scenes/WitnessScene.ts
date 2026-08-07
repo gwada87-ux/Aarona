@@ -23,6 +23,7 @@
  */
 
 import { resetCompositing } from '../render/LayerStack';
+import { DECAY_HAT, DECAY_KICK, DECAY_SNARE } from '../util/accent';
 import type { LiveFrame, LiveScene, SceneContext, SceneTag, Viewport } from './types';
 
 /** Fractions du cadre - jamais de pixels absolus (§3.6). */
@@ -62,6 +63,7 @@ export class WitnessScene implements LiveScene {
     this.horizonGradient = null;
   }
 
+  // hot-path (§8.9) : corps de trame.
   render(ctx: CanvasRenderingContext2D, frame: LiveFrame): void {
     const view = frame.view;
     this.view = view;
@@ -70,9 +72,9 @@ export class WitnessScene implements LiveScene {
     const amp = frame.reducedMotion ? 1 / Math.max(1, this.reducedDivider) : 1;
 
     // --- accent principal : l'arc, pilote par le KICK -----------------------
-    const kick = frame.onsets.envelope('kick', 0.35);
-    const snare = frame.onsets.envelope('snare', 0.2);
-    const hat = frame.onsets.envelope('hat', 0.08);
+    const kick = frame.onsets.envelope('kick', DECAY_KICK);
+    const snare = frame.onsets.envelope('snare', DECAY_SNARE);
+    const hat = frame.onsets.envelope('hat', DECAY_HAT);
 
     const cx = ARC_CENTER_X[this.variant]! * view.w;
     const cy = (HORIZON_Y[this.variant]! - 0.5) * view.h;

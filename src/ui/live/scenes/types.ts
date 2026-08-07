@@ -45,12 +45,45 @@ export interface OnsetSet {
   /** Force du dernier onset de ce type, 0-1. */
   strength(kind: OnsetKind): number;
   /**
+   * Instant du dernier onset de ce type, sur l'horloge audio. `-Infinity` si
+   * aucun. Une scene qui EMET quelque chose par frappe - un anneau, une onde -
+   * s'en sert pour ne pas emettre deux fois : pendant une transition, deux
+   * scenes rendent la meme trame, et `fired()` y est vrai pour les deux.
+   */
+  lastTime(kind: OnsetKind): number;
+  /**
    * Enveloppe de frappe (§2.7.2). Decroit selon le TEMPS ECOULE depuis
    * l'attaque, jamais selon `beatPhase` - sinon l'enveloppe remonte a 1 sur
    * TOUS les temps, meme sans frappe, et une frappe en contretemps nait deja
    * a moitie attenuee.
+   *
+   * `decayBeats` est la duree de RETOUR AU REPOS effectif : l'enveloppe vaut
+   * exactement 0 au-dela (§2.7.8), elle ne traine pas. Utiliser les constantes
+   * `DECAY_*` de `util/accent` plutot que des nombres en dur.
+   *
+   * `overshoot` (<= 8 %) est reserve aux elements MASSIFS - cf. `impact`.
    */
-  envelope(kind: OnsetKind, decayBeats: number): number;
+  envelope(kind: OnsetKind, decayBeats: number, overshoot?: number): number;
+}
+
+/**
+ * Calques appartenant a une scene. Passer par ici plutot que par
+ * `document.createElement('canvas')` n'est pas une preference de style :
+ * §3.1 impose un inventaire memoire, et un canvas alloue en douce y echappe.
+ * Safari plafonne la memoire canvas GLOBALE ; au-dela, `getContext()` renvoie
+ * `null` sans lever.
+ */
+export interface SceneLayers {
+  acquire(key: string, w: number, h: number, opaque: boolean): SceneLayer | null;
+  release(key: string): void;
+}
+
+export interface SceneLayer {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly width: number;
+  readonly height: number;
+  /** Source utilisable par `drawImage`. */
+  readonly image: CanvasImageSource;
 }
 
 export interface SceneContext {
@@ -61,6 +94,8 @@ export interface SceneContext {
   readonly assets: Assets;
   /** PRNG SEEDE fourni par le director. Jamais `Math.random()` : une scene doit etre reproductible. */
   readonly rng: () => number;
+  /** Calques propres a la scene, comptabilises dans le plafond memoire. */
+  readonly layers: SceneLayers;
 }
 
 export interface LiveFrame {
@@ -89,6 +124,18 @@ export interface LiveFrame {
    * les regions se recouvrent - ce que fait justement `slice-displace`.
    */
   readonly previousFrame: CanvasImageSource | null;
+  /**
+   * Accent de GRILLE (§2.7.8) : « les temps faibles et contretemps recoivent un
+   * accent reduit (30-50 %) plutot qu'aucun ».
+   *
+   * Pilote par l'horloge, pas par la detection : sur un motif ou seuls les
+   * temps 1 et 3 portent un kick, `onsets.envelope('kick', ...)` laisse les
+   * temps 2 et 4 a zero et le visuel bat a demi-vitesse. A utiliser comme
+   * PLANCHER via `withGridFloor`, jamais comme terme d'une somme - §2.7.7.
+   *
+   * Lit les phases VISUELLES, donc deja decalees de `syncOffsetMs`.
+   */
+  readonly gridAccent: (decayBeats: number) => number;
 }
 
 export interface LiveScene {

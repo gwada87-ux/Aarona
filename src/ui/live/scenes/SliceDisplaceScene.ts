@@ -22,6 +22,8 @@
  */
 
 import { resetCompositing } from '../render/LayerStack';
+import { DECAY_HAT, DECAY_KICK, DECAY_SNARE, withGridFloor } from '../util/accent';
+import { easeInOutSine } from '../util/easing';
 import type { LiveFrame, LiveScene, SceneContext, SceneTag, Viewport } from './types';
 
 interface Variant {
@@ -75,19 +77,28 @@ export class SliceDisplaceScene implements LiveScene {
     // Tout est en fractions du cadre.
   }
 
+  // hot-path (§8.9) : corps de trame.
   render(ctx: CanvasRenderingContext2D, frame: LiveFrame): void {
     const view = frame.view;
     const amp = frame.reducedMotion ? 1 / Math.max(1, this.reducedDivider) : 1;
     const palette = frame.palette;
     const v = this.variant;
 
-    const kick = frame.onsets.envelope('kick', 0.35);
-    const snare = frame.onsets.envelope('snare', 0.2);
-    const hat = frame.onsets.envelope('hat', 0.08);
+    const kick = frame.onsets.envelope('kick', DECAY_KICK);
+    // La BANDE VHS est l'accent principal, et un element massif : depassement
+    // de 8 % autorise (§2.7.8). Plancher de grille sur la caisse claire, qui
+    // porte ici la coupe : sans elle, une mesure sans snare detecte fige
+    // completement l'image.
+    const snare = withGridFloor(frame.onsets.envelope('snare', DECAY_SNARE, 0.08), frame.gridAccent(DECAY_SNARE), 1);
+    const hat = frame.onsets.envelope('hat', DECAY_HAT);
 
     const slices = Math.min(MAX_SLICES, v.slices);
     const sliceH = view.h / slices;
-    const focusY = v.focusY * view.h;
+    // MICRO-VARIATION de phrase (§4.3) : le foyer de dislocation glisse
+    // lentement le long du cadre. Les decalages se redistribuent deja a chaque
+    // mesure, mais TOUJOURS autour du meme foyer, ce qui donnait une signature
+    // reconnaissable au bout de quelques mesures.
+    const focusY = (v.focusY + (easeInOutSine(frame.beat.phrasePhase) - 0.5) * 0.18) * view.h;
 
     // Les decalages ne sont retires qu'aux frontieres de MESURE : redistribuer
     // a chaque trame donnerait un bruit sans lecture rythmique (§2.7.5).

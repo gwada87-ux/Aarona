@@ -22,6 +22,7 @@
 
 import { CurlField } from '../util/noise';
 import { resetCompositing } from '../render/LayerStack';
+import { DECAY_HAT, DECAY_KICK, DECAY_SNARE, withGridFloor } from '../util/accent';
 import type { LiveFrame, LiveScene, SceneContext, SceneTag, Viewport } from './types';
 
 interface Variant {
@@ -98,6 +99,7 @@ export class CurlFlowScene implements LiveScene {
     // redimensionnement ne les invalide pas.
   }
 
+  // hot-path (§8.9) : corps de trame.
   render(ctx: CanvasRenderingContext2D, frame: LiveFrame): void {
     const view = frame.view;
     const amp = frame.reducedMotion ? 1 / Math.max(1, this.reducedDivider) : 1;
@@ -106,9 +108,12 @@ export class CurlFlowScene implements LiveScene {
     const dt = frame.dt;
 
     const cap = capFor(frame.quality);
-    const kick = frame.onsets.envelope('kick', 0.35);
-    const snare = frame.onsets.envelope('snare', 0.2);
-    const hat = frame.onsets.envelope('hat', 0.08);
+    // Le noyau de l'emetteur est MASSIF : depassement de 8 % autorise (§2.7.8).
+    // Plancher de grille : sans lui, une mesure sans kick detecte n'emet plus
+    // que le debit de base et le flux se vide visiblement.
+    const kick = withGridFloor(frame.onsets.envelope('kick', DECAY_KICK, 0.08), frame.gridAccent(DECAY_KICK), 1);
+    const snare = frame.onsets.envelope('snare', DECAY_SNARE);
+    const hat = frame.onsets.envelope('hat', DECAY_HAT);
     const bass = frame.features.macroNorm[1] ?? 0;
     const air = frame.features.macroNorm[4] ?? 0;
 
@@ -116,8 +121,12 @@ export class CurlFlowScene implements LiveScene {
     // continue, sinon le champ tressaute a chaque frappe.
     this.twist += dt * (0.15 + bass * 0.9) * v.spin;
 
-    const emitterX = v.emitterX * view.w;
-    const emitterY = v.emitterY * view.h;
+    // MICRO-VARIATION de phrase (§4.3) : l'emetteur derive lentement sur une
+    // petite ellipse. La torsion evolue deja, mais elle est pilotee par la
+    // basse, donc statique sur un passage a niveau constant.
+    const drift = frame.beat.phrasePhase * Math.PI * 2;
+    const emitterX = (v.emitterX + Math.cos(drift) * 0.03) * view.w;
+    const emitterY = (v.emitterY + Math.sin(drift) * 0.02) * view.h;
     const unit = view.min;
 
     // --- emission : bouffee sur le KICK ------------------------------------

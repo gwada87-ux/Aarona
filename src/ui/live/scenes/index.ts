@@ -16,6 +16,9 @@ import type { LiveScene, SceneTag } from './types';
 import { CurlFlowScene, CURL_FLOW_VARIANTS } from './CurlFlowScene';
 import { GridHorizonScene, GRID_HORIZON_VARIANTS } from './GridHorizonScene';
 import { SliceDisplaceScene, SLICE_DISPLACE_VARIANTS } from './SliceDisplaceScene';
+import { LaserTunnelScene, LASER_TUNNEL_VARIANTS } from './LaserTunnelScene';
+import { Mandala32Scene, MANDALA32_VARIANTS } from './Mandala32Scene';
+import { TypeSlamScene, TYPE_SLAM_VARIANTS } from './TypeSlamScene';
 
 export interface SceneEntry {
   readonly id: string;
@@ -53,6 +56,32 @@ export const SCENE_REGISTRY: readonly SceneEntry[] = Object.freeze([
     reducedMotionSafe: false,
     create: (): LiveScene => new SliceDisplaceScene(),
   }),
+  Object.freeze({
+    id: 'laser-tunnel',
+    tags: Object.freeze(['neon', 'intense', 'strobe'] as const),
+    intensityRange: Object.freeze([0.55, 1] as const),
+    variants: LASER_TUNNEL_VARIANTS,
+    reducedMotionSafe: false,
+    create: (): LiveScene => new LaserTunnelScene(),
+  }),
+  Object.freeze({
+    id: 'mandala-32',
+    tags: Object.freeze(['geometric'] as const),
+    intensityRange: Object.freeze([0.3, 0.85] as const),
+    variants: MANDALA32_VARIANTS,
+    // §4.2 : « oui (amplitudes / 2) ». La seule scene ou le prompt precise le
+    // traitement en mouvement reduit plutot que de l'exclure.
+    reducedMotionSafe: true,
+    create: (): LiveScene => new Mandala32Scene(),
+  }),
+  Object.freeze({
+    id: 'type-slam',
+    tags: Object.freeze(['glitch', 'intense', 'strobe'] as const),
+    intensityRange: Object.freeze([0.55, 1] as const),
+    variants: TYPE_SLAM_VARIANTS,
+    reducedMotionSafe: false,
+    create: (): LiveScene => new TypeSlamScene(),
+  }),
 ]);
 
 /** Entree par identifiant, ou `null`. */
@@ -70,5 +99,5 @@ export function playableScenes(reducedMotion: boolean): readonly SceneEntry[] {
   return safe.length > 0 ? safe : SCENE_REGISTRY.slice(0, 1);
 }
 
-export { GridHorizonScene, CurlFlowScene, SliceDisplaceScene };
+export { GridHorizonScene, CurlFlowScene, SliceDisplaceScene, LaserTunnelScene, Mandala32Scene, TypeSlamScene };
 export { WitnessScene } from './WitnessScene';

@@ -477,6 +477,66 @@ ui.stop.addEventListener('click', stop);
       memoireCanvasMo: +(pipeline?.stats.memoryMb ?? 0).toFixed(2),
     };
   },
+  /**
+   * Livrable de §8.10 : « frame time median sur 600 trames a qualite 3, en
+   * 1920x1080, consigne dans NOTES.md pour chaque scene ».
+   *
+   * Trois precautions, chacune correspondant a une facon de se mentir :
+   *
+   * - Le canvas est REDIMENSIONNE a 1920x1080. Le banc tourne a 960x540 par
+   *   defaut, soit le quart des pixels : y mesurer donnerait des chiffres
+   *   flatteurs et faux.
+   * - La qualite est FORCEE a 3 et le gouverneur gele. Sans ca, une scene
+   *   lourde declenche une descente au bout d'une demi-seconde et on mesure la
+   *   mediane du niveau 2 en croyant mesurer celle du niveau 3.
+   * - Les 60 premieres trames sont JETEES : premiere rasterisation des polices,
+   *   allocation des calques, remplissage du feedback.
+   *
+   * `document.hidden` est signale explicitement : un onglet en arriere-plan ne
+   * recoit plus de `requestAnimationFrame`, la mesure serait vide ou absurde.
+   */
+  async frametime(sceneId: string, frames = 600, w = 1920, h = 1080): Promise<unknown> {
+    const previousW = ui.canvas.width;
+    const previousH = ui.canvas.height;
+    const previousQuality = ui.quality.value;
+    ui.canvas.width = w;
+    ui.canvas.height = h;
+    ui.quality.value = '3';
+    ui.scene.value = sceneId;
+    applyScene();
+
+    const frame = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
+    for (let i = 0; i < 60; i++) await frame();
+
+    const deltas: number[] = [];
+    let previous = performance.now();
+    for (let i = 0; i < frames; i++) {
+      await frame();
+      const now = performance.now();
+      deltas.push(now - previous);
+      previous = now;
+    }
+
+    ui.canvas.width = previousW;
+    ui.canvas.height = previousH;
+    ui.quality.value = previousQuality;
+
+    const sorted = deltas.slice().sort((a, b) => a - b);
+    const at = (q: number): number => +(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0).toFixed(2);
+    return {
+      scene: sceneId,
+      taille: `${w}x${h}`,
+      qualite: pipeline?.budget.level ?? -1,
+      trames: deltas.length,
+      medianeMs: at(0.5),
+      p95Ms: at(0.95),
+      maxMs: +Math.max(...deltas).toFixed(2),
+      auDessusDe16_6: deltas.filter((d) => d > 16.6).length,
+      passes: +(pipeline?.stats.passes ?? 0).toFixed(2),
+      ongletCache: document.hidden,
+    };
+  },
+
   /** Luminance moyenne echantillonnee directement sur le canvas visible. */
   probe(): { mean: number; nonBackground: number } {
     const ctx = ui.canvas.getContext('2d');

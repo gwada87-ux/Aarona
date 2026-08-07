@@ -213,6 +213,8 @@ export class LayerStack {
   degraded = false;
 
   private readonly layers = new Map<LayerName, Layer>();
+  /** Calques appartenant aux scenes, sous le MEME plafond memoire. */
+  private readonly scoped = new Map<string, Layer>();
   private readonly opaqueNames: ReadonlySet<LayerName>;
 
   constructor(
@@ -265,9 +267,49 @@ export class LayerStack {
     this.layers.delete(name);
   }
 
+  /**
+   * Calque appartenant a une SCENE. Meme plafond memoire que les calques du
+   * pipeline : une scene qui alloue son propre `document.createElement` echappe
+   * a l'inventaire, et c'est exactement comme ca qu'on atteint le plafond de
+   * Safari sans le voir venir.
+   */
+  acquireScoped(key: string, w: number, h: number, opaque: boolean): Layer | null {
+    const target = { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
+    let layer = this.scoped.get(key);
+    if (layer) {
+      if (layer.width === target.w && layer.height === target.h) return layer;
+      this.budget.release(layer.width, layer.height);
+    } else {
+      layer = Layer.create(this.factory, opaque) ?? undefined;
+      if (!layer) {
+        this.degraded = true;
+        return null;
+      }
+      this.scoped.set(key, layer);
+    }
+    if (!this.budget.reserve(target.w, target.h)) {
+      this.degraded = true;
+      layer.dispose();
+      this.scoped.delete(key);
+      return null;
+    }
+    layer.resize(target.w, target.h);
+    return layer;
+  }
+
+  releaseScoped(key: string): void {
+    const layer = this.scoped.get(key);
+    if (!layer) return;
+    this.budget.release(layer.width, layer.height);
+    layer.dispose();
+    this.scoped.delete(key);
+  }
+
   disposeAll(): void {
     for (const layer of this.layers.values()) layer.dispose();
+    for (const layer of this.scoped.values()) layer.dispose();
     this.layers.clear();
+    this.scoped.clear();
     this.budget.reset();
     this.degraded = false;
   }

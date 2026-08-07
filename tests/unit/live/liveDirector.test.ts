@@ -119,6 +119,33 @@ describe('IntensityDirector - dramaturgie (§2.8)', () => {
     expect(d.budget.overlays, 'un cran de moins que les 3 de l intensite 0,9').toBe(2);
   });
 
+  /**
+   * ETAPE 6. Sans hysteresis, le garde-fou est instable PAR CONSTRUCTION : il
+   * fait baisser la luminance, la moyenne repasse sous le seuil, il se relache,
+   * la luminance remonte - a la frequence de trame. Le budget d'overlays etait
+   * deja protege (`OverlayDirector` ne bascule qu'aux frontieres de mesure),
+   * mais bloom et densite sautaient de 30 % d'une trame a l'autre.
+   */
+  it('le garde-fou ne bat pas quand la luminance stationne sur le seuil', () => {
+    const d = new IntensityDirector(CFG.intensity);
+    const limit = CFG.intensity.saturationLimit;
+    for (let i = 0; i < 1200; i++) d.update(0.016, section({ intensity: 0.9 }), beatState(), 0.8);
+    expect(d.saturated).toBe(true);
+
+    // Luminance oscillant AUTOUR du seuil, comme le produit la boucle de
+    // regulation elle-meme.
+    let flips = 0;
+    let previous = d.saturated;
+    for (let i = 0; i < 600; i++) {
+      d.update(0.016, section({ intensity: 0.9 }), beatState(), limit + (i % 2 === 0 ? 0.01 : -0.01));
+      if (d.saturated !== previous) flips++;
+      previous = d.saturated;
+    }
+    // Avec hysteresis la moyenne doit descendre sous 0,85 x le seuil pour
+    // relacher : une seule bascule, definitive, au lieu d'une par trame.
+    expect(flips, `${flips} bascules sur 600 trames`).toBeLessThanOrEqual(1);
+  });
+
   it('un flash isole ne declenche PAS le garde-fou', () => {
     const d = new IntensityDirector(CFG.intensity);
     for (let i = 0; i < 300; i++) d.update(0.016, section(), beatState(), 0.05);
@@ -444,11 +471,24 @@ describe('Controles (§4.5)', () => {
   }
 
   it('tous les raccourcis de la table sont reconnus', () => {
-    const mapped = [' ', 'a', 'l', 'ArrowRight', 'ArrowLeft', 'p', 'P', '+', '-', 'ArrowUp', 'ArrowDown', 'Escape', 'd', '?'];
+    const mapped = [' ', 'a', 'l', 'ArrowRight', 'ArrowLeft', 'p', 'P', '+', '-', 'ArrowUp', 'ArrowDown', 'Escape', 'd', 'c', '?'];
     for (const k of mapped) {
       expect(actionForKey(key(k), 0), `touche ${k}`).not.toBeNull();
     }
-    expect(SHORTCUTS.length, 'la table d aide couvre les raccourcis').toBeGreaterThanOrEqual(10);
+    // La table d'aide doit couvrir CHAQUE raccourci reconnu : un raccourci
+    // absent de l'aide n'existe pas pour l'operateur.
+    expect(SHORTCUTS.length, 'la table d aide couvre les raccourcis').toBeGreaterThanOrEqual(12);
+  });
+
+  it('C bascule la mire de calibration (§9.6)', () => {
+    // La mire est ce qui rend mesurable la latence son -> image, seul critere
+    // de §8 qu'aucun test ne peut couvrir.
+    expect(actionForKey(key('c'), 0)?.type).toBe('toggle-calibration');
+    expect(actionForKey(key('C'), 0)?.type).toBe('toggle-calibration');
+    expect(
+      SHORTCUTS.some((s) => s.key === 'C'),
+      'la mire doit figurer dans l aide, sinon personne ne la trouvera',
+    ).toBe(true);
   });
 
   it('Maj+P cycle la palette, p la verrouille', () => {

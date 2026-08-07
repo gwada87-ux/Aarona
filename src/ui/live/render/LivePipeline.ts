@@ -32,7 +32,8 @@
 import type { LiveConfig } from '../LiveConfig';
 import type { EffectBudget } from '../IntensityDirector';
 import type { OverlayId } from '../Overlays';
-import type { LiveFrame, LiveScene, SceneContext, Viewport } from '../scenes/types';
+import type { BeatClockState, LiveFrame, LiveScene, SceneContext, SceneLayers, Viewport } from '../scenes/types';
+import { gridAccent } from '../util/accent';
 import { Assets } from './Assets';
 import { Bloom } from './Bloom';
 import { Camera } from './Camera';
@@ -69,6 +70,16 @@ export interface RenderDirectives {
   /** Overlays expressifs actifs, dans l'ordre d'application de §4.4. */
   readonly overlays: readonly OverlayId[];
 }
+
+/**
+ * Ce que l'appelant fournit. Le reste de `LiveFrame` est rempli par le
+ * pipeline, qui seul connait la taille du bitmap de post, le niveau de qualite
+ * retenu, la palette et le buffer de la trame precedente. `gridAccent` en fait
+ * partie : il ne depend que de l'horloge et de `beat.beatsPerBar`, deux choses
+ * que le pipeline a deja - le faire calculer par l'appelant obligerait chaque
+ * appelant (panneau, bench, tests) a le refaire a l'identique.
+ */
+export type PipelineFrameInput = Omit<LiveFrame, 'view' | 'quality' | 'palette' | 'previousFrame' | 'gridAccent'>;
 
 export class LivePipeline {
   readonly stack: LayerStack;
@@ -187,10 +198,11 @@ export class LivePipeline {
     screenW: number,
     screenH: number,
     dpr: number,
-    frame: Omit<LiveFrame, 'view' | 'quality' | 'palette' | 'previousFrame'>,
+    frame: PipelineFrameInput,
     directives: RenderDirectives,
   ): void {
     this.passes = 0;
+    this.gridBeat = frame.beat;
     const quality = this.budget.profile;
 
     // Plafond de bitmap, puis diviseur de qualite.
@@ -234,6 +246,7 @@ export class LivePipeline {
       quality: quality.level,
       palette: this.palette,
       previousFrame: previousFrame ?? null,
+      gridAccent: this.gridAccentFn,
     };
 
     // 1. SCENE. Fond teinte de la palette - jamais `#000` pur (§3.5).
@@ -337,7 +350,11 @@ export class LivePipeline {
     }
 
     // 3. COMPOSE.
-    const transient = Math.max(frame.onsets.envelope('kick', 0.12), frame.onsets.envelope('snare', 0.1));
+    // Transitoire de l'aberration : deliberement PLUS COURT que les
+    // decroissances de scene (0,5 / 0,35). L'aberration doit marquer l'instant
+    // de la frappe, pas la porter ; a la duree du kick elle deviendrait un
+    // decalage chromatique permanent, ce que §4.4 refuse pour un overlay.
+    const transient = Math.max(frame.onsets.envelope('kick', 0.18), frame.onsets.envelope('snare', 0.14));
     // L'aberration est desormais un OVERLAY EXPRESSIF (§4.4) : elle n'est
     // active que si le director l'a retenue dans le budget, en plus de la
     // condition de qualite. Sans cette porte, elle serait un effet permanent
@@ -391,7 +408,16 @@ export class LivePipeline {
     // EXCLUSION MUTUELLE aberration / grain (§4.4). Les deux jouent sur le
     // meme registre - la texture de l'image - et l'aberration masque largement
     // le banding que le grain sert a dithering.
-    const grain = quality.grain && !aberrationActive ? 1 : 0;
+    //
+    // DOSAGE (etape 6). Le grain servait a plein regime en permanence. Or il ne
+    // sert qu'a une chose : ditherer le banding, et le banding n'existe que
+    // dans les degrades SOMBRES - sur 8 bits, deux niveaux voisins sont separes
+    // de 1/255 en valeur mais de bien plus en luminance percue quand on est
+    // pres du noir. Sur une image claire le grain n'a plus rien a corriger et
+    // ne fait que salir. Il est donc dose a l'inverse de la luminance mesuree
+    // a la trame precedente - un retard d'une trame, invisible.
+    const grainDose = 1 - 0.5 * Math.min(1, this.post.meanLuminance * 4);
+    const grain = quality.grain && !aberrationActive ? grainDose : 0;
     if (postLayer && aberrationActive) {
       this.post.composite(postLayer, screenCtx, screenW, screenH, {
         aberrationPx,
@@ -445,7 +471,7 @@ export class LivePipeline {
     w: number,
     h: number,
     directives: RenderDirectives,
-    frame: Omit<LiveFrame, 'view' | 'quality' | 'palette' | 'previousFrame'>,
+    frame: PipelineFrameInput,
   ): void {
     if (directives.overlays.includes('frame')) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -515,8 +541,26 @@ export class LivePipeline {
   }
 
   private sceneContext(ctx: CanvasRenderingContext2D, view: Viewport): SceneContext {
-    return { ctx, view, config: this.config, assets: this.assets, rng: this.rng };
+    return { ctx, view, config: this.config, assets: this.assets, rng: this.rng, layers: this.sceneLayers };
   }
+
+  /**
+   * Acces aux calques pour les scenes. Les cles sont prefixees : une scene ne
+   * peut pas ecraser un calque du pipeline en choisissant le meme nom.
+   */
+  private readonly sceneLayers: SceneLayers = {
+    acquire: (key, w, h, opaque) => {
+      const layer = this.stack.acquireScoped(`scene:${key}`, w, h, opaque);
+      if (!layer) return null;
+      return {
+        ctx: layer.ctx,
+        width: layer.width,
+        height: layer.height,
+        image: layer.canvas as CanvasImageSource,
+      };
+    },
+    release: (key) => this.stack.releaseScoped(`scene:${key}`),
+  };
 
   /** Chemin degrade : plus de memoire canvas, on dessine au moins le fond. */
   private drawFallback(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -526,6 +570,26 @@ export class LivePipeline {
     ctx.fillRect(0, 0, w, h);
     this.passes = 1;
   }
+
+  /**
+   * Horloge de la trame en cours, pour `gridAccentFn`. Une fleche STABLE plutot
+   * qu'une fermeture recreee par trame : `LiveFrame` est reconstruit a chaque
+   * trame et une fonction litterale y serait une allocation de plus dans le
+   * chemin chaud.
+   */
+  private gridBeat: BeatClockState | null = null;
+
+  private readonly gridAccentFn = (decayBeats: number): number => {
+    const b = this.gridBeat;
+    if (!b) return 0;
+    // Pondere par la CONFIANCE. L'accent de grille est une affirmation de
+    // l'horloge : « il y a un temps ici, meme si rien n'a ete detecte ». Tant
+    // que l'horloge n'est pas sure, cette affirmation ferait battre l'image a
+    // cote de la musique - un defaut pire que l'absence d'accent qu'elle
+    // corrige. En mode tap manuel `confidence` vaut 1, la grille reprend donc
+    // toute son autorite des qu'un operateur a donne le tempo a la main.
+    return gridAccent(b.visualBarPhase, b.visualBeatPhase, decayBeats, this.config.beat.beatsPerBar) * b.confidence;
+  };
 
   private readonly rng = (): number => {
     this.rngState ^= this.rngState << 13;

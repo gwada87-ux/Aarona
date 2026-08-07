@@ -19,14 +19,41 @@ import { QUALITY_PROFILES } from '../../../src/ui/live/render/FrameBudget';
 const SCENES_DIR = join(process.cwd(), 'src', 'ui', 'live', 'scenes');
 
 describe('Registre de scenes (§4.2)', () => {
-  it('trois scenes, une par famille', () => {
-    expect(SCENE_REGISTRY.length).toBe(3);
-    const families = SCENE_REGISTRY.map((s) => {
-      if (s.tags.includes('glitch')) return 'glitch';
-      if (s.tags.includes('organic')) return 'organic';
-      return 'geometric';
-    });
-    expect(new Set(families).size, `familles : ${families.join(', ')}`).toBe(3);
+  /** Table de §4.2, passe 1. Le registre doit la reproduire exactement. */
+  const TABLE: readonly {
+    id: string;
+    tags: readonly string[];
+    range: readonly [number, number];
+    reducedMotionSafe: boolean;
+  }[] = [
+    { id: 'grid-horizon', tags: ['neon', 'geometric', 'calm'], range: [0.15, 0.7], reducedMotionSafe: true },
+    { id: 'laser-tunnel', tags: ['neon', 'intense', 'strobe'], range: [0.55, 1], reducedMotionSafe: false },
+    { id: 'curl-flow', tags: ['organic', 'calm'], range: [0.1, 0.75], reducedMotionSafe: true },
+    { id: 'mandala-32', tags: ['geometric'], range: [0.3, 0.85], reducedMotionSafe: true },
+    { id: 'slice-displace', tags: ['glitch', 'intense', 'strobe'], range: [0.6, 1], reducedMotionSafe: false },
+    { id: 'type-slam', tags: ['glitch', 'intense', 'strobe'], range: [0.55, 1], reducedMotionSafe: false },
+  ];
+
+  it('les six scenes de la passe 1 sont au registre, conformes a la table §4.2', () => {
+    expect(SCENE_REGISTRY.length).toBe(6);
+    for (const row of TABLE) {
+      const entry = sceneById(row.id);
+      expect(entry, `${row.id} absente du registre`).not.toBeNull();
+      expect([...(entry?.tags ?? [])].sort(), `${row.id} tags`).toEqual([...row.tags].sort());
+      expect(entry?.intensityRange, `${row.id} plage`).toEqual(row.range);
+      expect(entry?.reducedMotionSafe, `${row.id} reduced-motion`).toBe(row.reducedMotionSafe);
+    }
+  });
+
+  it('les quatre familles sont couvertes', () => {
+    const families = new Set<string>();
+    for (const s of SCENE_REGISTRY) {
+      if (s.tags.includes('glitch')) families.add('glitch');
+      if (s.tags.includes('organic')) families.add('organic');
+      if (s.tags.includes('geometric')) families.add('geometric');
+      if (s.tags.includes('neon')) families.add('neon');
+    }
+    expect([...families].sort()).toEqual(['geometric', 'glitch', 'neon', 'organic']);
   });
 
   it('chaque scene expose 2 a 3 variantes internes', () => {
@@ -89,7 +116,7 @@ describe('prefers-reduced-motion (§8.12)', () => {
   });
 
   it('les scenes eligibles sont exactement celles de la table §4.2', () => {
-    expect(playableScenes(true).map((s) => s.id).sort()).toEqual(['curl-flow', 'grid-horizon']);
+    expect(playableScenes(true).map((s) => s.id).sort()).toEqual(['curl-flow', 'grid-horizon', 'mandala-32']);
   });
 });
 

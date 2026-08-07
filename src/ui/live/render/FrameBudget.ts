@@ -113,6 +113,8 @@ export class FrameBudget {
   private goodStreak = 0;
   private frozenUntilMs = Number.NEGATIVE_INFINITY;
   private cooldownUntilMs = Number.NEGATIVE_INFINITY;
+  /** Horodatage de la derniere DESCENTE. Deux descentes rapprochees valent deux crans. */
+  private lastDescentMs = Number.NEGATIVE_INFINITY;
   private lastFrameMs = 0;
   private medianMs = 0;
 
@@ -200,7 +202,27 @@ export class FrameBudget {
       let slow = 0;
       for (let i = 0; i < this.window.length; i++) if ((this.window[i] ?? 0) > limit) slow++;
       if (slow >= this.config.slowFrames && this.levelValue > 0) {
-        this.setLevel((this.levelValue - 1) as QualityLevel, stampMs);
+        // DESCENTE DE DEUX CRANS quand une descente vient DEJA d'avoir lieu.
+        //
+        // Un cran a la fois est la bonne regle au premier declenchement : le
+        // depassement y est ambigu et sur-degrader coute une qualite qu'on
+        // aurait pu garder. Mais si la fenetre suivante retombe en faute, le
+        // premier cran n'a manifestement pas suffi, et continuer un cran a la
+        // fois coute une fenetre PLUS un delai anti-rebond a chaque fois :
+        // mesure sur une scene a deux fois le budget, trois crans prenaient
+        // 1 369 ms, soit une seconde et demie a 20 fps. §8.10 exige moins d'une
+        // seconde.
+        //
+        // Le critere est la RECURRENCE, pas l'ampleur du depassement. Une
+        // premiere version comparait `medianMs / referenceMs` a 3 et ne se
+        // declenchait jamais : sur un ecran a frequence fixe les horodatages
+        // sont quantifies au vsync, donc une scene a 18 ms et une scene a 33 ms
+        // presentent toutes deux a 33,4 ms. Le rapport observe sature a 2 et ne
+        // dit rien du cout reel. La recurrence, elle, reste lisible.
+        const sinceLast = stampMs - this.lastDescentMs;
+        const steps = sinceLast < this.config.severeWindowMs ? 2 : 1;
+        this.lastDescentMs = stampMs;
+        this.setLevel(Math.max(0, this.levelValue - steps) as QualityLevel, stampMs);
         return;
       }
     }
@@ -236,6 +258,7 @@ export class FrameBudget {
     this.goodStreak = 0;
     this.frozenUntilMs = Number.NEGATIVE_INFINITY;
     this.cooldownUntilMs = Number.NEGATIVE_INFINITY;
+    this.lastDescentMs = Number.NEGATIVE_INFINITY;
     this.lastFrameMs = 0;
     this.medianMs = 0;
   }

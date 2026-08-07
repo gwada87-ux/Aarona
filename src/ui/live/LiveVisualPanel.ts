@@ -41,6 +41,10 @@ export class LiveVisualPanel {
   private hud: DebugHud | null = null;
   private paletteLocked = false;
   private helpVisible = false;
+  /** Mire de calibration de `userTrimMs` (touche `C`). */
+  private calibrationVisible = false;
+  /** Phase de mesure visuelle de la trame precedente. -1 = aucune. */
+  private lastCalibPhase = -1;
   private persisted: PersistedControls = loadControls();
   private directorRng: () => number = Math.random;
   private source: LiveAudioSource | null = null;
@@ -276,6 +280,12 @@ export class LiveVisualPanel {
         this.hud.toggle();
         this.persist();
         break;
+      case 'toggle-calibration':
+        this.calibrationVisible = !this.calibrationVisible;
+        // Pas de persistance : la mire est un outil de mesure, pas un reglage.
+        // La retrouver allumee au demarrage suivant serait un defaut.
+        this.lastCalibPhase = -1;
+        break;
     }
   };
 
@@ -463,6 +473,7 @@ export class LiveVisualPanel {
     );
 
     this.drawBadge(engine, pipeline);
+    this.drawCalibrationMarker(engine);
 
     // `FlashLimiter` : dernier etage, non contournable (Loi 5). En direct il
     // n'y a pas de temps musical au sens du mode fichier, on lui passe
@@ -503,6 +514,59 @@ export class LiveVisualPanel {
    * apres le post : il ne doit ni entrer dans le feedback, ni etre floute par
    * le bloom.
    */
+  /**
+   * MIRE DE CALIBRATION de `userTrimMs` (§9.6). Touche `C`.
+   *
+   * §8 designe la latence son -> image comme le seul critere non automatisable :
+   * « elle exige de filmer l'ecran et le son a 240 fps sur un click track de
+   * BPM connu ». Ce mode est ce qui rend cette mesure FAISABLE. Sans lui,
+   * l'operateur doit reperer sur la video l'instant exact ou une scene « reagit »,
+   * ce qui n'a pas de front net : une enveloppe qui monte en trois trames ne
+   * donne pas d'instant a mesurer.
+   *
+   * La mire, elle, apparait sur UNE SEULE trame, avec un bord franc. A 240 fps
+   * elle occupe quatre images de film consecutives et pas une de plus. On
+   * compte les images entre l'attaque du clic dans la piste audio et la
+   * premiere image ou le carre est allume ; a 240 fps chaque image vaut
+   * 4,17 ms. `userTrimMs` se regle ensuite aux fleches haut/bas jusqu'a
+   * annuler l'ecart, et la valeur est persistee.
+   *
+   * Un CARRE d'un huitieme de cote, pas un plein ecran : la mire passe par le
+   * `FlashLimiter` comme tout le reste (§6.9), et un plein ecran blanc y serait
+   * ecrete - la mire mesurerait alors le limiteur et non la latence.
+   *
+   * Dessine sur le coin BAS-DROIT, a l'oppose du badge et du HUD, pour rester
+   * lisible quel que soit ce qui est affiche par ailleurs.
+   */
+  private drawCalibrationMarker(engine: LiveAnalysisEngine): void {
+    if (!this.calibrationVisible) return;
+    const phase = engine.beat.visualBarPhase;
+    // Frontiere de MESURE visuelle : detectee sur le rebouclage de la phase,
+    // pas sur `barIndex`, qui avance a la frontiere brute - donc en avance de
+    // `syncOffsetMs`, c'est-a-dire de la quantite meme qu'on cherche a mesurer.
+    const wrapped = this.lastCalibPhase >= 0 && phase < this.lastCalibPhase - 0.5;
+    this.lastCalibPhase = phase;
+
+    const ctx = this.ctx2d;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const side = Math.round(Math.min(w, h) / 8);
+    const x = w - side - Math.round(side * 0.25);
+    const y = h - side - Math.round(side * 0.25);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    // Cadre permanent : il montre a l'operateur OU regarder sur la video, et
+    // donne une reference de niveau pour distinguer « eteint » de « hors champ ».
+    ctx.strokeStyle = '#404040';
+    ctx.lineWidth = Math.max(1, Math.round(side * 0.02));
+    ctx.strokeRect(x + 0.5, y + 0.5, side, side);
+    if (!wrapped) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x, y, side, side);
+  }
+
   private drawBadge(engine: LiveAnalysisEngine, pipeline: LivePipeline): void {
     const ctx = this.ctx2d;
     const h = this.canvas.height;

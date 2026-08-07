@@ -369,6 +369,12 @@ export interface LivePerfConfig {
   readonly slowFrames: number;
   /** Multiple de la periode de reference au-dela duquel une trame est « lente ». */
   readonly slowFactor: number;
+  /**
+   * Delai en dessous duquel DEUX descentes consecutives valent deux crans. Un
+   * cran a la fois coute une fenetre plus un delai anti-rebond a chaque fois :
+   * trois crans prenaient 1 369 ms, et §8.10 en exige moins de 1 000.
+   */
+  readonly severeWindowMs: number;
   /** Nombre de trames rapides CONSECUTIVES declenchant une remontee. */
   readonly goodFrames: number;
   /** Multiple de la periode sous lequel une trame est « rapide ». L'ecart avec `slowFactor` EST la zone morte. */
@@ -446,6 +452,12 @@ export interface LiveIntensityConfig {
   readonly breakdownLuminance: number;
   /** Seuil de saturation de la moyenne glissante de luminance (§2.8). */
   readonly saturationLimit: number;
+  /**
+   * Fraction du seuil a laquelle le garde-fou se RELACHE. Hysteresis : sans
+   * elle, le garde-fou fait baisser la luminance, repasse sous le seuil, se
+   * relache, la luminance remonte - a la frequence de trame.
+   */
+  readonly saturationRelease: number;
   /** Fenetre de la moyenne glissante de luminance, en secondes. */
   readonly saturationWindowSec: number;
   /** Multiplicateur d'intensite au clavier : bornes. */
@@ -463,6 +475,11 @@ export interface LiveContentConfig {
   readonly paletteCrossfadeSec: number;
   /** Identifiant de scene impose. `''` = premiere scene jouable du registre. */
   readonly forcedScene: string;
+  /**
+   * Textes de `type-slam` (§4.2). Vide => le BPM seul ; BPM non verrouille =>
+   * `LIVE`. Les jetons `{bpm}` et `{palette}` sont substitues a la volee.
+   */
+  readonly slamText: readonly string[];
 }
 
 export interface LiveConfig {
@@ -637,6 +654,7 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     windowFrames: 12,
     slowFrames: 8,
     slowFactor: 1.5,
+    severeWindowMs: 1200,
     goodFrames: 90,
     fastFactor: 0.8,
     qualityCooldownMs: 500,
@@ -671,6 +689,7 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     dropFalloutRatio: 0.7,
     breakdownLuminance: 0.15,
     saturationLimit: 0.55,
+    saturationRelease: 0.85,
     saturationWindowSec: 4,
     userScaleMin: 0.5,
     userScaleMax: 1.5,
@@ -687,6 +706,7 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     forcedPalette: -1,
     paletteCrossfadeSec: 0.3,
     forcedScene: '',
+    slamText: Object.freeze(['LIVE', '{bpm}', '{palette}']),
   }),
 });
 

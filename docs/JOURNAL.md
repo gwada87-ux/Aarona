@@ -2974,3 +2974,86 @@ Dette introduite : aucune connue.
 Bloque la suite : étape 5 du prompt externe (trois scènes restantes : `laser-tunnel`, `mandala-32`,
 `type-slam`) et étape 6 (polish — easings, affinage grain/bloom, calibration de `userTrimMs`).
 Redéploiement Netlify fait immédiatement après cette étape.
+
+## Étape 58 — hors roadmap : dernières scènes + polish, les 6 étapes du prompt externe livrées
+
+**Hors de docs/00a.** Clôture du « PROMPT-live-visual-upgrade v2 » : étapes 5 et 6 livrées ensemble.
+Le registre passe de 3 à 6 scènes et le director tourne désormais sur l'ensemble complet ; le polish
+corrige deux manques réels de dramaturgie découverts en relisant la spec plutôt qu'en avançant tête
+baissée.
+
+**Étape 5 — trois scènes restantes** : `LaserTunnelScene.ts` (anneaux émis sur le kick, point de fuite
+qui se déplace), `Mandala32Scene.ts` (onde de choc sur le kick, secteurs qui passent de 6 à 8 à 12 à 16
+sur les frontières de mesure, occultation d'un secteur sur deux sur la snare — pas un spectrogramme
+déguisé : les 32 bandes ne sont pas lues mais repliées, et la scène pilote 5 paramètres par 5 sources
+distinctes là où l'interdit de la spec externe ne vise que 2), `TypeSlamScene.ts` (texte rastérisé une
+seule fois par changement — jamais dans la boucle de rendu, `measureText()` y coûterait cher à chaque
+image — avec attente de `document.fonts.ready` pour ne jamais mettre en cache la police de repli).
+Un nouvel accès `SceneContext.layers` permet à `type-slam` de rastériser son texte dans un calque
+dédié sans échapper à l'inventaire mémoire du pipeline (`LayerStack`) ni au plafond global — Safari
+renvoie `null` sur `getContext()` au-delà d'un certain total, silencieusement.
+
+**Étape 6 — polish** : deux manques réels trouvés en relisant la spec en entier, aucun des deux visible
+en testant au fil de l'eau. (1) L'enveloppe de réaction à une frappe (kick/snare/charley) ne revenait
+jamais vraiment au repos — une exponentielle ne touche jamais zéro, elle restait donc partiellement
+allumée quand la frappe suivante arrivait, mangeant le contraste qu'elle devait créer ; remplacée par
+une fonction qui atteint zéro exactement à l'échéance (`util/easing.ts`), avec les durées reréglées en
+conséquence (kick : 1,05 → 0,50 temps — changement volontaire et visible). (2) Les temps faibles et
+contretemps ne recevaient aucun accent visuel quand rien n'était détecté à cet instant précis, alors
+que l'horloge, elle, savait qu'un temps passait — un plancher par frontière d'horloge (`gridAccent`,
+`util/accent.ts`) comble ce vide, en `max` jamais en somme (une somme cumulerait avec un vrai onset et
+violerait la règle « un canal par instrument, jamais deux enveloppes additionnées »), pondéré par la
+confiance de l'horloge pour ne jamais inventer un temps qu'elle n'est pas sûre d'avoir.
+
+Trois autres corrections de fond : le garde-fou de non-saturation comparait la luminance moyenne au
+seuil sans hystérésis — une boucle de régulation sans hystérésis oscille à chaque trame par
+construction (mesuré : passait à 1 bascule sur 600 trames après correction, contre une par trame
+avant) ; le grain était à plein régime en permanence plutôt que dosé à l'inverse de la luminance
+mesurée ; la descente qualité (`FrameBudget`) mettait jusqu'à 1,4 s à se stabiliser en cas de
+surcharge sévère récurrente au lieu du <1 s exigé — corrigé par une descente de deux crans d'un coup
+sur récurrence rapprochée plutôt qu'un cran par cran systématique. Ajout d'une mire de calibration
+(touche `C`) — un carré blanc allumé une seule trame au temps 1 visuel, passant par le `FlashLimiter`
+comme tout le reste — qui rend mesurable la latence son→image réelle (nécessite un filmage à 240 fps,
+qu'Aaron seul peut faire) sans pour autant fournir la valeur finale de calibration.
+
+Écart assumé documenté avec dérivation dans `NOTES.md` : la règle du prompt externe imposant une
+vérification statique façon ESLint sur les allocations en zone chaude (interdiction de `new`/`[]`/
+`.map`/littéraux de fonction dans les fichiers marqués « hot-path ») aurait exigé d'installer ESLint
+pour une seule règle, ce que le projet interdit par ailleurs (aucune nouvelle dépendance) — portée
+en test (`liveHotPath.test.ts`) qui lit le même AST TypeScript qu'une règle ESLint aurait lu, avec un
+garde-fou qui échoue si plus aucun fichier n'est marqué (une règle qui ne s'applique à rien passe
+toujours).
+
+Mesuré (soak 60 s par nouvelle scène, tempo verrouillé sur les trois pendant tout le soak, croissance
+mémoire sous 1,31 Mo) ; composition vérifiée par échantillonnage de luminance en grille (le volet de
+prévisualisation masqué empêchait les captures directes côté banc synthétique — contournement déjà
+rencontré à l'étape 3). Le tableau de temps de trame par scène demandé par la spec externe (§8.10)
+s'est révélé impossible à obtenir en onglet d'arrière-plan (0 `requestAnimationFrame` reçu) — mesuré à
+la place le coût de rendu synchrone forcé, en round-robin sur les 7 scènes : l'écart entre la scène
+témoin (qui ne dessine presque rien) et la plus lourde (`curl-flow`, 6000 particules) n'est que de 6 %
+— la chaîne de post-traitement (6,36 passes plein écran) domine entièrement le budget, pas le choix de
+scène. Conclusion actionnable et honnêtement rapportée plutôt que masquée : le tableau par scène
+demandé ne discriminera jamais rien, c'est `FrameBudget` qui gouverne.
+
+Vérifié en conditions réelles (Playwright + `file://` contre Beat Studio) : les trois nouvelles scènes
+forcées explicitement produisent trois rendus distincts et cohérents (tunnel sombre au point de fuite,
+rosace radiale à secteurs, texte « LIVE » avec séparation RVB) ; le director, laissé tourner librement
+56 s sans aucune sélection manuelle, a traversé 4 scènes distinctes du registre étendu
+(`type-slam → laser-tunnel → mandala-32 → slice-displace`) sans jamais répéter, confirmant que la
+fenêtre d'anti-répétition s'élargit bien automatiquement avec le nombre de scènes (documentée à
+l'Étape 57) ; aucune erreur console côté PULSAR.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 794/794 verts (99/99 fichiers, +18 par rapport à
+l'Étape 57). `npm run test:arch` : 1/1. `npm run build` : succès, 202 modules, `index-CLIiW5-q.js`
+448,07 ko (gzip 125,24 ko) — chiffres identiques à ceux rapportés par l'autre session dans `NOTES.md`.
+Limites connues : le bloom n'a pas pu être réglé finement faute de mesure de temps de trame exploitable
+en onglet d'arrière-plan (outil `frametime()` livré pour qu'Aaron la fasse en fenêtre au premier plan) ;
+la valeur finale de `userTrimMs` reste à déterminer par un filmage à 240 fps ; `laser-tunnel` reste la
+plus sombre des six scènes (0,009 de luminance moyenne) et la cadence 6→8→12→16 de `mandala-32` change
+toutes les deux secondes à 120 BPM — les deux peuvent paraître timides/rapides à l'usage, à juger sur
+de la vraie musique ; l'esthétique des six overlays, le rythme des coupes et les textes de
+`type-slam` restent des choix éditoriaux non mesurables.
+Dette introduite : aucune connue.
+Bloque la suite : rien côté implémentation — les 6 étapes du prompt externe sont livrées. Ne reste que
+la validation humaine listée ci-dessus, à faire par Aaron à l'usage. Redéploiement Netlify fait
+immédiatement après cette étape.

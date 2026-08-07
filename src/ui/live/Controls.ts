@@ -28,7 +28,8 @@ export type ControlAction =
   | { readonly type: 'panic' }
   | { readonly type: 'toggle-help' }
   | { readonly type: 'toggle-hud' }
-  | { readonly type: 'sync-trim'; readonly direction: number };
+  | { readonly type: 'sync-trim'; readonly direction: number }
+  | { readonly type: 'toggle-calibration' };
 
 /** Reglages persistes. Volontairement minimal : ce qu'on veut retrouver, rien de plus. */
 export interface PersistedControls {
@@ -51,6 +52,7 @@ export const SHORTCUTS: readonly { readonly key: string; readonly label: string 
   { key: 'fleches haut/bas', label: 'reglage de synchro (userTrimMs)' },
   { key: 'Echap', label: 'panic - scene d attente, tous overlays coupes' },
   { key: 'D', label: 'HUD de debug' },
+  { key: 'C', label: 'mire de calibration de userTrimMs - un carre blanc sur une seule trame au temps 1' },
   { key: '?', label: 'cette aide' },
 ]);
 
@@ -97,6 +99,9 @@ export function actionForKey(event: KeyboardEvent, tSec: number): ControlAction 
     case 'd':
     case 'D':
       return { type: 'toggle-hud' };
+    case 'c':
+    case 'C':
+      return { type: 'toggle-calibration' };
     case '?':
       return { type: 'toggle-help' };
     default:
