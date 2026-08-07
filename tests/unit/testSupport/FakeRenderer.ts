@@ -1,8 +1,9 @@
-import type { BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../../../src/render/Renderer';
+import type { BlendMode, BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../../../src/render/Renderer';
 import type { Viewport } from '../../../src/render/Viewport';
 
 export type RecordedCall =
   | { type: 'beginFrame'; viewport: Viewport }
+  | { type: 'setBlendMode'; mode: BlendMode | null }
   | { type: 'clear'; color: Color }
   | { type: 'fillCircle'; x: number; y: number; radius: number; color: Color }
   | { type: 'strokeCircle'; x: number; y: number; radius: number; lineWidth: number; color: Color }
@@ -11,6 +12,7 @@ export type RecordedCall =
   | { type: 'fillRadialGradient'; innerRadius: number; outerRadius: number; inner: Color; outer: Color }
   | { type: 'drawSprite'; sprite: SpriteHandle; transforms: readonly SpriteTransform[]; count: number }
   | { type: 'applyShake'; dx: number; dy: number }
+  | { type: 'applyCamera'; dx: number; dy: number; zoom: number }
   | { type: 'drawFeedback'; scale: number; alpha: number }
   | { type: 'captureFeedback' }
   | { type: 'setBloomConfig'; config: BloomConfig }
@@ -30,6 +32,10 @@ export class FakeRenderer implements Renderer {
 
   beginFrame(viewport: Viewport): void {
     this.calls.push({ type: 'beginFrame', viewport });
+  }
+
+  setBlendMode(mode: BlendMode | null): void {
+    this.calls.push({ type: 'setBlendMode', mode });
   }
 
   clear(color: Color): void {
@@ -74,6 +80,14 @@ export class FakeRenderer implements Renderer {
 
   applyShake(dx: number, dy: number): void {
     this.calls.push({ type: 'applyShake', dx, dy });
+  }
+
+  /**
+   * Le zoom est écrêté ICI comme dans `Canvas2DRenderer` (ADR-011) : un test
+   * qui relèverait un zoom hors bornes croirait à tort qu'il atteint l'image.
+   */
+  applyCamera(dx: number, dy: number, zoom: number): void {
+    this.calls.push({ type: 'applyCamera', dx, dy, zoom: Math.min(2, Math.max(1, zoom)) });
   }
 
   /** Reflète `Canvas2DRenderer` : sans effet tant qu'aucune capture n'a eu lieu. */

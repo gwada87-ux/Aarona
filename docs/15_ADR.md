@@ -195,3 +195,46 @@ obligerait à réétalonner tous les presets.
 
 **Conséquences.** Environ 1 ms de budget par image. Certains effets extrêmes sont bornés — ce qui est
 l'objectif.
+
+---
+
+## ADR-011 — Caméra globale (translation + échelle) dans l'interface `Renderer`
+
+**Contexte.** Phase 2, chantier 4. `Renderer` n'exposait qu'`applyShake(dx, dy)`, une translation
+globale. Trois besoins la débordent : la « poussée lente pendant une montée » de la dramaturgie
+(chantier 3, livrée en translation seule faute de mieux), les variantes de cadrage « plan large ou
+rapproché » (chantier 4), et deux des cinq styles prévus au chantier 5 — `monolith` construit tout
+son effet sur un travelling, `iso-pulse` sur un basculement de grille.
+
+`docs/17_PHASE2_VISUELS.md` §4 n'autorisait que deux extensions de l'interface, les modes de fusion
+et `drawImage`. Une caméra en est une troisième : décision prise explicitement par Aaron.
+
+**Décision.** Ajouter `applyCamera(dx, dy, zoom)` à l'interface `Renderer`, à côté d'`applyShake`
+qui reste inchangée. L'échelle est centrée sur l'origine du repère normalisé et **bornée à
+[1, 2]** ; `applyShake` conserve son rôle de secousse par couche.
+
+**Motifs.** Le mécanisme est celui qui existe déjà : `Canvas2DRenderer.applyShake` fait un
+`ctx.translate` à l'intérieur du `save`/`restore` posé par `beginFrame`/`endFrame`. Ajouter un
+`ctx.scale` au même endroit ne change ni la structure ni le coût. La Loi 1 est préservée : la
+caméra est calculée par `VisualDirector`, qui dérive tout de `t` sans état.
+
+Une méthode NOUVELLE plutôt qu'une signature élargie : `applyShake` est appelée par la couche
+`ScreenShake` avec une sémantique de secousse, documentée et testée. Les deux se composent
+naturellement — deux transformations successives sur le même contexte.
+
+**Zoom borné à [1, 2] — la borne basse est le point important.** Sous 1, le cadrage s'élargit et
+découvre les bords : les fonds plein écran (`fillRadialGradient`, rayon 1,0 à 1,1) cesseraient de
+couvrir le cadre et laisseraient une bande non peinte. La conséquence pratique est que « plan
+large » est la valeur par défaut (zoom 1) et « plan rapproché » un zoom supérieur, jamais l'inverse.
+
+**Conséquences.**
+
+- `drawFeedback` est explicitement rendu INSENSIBLE à la caméra. Sans cette exception, le zoom
+  entrerait en composition avec lui-même : la capture contient l'image telle qu'affichée, donc déjà
+  zoomée ; la redessiner sous le même zoom la grossit encore, et l'échelle croît géométriquement
+  d'une image à l'autre. Un zoom tenu à 1,15 pendant deux secondes produirait un facteur supérieur
+  à 10 000. La traînée reste donc en espace ÉCRAN, ce qui a en prime un intérêt visuel : elle se
+  déforme quand la caméra bouge, au lieu de la suivre rigidement.
+- Le `FlashLimiter` reste le dernier étage et n'est pas contourné : la caméra agit avant lui.
+- Les couches ne connaissent pas la caméra. Elles dessinent dans le même repère normalisé
+  qu'avant ; seul l'appelant de la trame la pose.

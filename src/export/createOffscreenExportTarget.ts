@@ -1,5 +1,6 @@
 import { Canvas2DRenderer } from '../render/canvas2d/Canvas2DRenderer';
 import { createViewport } from '../render/Viewport';
+import { safeAreaFor } from '../render/safeArea';
 import { FlashLimiter, NORMAL_MODE, REDUCED_FLASHING_MODE } from '../visual/safety/FlashLimiter';
 import type { ExportTarget } from './ExportPipeline';
 
@@ -19,7 +20,10 @@ export function createOffscreenExportTarget(
   const canvas = new OffscreenCanvas(width, height);
   const renderer = new Canvas2DRenderer(canvas);
   const flashLimiter = new FlashLimiter(canvas, reducedFlashing ? REDUCED_FLASHING_MODE : NORMAL_MODE);
-  const viewport = createViewport(width / height);
+  // Zone sûre (§7.4) : jusqu'ici toujours nulle, y compris sur les formats
+  // verticaux, où TikTok/Reels/Shorts recouvrent le bas et la droite du cadre
+  // de leur propre interface.
+  const viewport = createViewport(width / height, safeAreaFor(width, height));
 
   return {
     canvas,

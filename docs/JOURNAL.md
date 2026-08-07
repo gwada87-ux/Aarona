@@ -3627,3 +3627,187 @@ déterminisme.
 - Aucune vérification par capture d'écran : le volet d'aperçu n'est pas affiché
   et l'`AudioContext` ne démarre pas sans geste utilisateur réel. Les cinq
   moments sont prouvés par empreinte d'appels de rendu, pas par pixels.
+
+---
+
+## Phase 2 — Chantier 4 : caméra, modes de fusion, variantes, zones sûres, graine
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 4 (§7.2, §7.4, §7.9,
+§7.10), plus la caméra restée en suspens au chantier 3.
+
+### Décision d'Aaron : le zoom de caméra est autorisé
+
+Le chantier 3 avait livré la caméra en translation seule, faute de zoom dans
+l'interface `Renderer`, et laissé la question ouverte. Aaron a tranché :
+**ADR-011** ajoute `applyCamera(dx, dy, zoom)`.
+
+Trois conséquences documentées dans l'ADR, dont une non évidente :
+
+- **Le zoom est borné à [1, 2].** La borne BASSE est la vraie contrainte : sous
+  1, le cadrage s'élargit et découvre les bords, or les fonds plein écran ont un
+  rayon de 1,0 à 1,1 et cesseraient de couvrir le cadre. Conséquence pratique
+  inversée par rapport à l'usage courant : « plan large » est la valeur par
+  défaut, « plan rapproché » un zoom supérieur.
+- **`drawFeedback` est rendu INSENSIBLE à la caméra.** La capture contient
+  l'image telle qu'affichée, donc déjà zoomée ; la redessiner sous le même zoom
+  la grossit encore, et le facteur croît géométriquement. Un zoom tenu à 1,15
+  pendant deux secondes dépasserait **10 000**. La traînée reste donc en espace
+  écran — ce qui a en prime un intérêt visuel, elle se déforme quand la caméra
+  bouge au lieu de la suivre rigidement.
+- `applyShake` est conservée telle quelle : elle a une sémantique de secousse
+  par couche, documentée et testée. Les deux transformations se composent.
+
+La poussée avant le drop, impossible au chantier 3, est maintenant livrée :
+zoom montant jusqu'à +12 % sur les deux dernières mesures, **relâché d'un coup
+au drop**. C'est le relâchement qui produit la sensation d'ouverture — le
+maintenir pendant l'explosion garderait le cadre serré au moment précis où il
+doit s'ouvrir.
+
+### Modes de fusion par couche (§7.2)
+
+`drawSprite` imposait `'lighter'` en dur et aucune couche ne pouvait choisir.
+Six modes exposés : `normal`, `additive`, `screen`, `multiply`, `overlay`,
+`difference`.
+
+Trois points de conception :
+
+- **`Layer.blend` est OPTIONNEL, et son absence ne change rien.** `Scene.draw`
+  n'émet aucun appel quand aucune couche n'en déclare : le chemin par défaut est
+  rigoureusement celui d'avant.
+- **Posé avant la couche, retiré après, systématiquement.** Sans la remise à
+  `null`, une couche en `multiply` imposerait son mode à toutes les suivantes,
+  et le symptôme — « le style est trop sombre » — ne pointerait pas vers elle.
+- **`'lighter'` reste le défaut des sprites.** Un sprite est additif par nature,
+  c'est ce qui remplace `shadowBlur` ; une couche qui déclare un mode l'emporte.
+
+### Variantes de cadrage (§7.10), et pourquoi elles ne touchent aucune couche
+
+Deux à trois variantes par style, soit huit au total. Une variante ne modifie
+**aucune couche**, pour deux raisons :
+
+1. `applyLayerMacrosToScene` **remplace** `layer.params` en entier à chaque
+   résolution de preset. Tout réglage passant par `params` serait écrasé au
+   prochain glissement de macro, en silence.
+2. Une variante est un point de vue, pas une géométrie. Caméra et mode de fusion
+   suffisent, et s'appliquent uniformément à tous les styles — y compris ceux
+   des chantiers 5 et 6, qui n'existent pas encore.
+
+Règle de composition de §8 tenue et vérifiée par test : **au plus une variante
+sur trois est centrée**, et chaque style expose au moins une variante décentrée
+d'au moins 0,1 en unités normalisées.
+
+Un test vérifie aussi que **les modes de fusion ne visent que des couches
+existantes** : une faute de frappe dans un identifiant de couche ne produit
+aucune erreur, le mode est simplement ignoré en silence.
+
+### L'`architecture.test` a refusé ma première version, et il avait raison
+
+`variants.ts` avait été écrit dans `src/visual/styles/`. Le test a rejeté
+l'import de `presets/schema` : `visual/` n'a pas le droit d'importer `presets/`.
+
+Sur le fond, le test avait raison — `visual/` dessine, il n'a pas à savoir
+quels styles le catalogue expose. Le fichier a été déplacé en
+`src/presets/styleVariants.ts`, à côté de `layerMacros.ts` qui fait exactement
+le même travail de traduction « réglage de preset → configuration de rendu ».
+
+La contrainte a produit une meilleure signature : `dramaFrame` ne prend plus une
+`StyleVariant` mais un type STRUCTUREL `Framing { offsetX, offsetY, zoom }`, et
+`applyLayerBlends` prend une simple table `Record<layerId, BlendMode>`. Ce
+module n'a jamais eu besoin de savoir d'où venaient ces valeurs.
+
+`BlendMode` est ré-exporté par `visual/scene/Layer` : `presets/` en a besoin et
+la règle de dépendance lui interdit `render/`. Le mode de fusion d'une COUCHE
+est légitimement une notion de couche.
+
+### Graine (§7.9) — correction d'une affirmation fausse du prompt
+
+`docs/17` §7.9 affirme que `projectSeed` « n'est simplement pas exposé ».
+**C'est faux** : le bouton « Nouvelle variante » existe depuis l'Étape 13
+(`App.ts`, section « docs/13 : régénère la graine, effet fort, coût nul ») et
+relance déjà la graine.
+
+Ce qui manquait réellement, et qui est livré ici :
+
+- **L'affichage et la saisie** de la graine. Sans elle, un rendu qu'on aime est
+  perdu dès qu'on reclique. La graine était déjà persistée dans le `.pvproj` ;
+  il ne manquait que de pouvoir la lire et la ressaisir.
+- **Le lien graine → variante.** Sans lui, « Nouvelle variante » ne changeait
+  que les tirages internes des couches et laissait le cadrage identique —
+  c'est-à-dire l'essentiel de ce que l'utilisateur regarde.
+
+Détail d'interface corrigé après vérification au navigateur : une saisie non
+appliquée — invalide, ou valide mais sans morceau chargé — est désormais
+annulée à l'affichage. Laisser le champ montrer une graine qui n'est pas celle
+du rendu ferait mentir précisément le champ dont on attend qu'il dise la vérité.
+
+### Zones sûres (§7.4)
+
+`Viewport.safe` était **déclaré et jamais lu** : `createViewport` recevait
+toujours son défaut `{0,0,0,0}`, alors que `export/formats.ts` propose
+Shorts/TikTok/Reels en 1080×1920 et que ces plateformes recouvrent le bas et la
+droite du cadre de leur propre interface.
+
+`render/safeArea.ts` expose `safeAreaFor(width, height)` — critère sur
+l'ORIENTATION et non sur l'identifiant de format, pour qu'un format vertical
+ajouté plus tard hérite des marges sans qu'on y touche — et `safeRect(aspect,
+safe)`, qui convertit en rectangle. La conversion est fournie plutôt que laissée
+aux appelants : elle dépend de `aspect` dans les deux axes, et la refaire à
+trois endroits garantit qu'un des trois se trompera de signe sur `y`.
+
+Câblé dans `createOffscreenExportTarget`. Un test lit le fichier pour le
+vérifier, `OffscreenCanvas` étant indisponible sous Node.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 106 fichiers, 863 tests (847 -> 863, +16)
+npm run test:arch   -> 1 test
+npm run build       -> 456,23 kB (gzip 128,11 kB), 1,52 s
+```
+
+Navigateur, **onglet neuf, aucune erreur console**. Les erreurs relevées lors
+d'un premier contrôle portaient des horodatages HMR intermédiaires — états
+transitoires pendant les éditions, pas l'état livré ; vérifié en rouvrant un
+onglet propre.
+
+Contrôle fonctionnel du champ de graine :
+
+| action | résultat |
+|---|---|
+| affichage initial | `4049523024` |
+| saisie `12345` | acceptée |
+| saisie `pas-un-nombre` | rejetée, retour à `4049523024` |
+
+### À valider par Aaron, à l'œil
+
+- **La poussée de caméra à +12 %** avant le drop. Elle doit se sentir sans se
+  voir ; si on remarque le cadre bouger, baisser `PUSH_MAX`.
+- **Les huit variantes.** Ce sont des premières estimations de cadrage. Relancer
+  la graine plusieurs fois sur le même morceau est le meilleur test.
+- **Le `screen` sur les formes d'onde** (variantes « rapproché haut » de `pulse`
+  et « barres basses » de `spectrum-pro`). C'est le seul endroit où un mode de
+  fusion est utilisé aujourd'hui ; à juger, et à étendre ou retirer.
+- **Les marges de zone sûre** (bas 0,34 · droite 0,20 · haut 0,12 du petit côté)
+  ne sont pas publiées par les plateformes et changent avec leurs versions.
+  Volontairement un peu larges.
+
+### Limites connues
+
+- **Le critère 13 de §12 n'est PAS vérifié.** Il demande que le `FlashLimiter`
+  ne se déclenche pas en permanence sur les modes de fusion ajoutés. Le
+  `FlashLimiter` mesure des pixels réels ; le vérifier exige un canvas et une
+  fenêtre au premier plan, indisponibles ici. `difference` et `overlay` ne sont
+  utilisés par aucune variante livrée, ce qui limite le risque — mais la mesure
+  reste à faire avant de les proposer dans le compositeur du chantier 10.
+- **Aucun guide de zone sûre dans l'aperçu.** Il exigerait que l'aperçu se
+  recadre au format d'export choisi, ce qui n'existe pas : `App.ts` crée son
+  viewport une fois pour toutes à 16/9 (`const viewport = createViewport(16/9)`,
+  jamais recalculé, y compris au redimensionnement). C'est un manque
+  préexistant, distinct de ce chantier, à traiter avec l'interface du
+  chantier 10.
+- **Aucune couche ne respecte encore la zone sûre.** Rien de ce qui est dessiné
+  aujourd'hui ne porte d'information — pas de texte, pas de pochette. La
+  contrainte prendra son sens au chantier 8, et c'est là qu'elle sera appliquée.
+- Les variantes ne sont pas choisissables : elles dérivent de la graine. Le choix
+  explicite viendra avec le compositeur (§7.7, chantier 10).

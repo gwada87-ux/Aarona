@@ -163,6 +163,32 @@ describe('VisualDirector — retenue avant l\'impact (§6.2)', () => {
     expect(juste, 'la retenue ne doit pas éteindre l\'image').toBeGreaterThan(0.3);
   });
 
+  it('la POUSSÉE monte pendant la montée et se relâche au drop (ADR-011)', () => {
+    // C'est le relâchement qui produit la sensation d'ouverture, pas la poussée
+    // elle-même : la maintenir pendant l'explosion garderait le cadre serré au
+    // moment précis où il doit s'ouvrir.
+    const loin = at(24 - 4 * BAR).budget.cameraZoom;
+    const proche = at(24 - 1.2 * BAR).budget.cameraZoom;
+    const juste = at(24 - 0.1 * BAR).budget.cameraZoom;
+    const pendant = at(24 + 0.5 * BAR).budget.cameraZoom;
+
+    expect(loin, 'aucune poussée hors montée').toBe(1);
+    expect(proche).toBeGreaterThan(loin);
+    expect(juste).toBeGreaterThan(proche);
+    expect(pendant, 'le drop relâche').toBeLessThan(juste);
+  });
+
+  it('le zoom reste dans les bornes du Renderer sur tout le morceau', () => {
+    // Sous 1, le cadrage découvrirait les bords : les fonds plein écran ont un
+    // rayon de 1,0 à 1,1 et cesseraient de couvrir le cadre (ADR-011).
+    const h = harness();
+    for (let t = 0; t < DURATION; t += 1 / 60) {
+      const z = h.director.update(h.builder.build(t)).cameraZoom;
+      expect(z, `zoom à ${t.toFixed(2)}`).toBeGreaterThanOrEqual(1);
+      expect(z, `zoom à ${t.toFixed(2)}`).toBeLessThanOrEqual(2);
+    }
+  });
+
   it('la caméra se FIGE en même temps que la retenue', () => {
     // À défaut de pouvoir pousser — le `Renderer` n'expose pas de zoom — c'est
     // l'immobilisation du cadre qui porte la tension.

@@ -58,8 +58,33 @@ export interface BloomConfig {
  *
  * Toutes les coordonnées reçues sont en espace normalisé (Loi 4).
  */
+/**
+ * Modes de fusion exposés aux couches (docs/17_PHASE2_VISUELS.md §7.2).
+ *
+ * Sous-ensemble VOLONTAIREMENT réduit de `globalCompositeOperation`. Chacun
+ * donne un caractère complètement différent à la même géométrie, ce qui en
+ * fait la variété la moins chère du moteur — mais tous ne sont pas sûrs :
+ * `difference` peut produire des sauts de luminance que le `FlashLimiter`
+ * écrêterait en permanence, auquel cas il vaut mieux ne pas le proposer.
+ * Voir le journal du chantier 4 pour la mesure.
+ *
+ * `additive` porte un nom parlant plutôt que `'lighter'`, le nom Canvas :
+ * une couche décrit une intention, pas une opération de contexte.
+ */
+export type BlendMode = 'normal' | 'additive' | 'screen' | 'multiply' | 'overlay' | 'difference';
+
 export interface Renderer {
   beginFrame(viewport: Viewport): void;
+
+  /**
+   * Mode de fusion des dessins SUIVANTS, jusqu'au prochain appel (§7.2).
+   * `null` restaure le comportement par défaut de chaque primitive — en
+   * particulier `drawSprite`, qui est additif par nature.
+   *
+   * Posé par `Scene.draw` avant chaque couche depuis son champ `blend`, et
+   * remis à `null` après : une couche ne peut pas contaminer la suivante.
+   */
+  setBlendMode(mode: BlendMode | null): void;
   clear(color: Color): void;
   fillCircle(x: number, y: number, radius: number, color: Color): void;
 
@@ -109,6 +134,21 @@ export interface Renderer {
   applyShake(dx: number, dy: number): void;
 
   /**
+   * CADRAGE global — translation et échelle — appliqué à tout ce qui est
+   * dessiné ensuite (ADR-011). Se compose avec `applyShake`, qui reste la
+   * secousse par couche : deux transformations successives sur le même
+   * contexte.
+   *
+   * `zoom` est BORNÉ à [1, 2] par l'implémentation. Sous 1, le cadrage
+   * s'élargirait et découvrirait les bords : les fonds plein écran cesseraient
+   * de couvrir le cadre. « Plan large » est donc la valeur par défaut, « plan
+   * rapproché » un zoom supérieur — jamais l'inverse.
+   *
+   * `drawFeedback` n'est délibérément PAS affecté : voir sa docstring.
+   */
+  applyCamera(dx: number, dy: number, zoom: number): void;
+
+  /**
    * Redessine le contenu capturé par le dernier `captureFeedback()`, centré,
    * mis à l'échelle et atténué — docs/07 §"Field" : « canvas précédent
    * redessiné à 0,88 d'alpha, mis à l'échelle 1,004 ». Sans effet (rien
@@ -117,6 +157,14 @@ export interface Renderer {
    *
    * Doit être appelé EN PREMIER dans la frame (avant le nouveau contenu),
    * comme `applyShake` : c'est la base sur laquelle le reste se compose.
+   *
+   * INSENSIBLE À `applyCamera` (ADR-011), et ce n'est pas un oubli. La capture
+   * contient l'image telle qu'affichée, donc déjà cadrée par la caméra ; la
+   * redessiner sous le même cadrage l'agrandirait une seconde fois, et
+   * l'échelle croîtrait géométriquement d'une image à l'autre — un zoom tenu à
+   * 1,15 pendant deux secondes donnerait un facteur supérieur à 10 000. La
+   * traînée reste donc en espace ÉCRAN, ce qui a en prime un intérêt visuel :
+   * elle se déforme quand la caméra bouge au lieu de la suivre rigidement.
    */
   drawFeedback(scale: number, alpha: number): void;
 

@@ -28,7 +28,8 @@ import { createPulseStyle } from '../visual/styles/pulse/createPulseStyle';
 import { createFieldStyle } from '../visual/styles/field/createFieldStyle';
 import { createSpectrumProStyle } from '../visual/styles/spectrum-pro/createSpectrumProStyle';
 import type { Scene } from '../visual/scene/Scene';
-import { openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
@@ -117,6 +118,14 @@ let stepper: StepContextBuilder | null = null;
 let behaviourEngine: BehaviourEngine | null = null;
 let visualDirector: VisualDirector | null = null;
 let visualDirectorTimeline: MusicTimeline | null = null;
+let currentVariant: StyleVariant | undefined;
+/**
+ * Déclaré ICI et non près de son écouteur, plus bas : `refreshVariant()` y
+ * écrit, et `refreshVariant` est appelée depuis la résolution de preset, qui
+ * s'exécute pendant l'initialisation du module. Un `const` déclaré après aurait
+ * été dans sa zone morte temporelle au premier appel.
+ */
+const seedOutput = document.querySelector<HTMLInputElement>('#seed-value')!;
 /** Timeline pour laquelle `behaviourEngine` a été construit — distinct de `currentTimeline`, même rôle que `sceneStyleId` pour `scene` (Étape 28). */
 let behaviourEngineTimeline: MusicTimeline | null = null;
 let scene: Scene | null = null;
@@ -235,6 +244,7 @@ function applyActiveConfiguration(): void {
   } else if (scene) {
     scene.init({ renderer, palette: currentPalette });
   }
+  refreshVariant();
   applyLayerMacros();
   renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom);
   renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[currentQualityLevel].chromaticAberration);
@@ -321,9 +331,23 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
  * 6 macros, gap découvert et signalé à l'Étape 25, corrigé en partageant cette
  * fonction plutôt qu'en dupliquant la boucle dans les deux fichiers.
  */
+/**
+ * Variante de cadrage active (§7.10). Dérivée de la GRAINE, donc renouvelée par
+ * le bouton « Nouvelle variante » — qui régénère déjà la graine depuis
+ * l'Étape 13 et gagne ici un second effet, visible celui-là.
+ */
+function refreshVariant(): void {
+  currentVariant = variantFor(currentStyleId, projectSeed);
+  if (scene) applyLayerBlends(scene, currentVariant?.blend);
+  seedOutput.value = String(projectSeed);
+}
+
 function applyLayerMacros(): void {
   if (!scene) return;
   applyLayerMacrosToScene(scene, currentMacros, currentStyleId);
+  // APRÈS les macros, jamais avant : `applyLayerMacrosToScene` remplace
+  // `layer.params` en entier, et le mode de fusion doit survivre à cet écrasement.
+  applyLayerBlends(scene, currentVariant?.blend);
   const spectrumBarsLayer = scene.layers.find((l) => l.id === 'spectrumBars');
   if (spectrumBarsLayer) {
     spectrumBarsLayer.params = { ...spectrumBarsLayer.params, bandCount: QUALITY_LEVEL_CONFIGS[currentQualityLevel].spectrumBands };
@@ -1004,11 +1028,41 @@ async function importPvproj(file: File): Promise<void> {
 
 document.querySelector<HTMLButtonElement>('#btn-variant')!.addEventListener('click', () => {
   if (!currentTimeline || !stepper) return;
-  projectSeed = randomSeed();
+  applySeed(randomSeed());
+});
+
+/**
+ * Saisie manuelle de la graine (§7.9). Le bouton ci-dessus donne la variation ;
+ * ce champ donne la REPRODUCTIBILITÉ — sans lui, un rendu qu'on aime est perdu
+ * dès qu'on reclique. La graine est déjà persistée dans le `.pvproj`
+ * (docs/13), il ne manquait que de pouvoir la lire et la ressaisir.
+ */
+seedOutput.addEventListener('change', () => {
+  const parsed = Number.parseInt(seedOutput.value, 10);
+  // Toute saisie non appliquée est ANNULÉE À L'AFFICHAGE — qu'elle soit
+  // invalide ou qu'aucun morceau ne soit chargé. Laisser le champ montrer une
+  // graine qui n'est pas celle du rendu ferait mentir l'interface, et c'est
+  // précisément le champ dont l'utilisateur attend qu'il dise la vérité :
+  // il sert à retrouver un résultat.
+  if (!Number.isFinite(parsed) || !currentTimeline || !stepper) {
+    seedOutput.value = String(projectSeed);
+    return;
+  }
+  applySeed(parsed >>> 0);
+});
+
+function applySeed(seed: number): void {
+  if (!currentTimeline) return;
+  projectSeed = seed;
   stepper = new StepContextBuilder(currentTimeline, projectSeed);
+  // La variante DÉPEND de la graine : sans ce rafraîchissement, « Nouvelle
+  // variante » ne changerait que les tirages internes des couches et laisserait
+  // le cadrage identique — c'est-à-dire l'essentiel de ce que l'utilisateur
+  // regarde.
+  refreshVariant();
   handleSeek(simT, 'release');
   scheduleAutosave();
-});
+}
 
 // ---------------------------------------------------------------------------
 // Transport (lecture réelle)
@@ -1103,7 +1157,7 @@ function loop(nowMs: number): void {
     // Sans director (aucun morceau chargé), la caméra est simplement neutre :
     // on ouvre l'image comme avant.
     if (visualDirector) {
-      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector);
+      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector, currentVariant);
     } else {
       renderer.beginFrame(viewport);
       renderer.clear(currentPalette.bg[1]);

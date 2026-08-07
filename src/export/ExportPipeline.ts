@@ -6,7 +6,8 @@ import { BehaviourEngine } from '../behaviour/BehaviourEngine';
 import { VisualDirector } from '../behaviour/VisualDirector';
 import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import type { Scene } from '../visual/scene/Scene';
-import { openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { applyLayerBlends, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
+import { variantFor } from '../presets/styleVariants';
 import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
 import { EXPORT_QUALITY_LEVEL, QUALITY_LEVEL_CONFIGS } from '../perf/qualityLevels';
@@ -102,6 +103,13 @@ export async function runExport(
   // (gap signalé à l'Étape 25). Même fonction que `ui/App.ts::applyLayerMacros()`, un seul point
   // de vérité pour ne pas laisser preview et export diverger.
   applyLayerMacrosToScene(scene, config.macros, config.styleId);
+  // Variante de cadrage (§7.10) : dérivée de la GRAINE, donc identique à celle
+  // de l'aperçu pour le même projet. La recalculer ici plutôt que la recevoir
+  // en configuration suit le même raisonnement que le bloom et `bandCount`
+  // ci-dessous — un point d'application indépendant, qui ne dépend pas de ce
+  // qu'un futur appelant pourrait oublier de transmettre.
+  const variant = variantFor(config.styleId, config.projectSeed);
+  applyLayerBlends(scene, variant.blend);
   // docs/10 règle non négociable #2 : l'export fige TOUJOURS le bloom au niveau HIGH, quel que
   // soit le niveau courant de la preview — figé ICI plutôt que délégué à l'appelant (`ExportDialog`
   // gèle déjà `getStyleFactory` de la même façon, mais un second point d'application indépendant,
@@ -133,7 +141,7 @@ export async function runExport(
         stepSceneWithDrama(scene, behaviourEngine, director, stepper.build(simT));
       }
 
-      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director);
+      openFrameWithCamera(target.renderer, target.viewport, config.palette.bg[1], director, variant);
       scene.draw(target.renderer, target.viewport);
       target.renderer.endFrame();
       if (config.watermarked) drawWatermark(target.renderer, target.viewport);

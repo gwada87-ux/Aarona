@@ -27,7 +27,23 @@ import type { Viewport } from '../../render/Viewport';
 import type { StepContext } from '../../music/StepContext';
 import type { BehaviourEngine } from '../../behaviour/BehaviourEngine';
 import type { VisualDirector } from '../../behaviour/VisualDirector';
+import type { BlendMode } from './Layer';
 import type { Scene } from './Scene';
+
+/**
+ * Cadrage fixe venant de l'appelant, indépendant de la dramaturgie.
+ *
+ * Type STRUCTUREL et non `StyleVariant` : une variante est une notion de
+ * preset, et `visual/` n'a pas le droit d'importer `presets/` — ce que
+ * `architecture.test.ts` a refusé sur une première version. La contrainte a
+ * produit une meilleure signature : ce module n'a besoin que d'un décalage et
+ * d'une échelle, pas de savoir d'où ils viennent.
+ */
+export interface Framing {
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly zoom: number;
+}
 
 /**
  * Un pas de simulation, dramaturgie comprise.
@@ -54,19 +70,45 @@ export function stepSceneWithDrama(
  * le `clear` décalerait le fond lui-même et laisserait une bande non peinte au
  * bord du cadre.
  *
- * Elle se compose avec le `ScreenShake` du style `pulse`, qui appelle le même
- * `applyShake` depuis sa couche : deux translations s'additionnent, ce qui est
- * le comportement voulu — la secousse est une modulation du cadrage, pas un
- * cadrage concurrent.
+ * Elle se compose avec le `ScreenShake` du style `pulse`, qui appelle
+ * `applyShake` depuis sa couche : les deux transformations s'additionnent, ce
+ * qui est le comportement voulu — la secousse est une modulation du cadrage,
+ * pas un cadrage concurrent.
  */
 export function openFrameWithCamera(
   renderer: Renderer,
   viewport: Viewport,
   clearColor: Color,
   director: VisualDirector,
+  framing?: Framing,
 ): void {
   renderer.beginFrame(viewport);
   renderer.clear(clearColor);
-  const { cameraX, cameraY } = director.budget;
-  if (cameraX !== 0 || cameraY !== 0) renderer.applyShake(cameraX, cameraY);
+  const { cameraX, cameraY, cameraZoom } = director.budget;
+  // La variante décale le point d'intérêt et rapproche ; la dramaturgie ajoute
+  // sa dérive et sa poussée par-dessus. Les deux se COMPOSENT : la variante
+  // dit d'où on regarde, la dramaturgie ce que le morceau fait au cadre.
+  //
+  // Les zooms se multiplient plutôt que de s'additionner — deux rapprochements
+  // successifs sont un produit d'échelles, pas une somme. Le `Renderer` borne
+  // le résultat à [1, 2] de toute façon (ADR-011).
+  const dx = cameraX + (framing?.offsetX ?? 0);
+  const dy = cameraY + (framing?.offsetY ?? 0);
+  const zoom = cameraZoom * (framing?.zoom ?? 1);
+  if (dx !== 0 || dy !== 0 || zoom !== 1) renderer.applyCamera(dx, dy, zoom);
+}
+
+/**
+ * Applique les modes de fusion d'une variante aux couches concernées (§7.2,
+ * §7.10). À appeler une fois, après la construction de la scène — pas par
+ * image : un mode de fusion est une propriété de couche, pas un état de trame.
+ *
+ * Remet explicitement à `undefined` les couches que la variante ne mentionne
+ * pas. Sans ça, changer de variante laisserait en place les modes de la
+ * précédente, et le style dériverait à chaque relance de graine.
+ */
+export function applyLayerBlends(scene: Scene, blend: Readonly<Record<string, BlendMode>> | undefined): void {
+  for (const layer of scene.layers) {
+    layer.blend = blend?.[layer.id];
+  }
 }

@@ -39,7 +39,22 @@ export class Scene {
   }
 
   draw(renderer: Renderer, viewport: Viewport): void {
-    for (const layer of this.layers) layer.draw(renderer, viewport);
+    for (const layer of this.layers) {
+      // Mode de fusion par couche (§7.2, chantier 4). Posé AVANT et retiré
+      // APRÈS, systématiquement : sans la remise à `null`, une couche qui
+      // déclare `multiply` imposerait son mode à toutes les suivantes, et le
+      // symptôme — « le style est trop sombre » — ne pointerait pas vers elle.
+      //
+      // Aucun appel quand aucune couche n'en déclare : le chemin par défaut
+      // reste rigoureusement celui d'avant ce chantier.
+      if (layer.blend !== undefined) {
+        renderer.setBlendMode(layer.blend);
+        layer.draw(renderer, viewport);
+        renderer.setBlendMode(null);
+      } else {
+        layer.draw(renderer, viewport);
+      }
+    }
     if (this.usesFeedback) renderer.captureFeedback();
   }
 

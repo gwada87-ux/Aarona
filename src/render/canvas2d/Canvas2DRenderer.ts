@@ -1,7 +1,26 @@
-import type { BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../Renderer';
+import type { BlendMode, BloomConfig, Color, Renderer, SpriteHandle, SpriteTransform } from '../Renderer';
 import type { Viewport } from '../Viewport';
 import { BLOOM_COMPOSITE_ALPHA, computeBlurRadiusPx, computeSmallDimensions, extractHighlights } from './bloomMath';
 import { ABERRATION_TINT_ALPHA, computeAberrationOffsetPx } from './chromaticMath';
+
+/**
+ * Bornes du zoom de caméra (ADR-011). La borne BASSE est la contrainte réelle :
+ * sous 1, le cadrage s'élargit et découvre les bords, or les fonds plein écran
+ * ont un rayon de 1,0 à 1,1 en unités normalisées et cesseraient de couvrir le
+ * cadre. « Plan large » vaut donc 1, jamais moins.
+ */
+export const MIN_CAMERA_ZOOM = 1;
+export const MAX_CAMERA_ZOOM = 2;
+
+/** Traduction des modes de §7.2 en opérations Canvas. */
+const BLEND_TO_COMPOSITE: Readonly<Record<BlendMode, GlobalCompositeOperation>> = {
+  normal: 'source-over',
+  additive: 'lighter',
+  screen: 'screen',
+  multiply: 'multiply',
+  overlay: 'overlay',
+  difference: 'difference',
+};
 
 /**
  * Backend Canvas 2D de `Renderer`. Convertit l'espace normalisé (Loi 4) en
@@ -53,6 +72,8 @@ export class Canvas2DRenderer implements Renderer {
   private minSide = 0;
   private halfWidth = 0;
   private halfHeight = 0;
+  /** Mode de fusion courant, posé par `Scene.draw` avant chaque couche. `null` = défaut de la primitive. */
+  private blend: BlendMode | null = null;
   /** `1` par défaut — un `Canvas2DRenderer` jamais configuré via `setInternalResolutionScale` rend exactement comme avant l'Étape 24 (aucun buffer interne créé). */
   private internalResolutionScale = 1;
   private sceneBuffer: OffscreenCanvas | null = null;
@@ -113,10 +134,27 @@ export class Canvas2DRenderer implements Renderer {
     // applyShake() bon marché malgré la règle "pas de save/restore en boucle
     // serrée" de docs/10_PERFORMANCE.md, qui vise les appels par particule.
     this.ctx.save();
+    // Le mode de fusion ne survit PAS à une image : une couche qui en poserait
+    // un puis lèverait une exception avant sa remise à zéro contaminerait
+    // toutes les images suivantes.
+    this.setBlendMode(null);
   }
 
   private toPx(x: number, y: number): [number, number] {
     return [this.halfWidth + x * this.minSide, this.halfHeight - y * this.minSide];
+  }
+
+  /**
+   * Pose l'opération directement sur le contexte : les primitives de tracé
+   * (`fillCircle`, `strokePath`, `fillPath`, `fillRadialGradient`) n'y touchent
+   * pas et en héritent donc sans une ligne de plus. Seul `drawSprite` doit s'en
+   * occuper, parce qu'il force `'lighter'`.
+   *
+   * `this.blend` est conservé pour ce seul usage.
+   */
+  setBlendMode(mode: BlendMode | null): void {
+    this.blend = mode;
+    this.ctx.globalCompositeOperation = mode === null ? 'source-over' : BLEND_TO_COMPOSITE[mode];
   }
 
   clear(color: Color): void {
@@ -205,7 +243,9 @@ export class Canvas2DRenderer implements Renderer {
     }
     const prevComposite = this.ctx.globalCompositeOperation;
     const prevAlpha = this.ctx.globalAlpha;
-    this.ctx.globalCompositeOperation = 'lighter';
+    // `'lighter'` reste le défaut : un sprite est additif par nature, c'est ce
+    // qui remplace `shadowBlur`. Une couche qui déclare un `blend` l'emporte.
+    this.ctx.globalCompositeOperation = this.blend === null ? 'lighter' : BLEND_TO_COMPOSITE[this.blend];
     for (let i = 0; i < count; i++) {
       const t = transforms[i]!;
       const [px, py] = this.toPx(t.x, t.y);
@@ -224,6 +264,32 @@ export class Canvas2DRenderer implements Renderer {
     this.ctx.translate(dx * this.minSide, -dy * this.minSide);
   }
 
+  /**
+   * ADR-011. Même mécanisme qu'`applyShake` — une transformation posée dans le
+   * `save`/`restore` de `beginFrame`/`endFrame` — plus une mise à l'échelle
+   * autour de l'ORIGINE DU REPÈRE NORMALISÉ, qui est au centre du bitmap
+   * (`toPx` : `halfWidth + x·minSide`). Mettre à l'échelle autour de (0,0) en
+   * pixels ferait fuir l'image vers le coin haut-gauche.
+   */
+  applyCamera(dx: number, dy: number, zoom: number): void {
+    this.ctx.translate(dx * this.minSide, -dy * this.minSide);
+    const z = zoom < MIN_CAMERA_ZOOM ? MIN_CAMERA_ZOOM : zoom > MAX_CAMERA_ZOOM ? MAX_CAMERA_ZOOM : zoom;
+    if (z === 1) return;
+    this.ctx.translate(this.halfWidth, this.halfHeight);
+    this.ctx.scale(z, z);
+    this.ctx.translate(-this.halfWidth, -this.halfHeight);
+  }
+
+  /**
+   * Dessiné en espace ÉCRAN, transformation courante NEUTRALISÉE (ADR-011).
+   *
+   * La capture contient l'image telle qu'affichée, donc déjà cadrée par la
+   * caméra. La redessiner sous ce même cadrage l'agrandirait une seconde fois,
+   * et le facteur croîtrait géométriquement d'une image à l'autre : un zoom
+   * tenu à 1,15 pendant deux secondes dépasserait 10 000. Le `save`/`restore`
+   * local est le prix — un par image, pas un par particule, donc hors du champ
+   * de la règle de `docs/10` sur les `save/restore` en boucle serrée.
+   */
   drawFeedback(scale: number, alpha: number): void {
     if (!this.feedbackBuffer) return; // rien capturé encore (première image, ou juste après un seek)
     const w = this.activeCanvas.width;
@@ -231,8 +297,11 @@ export class Canvas2DRenderer implements Renderer {
     const scaledW = w * scale;
     const scaledH = h * scale;
     const prevAlpha = this.ctx.globalAlpha;
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.globalAlpha = alpha;
     this.ctx.drawImage(this.feedbackBuffer, (w - scaledW) / 2, (h - scaledH) / 2, scaledW, scaledH);
+    this.ctx.restore();
     this.ctx.globalAlpha = prevAlpha;
   }
 

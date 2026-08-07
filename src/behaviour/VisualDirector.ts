@@ -49,6 +49,8 @@ export interface DramaBudget {
   /** Décalage de caméra, en coordonnées normalisées (Loi 4). */
   readonly cameraX: number;
   readonly cameraY: number;
+  /** Échelle de caméra, bornée à [1, 2] par le `Renderer` (ADR-011). */
+  readonly cameraZoom: number;
   readonly arc: DramaArc;
 }
 
@@ -78,6 +80,15 @@ const DRIFT_CALM = 0.035;
 const DRIFT_BARS = 6.5;
 /** Amplitude du recadrage à une frontière de section. */
 const REFRAME = 0.05;
+/**
+ * Poussée maximale atteinte juste avant un drop (ADR-011, chantier 4).
+ *
+ * 12 % : au-delà, le recadrage devient un effet en soi et vole la vedette au
+ * drop qu'il est censé préparer. La poussée doit se sentir sans se voir.
+ */
+const PUSH_MAX = 0.12;
+/** Poussée résiduelle pendant l'explosion, avant relâchement complet. */
+const PUSH_DROP = 0.04;
 /** Niveau plancher : même en breakdown, l'image ne disparaît jamais complètement. */
 const MIN_LEVEL = 0.12;
 
@@ -113,6 +124,7 @@ export class VisualDirector {
     level: 1,
     cameraX: 0,
     cameraY: 0,
+    cameraZoom: 1,
     arc: 'sustain',
   };
 
@@ -231,12 +243,11 @@ export class VisualDirector {
       amplitude = 1;
     }
 
-    // --- caméra : translation seulement -----------------------------------
+    // --- caméra -----------------------------------------------------------
     // Dérive lente, d'autant plus ample que le passage est calme — un plan qui
     // ne bouge pas du tout pendant trente secondes se lit comme une image
-    // figée. Elle se RESSERRE à l'approche du drop : à défaut de pouvoir
-    // pousser (le `Renderer` n'expose pas de zoom, voir le journal), c'est
-    // l'immobilisation du cadre qui porte la tension.
+    // figée. Elle se RESSERRE à l'approche du drop, en même temps que la
+    // poussée monte : le cadre se fige ET se rapproche.
     const calm = 1 - energy * 0.6;
     const driftAmp = DRIFT_CALM * calm * restraint;
     const phase = (barNow / DRIFT_BARS) * Math.PI * 2;
@@ -248,6 +259,15 @@ export class VisualDirector {
     const key = section ? sectionKey(section.t, section.letter) : 0;
     b.cameraX = Math.cos(phase) * driftAmp + Math.cos(key) * REFRAME;
     b.cameraY = Math.sin(phase * 0.7) * driftAmp * 0.6 + Math.sin(key * 1.7) * REFRAME * 0.6;
+
+    // POUSSÉE (ADR-011). Elle monte pendant la montée et se RELÂCHE d'un coup
+    // au drop : c'est le relâchement qui produit la sensation d'ouverture, pas
+    // la poussée elle-même. La maintenir pendant l'explosion annulerait
+    // l'effet — le cadre resterait serré au moment où il doit s'ouvrir.
+    let push = 0;
+    if (arc === 'build') push = PUSH_MAX * (1 - restraint) / (1 - RESTRAINT_FLOOR);
+    else if (arc === 'drop') push = PUSH_DROP;
+    b.cameraZoom = 1 + clamp(push, 0, PUSH_MAX);
 
     b.amplitude = clamp(amplitude, 0, 1);
     b.level = clamp(Math.max(level, MIN_LEVEL), 0, 1);

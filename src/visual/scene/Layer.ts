@@ -1,4 +1,11 @@
-import type { Renderer } from '../../render/Renderer';
+import type { BlendMode, Renderer } from '../../render/Renderer';
+
+/**
+ * Ré-exporté ici : `presets/` en a besoin pour décrire les modes de fusion
+ * d'une variante, et la règle de dépendance lui interdit `render/`. Le mode de
+ * fusion d'une COUCHE est légitimement une notion de couche.
+ */
+export type { BlendMode };
 import type { Viewport } from '../../render/Viewport';
 import type { StepContext } from '../../music/StepContext';
 import type { VisualSignals } from '../../behaviour/BehaviourEngine';
@@ -50,6 +57,17 @@ export interface Layer {
    * le feedback de `Field`, P9.
    */
   readonly needsDrawPriming: boolean;
+  /**
+   * Mode de fusion de la couche (§7.2, chantier 4). ABSENT = comportement
+   * historique, inchangé : les tracés composent normalement, les sprites
+   * restent additifs.
+   *
+   * Le déclarer donne un caractère complètement différent à la MÊME géométrie,
+   * ce qui en fait la variété la moins chère du moteur. `Scene.draw` le pose
+   * avant la couche et le retire après, si bien qu'une couche ne peut pas
+   * contaminer la suivante.
+   */
+  blend?: BlendMode;
   params: LayerParams;
 
   init(ctx: LayerInitContext): void;
