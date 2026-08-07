@@ -20,12 +20,20 @@ export async function diag() {
   const p = (k, v) => L.push(`${k} = ${v}`);
 
   p('url', location.href);
-  p('agent', navigator.userAgent.slice(0, 60));
   p('reduce_motion_actif', window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
+  // DANS UNE IFRAME ? La console d'Aaron montrait `toggleVisualizerOverlay` et
+  // `_buildVisualizerOverlay`, qui n'existent NULLE PART dans PULSAR : la page
+  // est donc embarquee dans une autre application, qui la place en surcouche.
+  // Savoir dans quoi on tourne change tout le reste du diagnostic.
+  p('dans_une_iframe', window.self !== window.top);
+  try { p('page_hote', window.self !== window.top ? document.referrer || '(inconnue)' : '(aucune)'); } catch { p('page_hote', '(bloquee)'); }
+
+  // DEV ou PRODUCTION ? `__pulsarDebug` n'existe que dans la build de dev.
   const d = window.__pulsarDebug;
-  p('module_evalue', !!d);
-  p('bundle_a_jour', d ? d.setBlend === undefined && 'automation' in d : 'n/a');
+  p('build', d ? 'developpement' : 'PRODUCTION');
+  const script = [...document.querySelectorAll('script[src]')].map((s) => s.getAttribute('src')).join(' ');
+  p('bundle', script || '(module inline)');
 
   const cible = document.querySelector('canvas');
   if (!cible) {
@@ -53,12 +61,16 @@ export async function diag() {
   p('images_rAF_en_1s', n);
   p('bouge_au_repos', dif(repos, snap()));
 
-  if (d) {
-    d.loadDemo();
-    await attendre(2500);
-    d.play();
-    await attendre(1500);
-  }
+  // Les VRAIS boutons, jamais `__pulsarDebug` : celui-ci n'existe QUE dans la
+  // build de developpement (`import.meta.env.DEV`). Aaron execute la build de
+  // PRODUCTION — c'est ce que disait `index-xz3DyyNa.js` dans sa console — ou
+  // le crochet est absent, et une premiere version de ce diagnostic sautait
+  // donc silencieusement le chargement de la demo.
+  const clic = (sel) => { const b = document.querySelector(sel); if (b) { b.click(); return true; } return false; };
+  p('bouton_demo', clic('#btn-demo'));
+  await attendre(3000);
+  p('bouton_lecture', clic('#btn-play'));
+  await attendre(1500);
   const lecture = snap();
   await attendre(800);
   p('bouge_en_lecture', dif(lecture, snap()));

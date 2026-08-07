@@ -393,7 +393,19 @@ export class Canvas2DRenderer implements Renderer {
 
     if (!this.bloomExtractBuffer || this.bloomExtractBuffer.width !== smallW || this.bloomExtractBuffer.height !== smallH) {
       this.bloomExtractBuffer = new OffscreenCanvas(smallW, smallH);
-      this.bloomExtractCtx = this.bloomExtractBuffer.getContext('2d');
+      // `willReadFrequently: true` — ce contexte subit un `getImageData` À CHAQUE
+      // IMAGE (étape 2 ci-dessous). Sans ce drapeau, le navigateur place la
+      // surface en mémoire GPU et chaque lecture impose un aller-retour
+      // synchrone ; Chromium le signale d'ailleurs de lui-même :
+      //
+      //   « Canvas2D: Multiple readback operations using getImageData are
+      //     faster with the willReadFrequently attribute set to true »
+      //
+      // Repéré dans la console d'Aaron, pas ici : mon panneau de développement
+      // ne compose pas d'images, donc `applyBloom` n'y tourne jamais. Même
+      // motif que `FlashLimiter`, qui pose déjà ce drapeau depuis le MVP —
+      // l'oubli était ici, sur le chemin le plus chaud du rendu.
+      this.bloomExtractCtx = this.bloomExtractBuffer.getContext('2d', { willReadFrequently: true });
       this.bloomBlurBuffer = new OffscreenCanvas(smallW, smallH);
       this.bloomBlurCtx = this.bloomBlurBuffer.getContext('2d');
     }
