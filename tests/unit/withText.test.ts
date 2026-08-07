@@ -227,6 +227,12 @@ describe('les cinq mises en page et les réglages changent l\'image', () => {
     // insensible à un champ laisserait des sprites périmés à l'écran.
     const base = normaliseTextConfig({ text: 'A' });
     expect(textStructureKey(base)).toBe(textStructureKey(normaliseTextConfig({ text: 'A' })));
+    // Le texte est du champ LIBRE : avec un simple separateur, une saisie
+    // pourrait fabriquer la cle d'une AUTRE configuration et la scene ne serait
+    // pas reconstruite.
+    expect(textStructureKey(normaliseTextConfig({ text: 'A center word' }))).not.toBe(
+      textStructureKey(normaliseTextConfig({ text: 'A', layout: 'center', animation: 'word' })),
+    );
     for (const patch of [
       { text: 'B' },
       { layout: 'third' as const },
