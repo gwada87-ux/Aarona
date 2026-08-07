@@ -5624,12 +5624,17 @@ il fallait des pixels réels, et je n'avais pas de moyen de mesurer. Les lots A
 
 ### Comment c'est mesuré
 
-Un crochet de développement, `__pulsarDebug.setBlend(mode)`, force un mode sur
+Un crochet de développement, `__pulsarDebug.setBlend(mode)`, forçait un mode sur
 **toutes** les couches du style — le pire cas, bien au-delà de ce qu'une
-variante fait (une ou deux couches). Un second, `__pulsarDebug.clamped`, expose
+variante fait (une ou deux couches). Un second, `__pulsarDebug.clamped`, exposait
 le compteur. Puis : lecture, N images pilotées une par une, différence du
 compteur. `apply()` ne mesurant qu'une image sur deux, **le taux d'écrêtage
 plafonne à 50 %** — c'est la valeur qui signifierait « à chaque image mesurée ».
+
+> **Les deux crochets ont été RETIRÉS après cette mesure** (voir l'entrée
+> « Retrait des crochets de debug » plus bas). Le verdict ci-dessous reste vrai ;
+> refaire la mesure demanderait de les réintroduire. `clampedCount` reste lisible
+> dans le panneau debug de l'appli, ligne « frames clampées ».
 
 **Témoin positif, parce qu'un zéro ne prouve rien tant qu'on n'a pas montré que
 le compteur peut bouger.** Bascule du fond blanc/noir d'une image à l'autre, sur
@@ -5994,3 +5999,71 @@ de démonstration — pas sur un morceau du commerce.
   Même raison, et conséquence bénigne : les trois donnent un rendu plausible sur
   la même musique.
 - Le harnais de mesure a été archivé dans `_corbeille/` après relevé.
+
+---
+
+## Phase 2 — Retrait des crochets de debug `setBlend` et `clamped`
+
+Sur mandat d'Aaron, après que le critère 13 de §12 a été mesuré et tranché.
+
+### Ce qui est retiré
+
+Deux entrées de `window.__pulsarDebug`, dans `src/ui/App.ts`, toutes deux
+introduites à la vérification du critère 13 :
+
+- **`setBlend(mode)`** — forçait un mode de fusion sur TOUTES les couches du
+  style, `null` rendant la main à la variante.
+- **`clamped`** — accesseur sur `flashLimiter.clampedCount`.
+
+Ils ne servaient qu'à cette mesure. Elle est faite, le verdict est au journal :
+zéro écrêtage sur six modes de fusion, six styles, deux seuils.
+
+### Ce qui n'est PAS retiré
+
+- **`FlashLimiter.clampedCount` reste**, et reste affiché dans le panneau debug
+  de l'appli, ligne « frames clampées ». C'est la seule fenêtre qu'Aaron a sur
+  l'écrêtage en usage normal ; elle date du MVP et n'a rien à voir avec le
+  critère 13.
+- **`applyLayerBlends` reste** : c'est le chemin NORMAL des modes de fusion,
+  appelé à quatre endroits par l'application elle-même. `setBlend` ne faisait que
+  l'appeler avec un argument forcé.
+- **`step`, `play`, `pause`, `loadDemo`, `t`, `automation` restent.** Aaron n'a
+  demandé que ces deux-là, et `step` est l'outil qui rend toute vérification au
+  navigateur possible dans cette session — le retirer coûterait cher.
+
+### Le test du critère 13 survit
+
+`tests/unit/flashLimiter.test.ts` ne touchait pas aux crochets : il instancie
+`FlashLimiter` directement. Le test « NE RESTE PAS bloqué », écrit pour réfuter
+l'hypothèse du verrou, tient donc toujours, crochets ou pas. C'était le but en
+l'écrivant : mettre le verdict dans un test plutôt que dans une procédure
+manuelle.
+
+### Effet de bord traité
+
+`import type { BlendMode }` devenait inutilisé dans `App.ts` — retiré. C'est le
+seul autre changement.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 119 fichiers, 1131 tests
+npm run test:arch   -> 1 test
+npm run build       -> 531,55 kB (gzip 152,22 kB) — INCHANGÉ au octet près
+```
+
+Aucun test ne change de résultat : rien dans la suite ne dépendait des crochets.
+
+**Le bundle ne bouge pas d'un octet, et c'est attendu** : les crochets vivaient
+sous `import.meta.env.DEV`, donc déjà élidés en production, et `BlendMode` était
+un `import type`, effacé à la compilation. Le retrait allège le SOURCE, pas le
+livré. J'avais écrit ici une baisse de 0,11 kB avant de lancer la mesure — elle
+était fausse, et la mesure l'a dit.
+
+### Limite connue
+
+**Le critère 13 n'est plus re-mesurable sans réintroduire les crochets.** C'est
+le prix du retrait, et il est faible : le verdict est écrit, et la partie qui
+comptait vraiment — le limiteur ne se verrouille pas — est verrouillée par un
+test unitaire qui, lui, ne dépend de rien.
