@@ -31,14 +31,29 @@ export type LayerKind =
   | 'field'
   | 'particles'
   | 'spectrum'
-  | 'text';
+  | 'text'
+  | 'cover';
 
 /** Sérialisable, animable (docs/02) — chaque couche interprète ses propres clés. */
 export type LayerParams = Readonly<Record<string, number | string | boolean>>;
 
+/**
+ * Image décodée fournie aux couches. `ImageBitmap` plutôt que
+ * `HTMLImageElement` : il est déjà décodé — c'est la contrainte de §7.5, « le
+ * décodage a lieu AVANT le rendu, jamais pendant » — et il fonctionne aussi
+ * bien dans un worker, ce dont le pipeline d'export a besoin.
+ */
+export type DecodedImage = ImageBitmap;
+
 export interface LayerInitContext {
   readonly renderer: Renderer;
   readonly palette: Palette;
+  /**
+   * Pochette décodée, si l'utilisateur en a importé une (§7.5, chantier 7).
+   * Absente pour toutes les couches sauf `CoverArt`, qui devient inerte quand
+   * elle vaut `null`.
+   */
+  readonly cover?: DecodedImage | null;
 }
 
 /**

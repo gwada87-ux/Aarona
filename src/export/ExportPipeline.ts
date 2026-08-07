@@ -45,6 +45,8 @@ export interface ExportConfig {
   readonly projectSeed: number;
   readonly mapping: MappingSchema;
   readonly createScene: () => Scene;
+  /** Pochette décodée, ou `null`. Transmise telle quelle à `scene.init` (§7.5). */
+  readonly cover?: ImageBitmap | null;
   /**
    * Macros de couche (Étape 20, densité/mouvement/profondeur/glow/chaos/
    * douceur) + style actif — Étape 26 : jusque-là absents d'`ExportConfig`,
@@ -98,7 +100,7 @@ export async function runExport(
   // donc l'export en produit exactement la même que la preview.
   const director = new VisualDirector(config.timeline);
   const scene = config.createScene();
-  scene.init({ renderer: target.renderer, palette: config.palette });
+  scene.init({ renderer: target.renderer, palette: config.palette, cover: config.cover ?? null });
   // Macros de couche (Étape 20) — CORRIGÉ à l'Étape 26 : jusque-là jamais appliquées à l'export
   // (gap signalé à l'Étape 25). Même fonction que `ui/App.ts::applyLayerMacros()`, un seul point
   // de vérité pour ne pas laisser preview et export diverger.

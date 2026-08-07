@@ -27,7 +27,7 @@ import type { Layer, LayerInitContext } from './Layer';
 export class Scene {
   constructor(
     readonly layers: readonly Layer[],
-    private readonly usesFeedback: boolean = false,
+    readonly usesFeedback: boolean = false,
   ) {}
 
   init(ctx: LayerInitContext): void {

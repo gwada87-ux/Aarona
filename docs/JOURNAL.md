@@ -4175,3 +4175,166 @@ aurore        Aurore        inertes: Profondeur, Chaos
 - **Aucun preset ne pointe vers les cinq nouveaux styles** (chantier 9).
 - Aucune capture d'écran : mêmes limites d'environnement qu'aux chantiers
   précédents.
+
+---
+
+## Phase 2 — Chantier 7 : pochette et palette extraite
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 7 (§7.5). Il n'existait
+**aucune entrée d'image** dans tout le projet, alors que le cas d'usage le plus
+courant d'un visualiseur musical est la pochette au centre avec le visuel
+autour.
+
+### L'extension du `Renderer` autorisée n'a PAS servi
+
+`docs/17` §4 réservait `drawImage` comme seconde extension autorisée de
+l'interface. Elle n'a pas été nécessaire : `createSprite(draw, size)` fournit un
+`OffscreenCanvasRenderingContext2D` hors écran où l'image se dessine UNE FOIS,
+et `drawSprite` la place ensuite. Les sprites sont carrés, les pochettes aussi.
+
+Ce chemin satisfait par construction la contrainte que §7.5 rappelle — « l'image
+doit être décodée AVANT le rendu, jamais pendant » : décodage à l'import, tracé
+dans le sprite à l'initialisation, et la boucle ne fait plus que placer une
+texture. Une extension d'interface en moins à maintenir.
+
+### La coupe : d'étendue, pas de médiane — et la mesure qui l'a imposé
+
+§7.5 proposait « une quantification par médiane répétée ou un k-moyennes à
+graine fixe ». La première version implémentait la coupe médiane classique :
+diviser chaque boîte en deux moitiés de même POPULATION.
+
+**Un test l'a prise en défaut, et le défaut est exactement le cas d'usage.** Sur
+une image de 4 096 pixels dont 80 sont rouge vif et le reste presque noir,
+aucune des huit couleurs extraites n'avait `r > 150` : la médiane tombe en plein
+dans le noir, et il faut cinq ou six passes avant d'isoler le rouge. Or les
+pochettes sont souvent sombres, et ce qu'on veut en tirer, c'est précisément le
+petit élément vif.
+
+Corrigé en coupant au **milieu de l'étendue du canal**, pas à la médiane de la
+population : la séparation se fait selon la distance dans l'espace des couleurs,
+indépendamment du nombre de pixels. Le rouge part du premier coup.
+
+Vérifié ensuite sur une vraie image au navigateur — pochette sombre avec un
+disque `#ff2e63` couvrant 2,6 % de la surface. L'accent extrait est
+`rgb(255, 46, 99)`, soit la couleur exacte du disque.
+
+L'en-tête du module a été corrigé en conséquence : il annonçait « coupe
+médiane » et décrivait déjà, à tort, le comportement qu'il n'avait pas.
+
+### Aucune image n'est refusée
+
+§7.5 : « si elle échoue [le contraste], corrige la luminance plutôt que de
+refuser — une pochette sombre est un cas normal, pas une erreur ». C'est la
+règle qui structure `paletteFromCover`, et chacune de ses étapes existe pour un
+cas dégénéré précis :
+
+- **Fond** : la dominante, ramenée de force sous 0,08 de luminance en préservant
+  sa teinte. Une pochette blanche donnerait sinon un fond blanc, et tout le
+  moteur deviendrait illisible.
+- **Accent** : la couleur la plus CHROMATIQUE, pas la deuxième plus peuplée. Sur
+  une pochette sombre, le second rang est encore un gris.
+- **Image monochrome** : signalée et assumée. Plutôt qu'inventer une couleur
+  absente de l'image, on joue sur la seule luminance — ce qui reste fidèle.
+- **Aucune couleur** (image vide ou entièrement transparente) : palette neutre.
+  L'appelant est une action utilisateur, pas un chemin fautif.
+
+Les pixels transparents sont écartés de la quantification : un PNG à fond
+transparent porte souvent du noir sous l'alpha nul, et le compter donnerait une
+dominante absente de l'image visible.
+
+Six cas d'image sont testés — sombre, claire, entièrement noire, entièrement
+blanche, monochrome, vide — et chacun doit produire une palette dont le
+contraste fond/accent atteint 4:1.
+
+### Le piège de l'Étape 25, évité de justesse
+
+`ExportDialog` reçoit une fabrique de scène et `ExportPipeline` construit la
+sienne. Sans intervention, **l'export aurait produit la même image moins la
+pochette** — et le défaut ne se serait vu sur aucune vignette. Exactement le
+scénario de l'Étape 25, où les macros de couche avaient été branchées d'un seul
+côté pendant plusieurs étapes.
+
+Trois points câblés : `withCover` dans la fabrique passée à l'export, un
+`getCover()` sur les options du dialogue, et la transmission jusqu'à
+`scene.init`. Un test lit les trois fichiers pour le vérifier.
+
+### La pochette n'appartient à aucun style
+
+`withCover(scene, hasCover)` rend une NOUVELLE scène augmentée d'une dernière
+couche. Deux options écartées :
+
+- **Inscrire la couche dans les huit fabriques** : huit fichiers à modifier,
+  huit fois la même ligne, et une de plus à chaque style ajouté.
+- **Un style `cover` dédié** — le format de Specterr : ce serait n'offrir la
+  pochette qu'avec UN décor sur huit, alors qu'on veut l'inverse.
+
+En dernière position toujours : une pochette à moitié cachée par des particules
+ne remplit plus sa fonction. Un test le vérifie sur les huit styles, ainsi que
+la préservation de `usesFeedback` — une scène recomposée qui perdrait ses
+traînées ferait croire que le style a changé d'aspect.
+
+C'est aussi **le premier élément du moteur qui porte de l'information**, donc le
+premier à respecter la zone sûre de §7.4 : il se centre sur `viewport.safe`, pas
+sur le cadre. En 9:16, une pochette centrée sur le cadre tomberait derrière la
+légende et les boutons de la plateforme.
+
+### Sur le `getImageData` de l'extraction
+
+`CLAUDE.md` l'interdit « à chaque image ». L'interdit vise la boucle de rendu,
+où une lecture de pixels coûte une synchronisation GPU par trame. Ici : une
+action utilisateur, une fois par import, sur un bitmap de 64×64. Écrit dans le
+fichier pour qu'on ne le signale pas comme une infraction à la relecture
+suivante.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 109 fichiers, 902 tests (877 -> 902, +25)
+npm run test:arch   -> 1 test
+npm run build       -> 478,88 kB (gzip 135,35 kB), 1,98 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**. Import de bout en bout d'une
+pochette synthétique :
+
+```
+pochette-test.png — contraste 5.4:1 · luminance corrigée pour rester lisible
+```
+
+| moment | pastilles de palette |
+|---|---|
+| avec pochette | fond `13,10,24` · primaire `117,107,150` · accent `255,46,99` |
+| après « Retirer » | fond `5,6,11` · primaire `123,76,255` · accent `255,46,99` |
+
+L'accent extrait est exactement la couleur du logo dessiné, et « Retirer » rend
+bien la main à la palette du preset — seul moyen de revenir en arrière une fois
+qu'une pochette a imposé la sienne.
+
+### À valider par Aaron, à l'œil
+
+- **La taille de la pochette** (42 % du petit côté) et son **halo**. C'est le
+  réglage le plus subjectif du chantier.
+- **La réaction au kick est plafonnée à 3 %** (§7.5 autorise 2 à 4 %). Si la
+  pochette paraît morte, monter à 4 — mais pas au-delà : c'est un point fixe
+  dans le cadre, et une pochette qui pompe fait cheap.
+- **Les palettes extraites sur de VRAIES pochettes.** Les six cas testés sont
+  synthétiques ; seule une série de vraies images dira si l'accent choisi est
+  celui qu'un œil humain aurait retenu.
+- **Le comportement en 9:16**, où la zone sûre déplace la pochette vers le haut.
+
+### Limites connues
+
+- **La pochette n'est PAS persistée.** Elle est perdue au rechargement ; la
+  palette extraite l'est aussi, faute d'être écrite dans les surcharges du
+  projet. Persister une image demande soit une montée de version d'IndexedDB
+  avec migration, soit le mécanisme référence + relink utilisé pour l'audio.
+  Les deux relèvent de `docs/13_PROJECT_FORMAT.md`, distinct de « faire
+  apparaître la pochette et en tirer les couleurs », qui est ce que §7.5
+  demandait. À traiter avec l'interface du chantier 10.
+- **Aucun recadrage** : une pochette non carrée est étirée au carré. Le recadrage
+  centré serait une ligne dans `createSprite`, mais le choix — recadrer ou
+  laisser des bandes — est éditorial et n'était pas spécifié.
+- La palette extraite l'emporte sur celle du preset tant qu'une pochette est
+  active. Changer de preset ne la reprend donc pas ; il faut retirer la
+  pochette. C'est délibéré, et le bouton le rend explicite.

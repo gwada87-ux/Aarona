@@ -23,6 +23,8 @@ export interface ExportDialogOptions {
   readonly getMapping: () => MappingSchema;
   readonly getPalette: () => Palette;
   readonly getStyleFactory: () => () => Scene;
+  /** Pochette décodée (§7.5). L'export doit voir la MÊME que l'aperçu, sinon il rend une image amputée. */
+  readonly getCover: () => ImageBitmap | null;
   /** Étape 26 : macros de couche + style actif, transmis à `runExport()` pour corriger le gap « macros absentes à l'export ». */
   readonly getMacros: () => PresetMacros;
   readonly getStyleId: () => StyleId;
@@ -96,6 +98,7 @@ export class ExportDialog {
             projectSeed: this.options.getProjectSeed(),
             mapping: this.options.getMapping(),
             createScene: this.options.getStyleFactory(),
+            cover: this.options.getCover(),
             macros: this.options.getMacros(),
             styleId: this.options.getStyleId(),
             palette: this.options.getPalette(),

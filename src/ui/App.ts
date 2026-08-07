@@ -33,6 +33,8 @@ import { createChambreStyle } from '../visual/styles/chambre/createChambreStyle'
 import { createEclatsStyle } from '../visual/styles/eclats/createEclatsStyle';
 import { createAuroreStyle } from '../visual/styles/aurore/createAuroreStyle';
 import type { Scene } from '../visual/scene/Scene';
+import { withCover } from '../visual/scene/withCover';
+import { importCover, CoverImportError } from './coverImport';
 import { applyLayerBlends, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
@@ -129,6 +131,12 @@ let behaviourEngine: BehaviourEngine | null = null;
 let visualDirector: VisualDirector | null = null;
 let visualDirectorTimeline: MusicTimeline | null = null;
 let currentVariant: StyleVariant | undefined;
+/** Pochette décodée (§7.5). `null` = aucune ; la couche `CoverArt` est alors absente. */
+let coverImage: ImageBitmap | null = null;
+/** Palette extraite de la pochette. Elle l'emporte sur celle du preset tant qu'une pochette est active. */
+let coverPalette: Palette | null = null;
+/** La scène courante porte-t-elle la couche pochette ? Sert à détecter qu'il faut la reconstruire. */
+let sceneHasCover = false;
 /**
  * Déclaré ICI et non près de son écouteur, plus bas : `refreshVariant()` y
  * écrit, et `refreshVariant` est appelée depuis la résolution de preset, qui
@@ -236,23 +244,35 @@ function applyActiveConfiguration(): void {
   const resolved = resolvePreset(preset);
 
   currentMapping = resolved.mapping;
-  currentPalette = resolved.palette;
+  // La palette EXTRAITE d'une pochette l'emporte sur celle du preset (§7.5) :
+  // l'utilisateur qui importe une image attend que les couleurs en viennent,
+  // c'est tout l'intérêt de l'extraction. Changer de preset après coup ne la
+  // reprend donc pas — il faut retirer la pochette pour cela, ce que le bouton
+  // « Retirer » fait explicitement.
+  currentPalette = coverPalette ?? resolved.palette;
   flashLimiter.setReducedFlashing(resolved.safety.reducedFlashing);
 
   const styleChanged = currentStyleId !== sceneStyleId;
+  const coverChanged = (coverImage !== null) !== sceneHasCover;
 
-  if (styleChanged) {
+  if (styleChanged || coverChanged) {
     // Le plafond du niveau de qualité courant s'applique dès la construction (voir `applyQualityLevel`
     // pour le cas où le niveau change alors que le style `field` est DÉJÀ actif).
-    scene = STYLE_FACTORIES[currentStyleId](
-      QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
-      QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
+    // La pochette est AJOUTÉE après coup, en dernière couche : elle n'appartient
+    // à aucun style, elle se pose par-dessus celui qu'on a choisi.
+    scene = withCover(
+      STYLE_FACTORIES[currentStyleId](
+        QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
+        QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
+      ),
+      coverImage !== null,
     );
     sceneStyleId = currentStyleId;
-    scene.init({ renderer, palette: currentPalette });
+    sceneHasCover = coverImage !== null;
+    scene.init({ renderer, palette: currentPalette, cover: coverImage });
     if (currentTimeline) scene.reset(simT);
   } else if (scene) {
-    scene.init({ renderer, palette: currentPalette });
+    scene.init({ renderer, palette: currentPalette, cover: coverImage });
   }
   refreshVariant();
   applyLayerMacros();
@@ -450,11 +470,19 @@ const exportDialog = new ExportDialog({
   getPalette: () => currentPalette!,
   // docs/10 règle non négociable #2 : l'export fige TOUJOURS le niveau à `EXPORT_QUALITY_LEVEL`
   // (HIGH), quel que soit le niveau courant de la preview — jamais `currentQualityLevel` ici.
+  // `withCover` ICI AUSSI, et pas seulement dans la boucle d'aperçu : sans
+  // cette ligne, l'export produirait la même image MOINS la pochette, et le
+  // défaut ne se verrait sur aucune vignette. C'est très exactement le piège de
+  // l'Étape 25, où les macros de couche avaient été branchées d'un seul côté.
   getStyleFactory: () => () =>
-    STYLE_FACTORIES[currentStyleId](
-      QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
-      QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+    withCover(
+      STYLE_FACTORIES[currentStyleId](
+        QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
+        QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+      ),
+      coverImage !== null,
     ),
+  getCover: () => coverImage,
   getMacros: () => currentMacros,
   getStyleId: () => currentStyleId,
   getAudioBuffer: () => currentAudioBuffer,
@@ -1033,6 +1061,52 @@ async function importPvproj(file: File): Promise<void> {
       err instanceof PvprojFormatError || err instanceof ProjectError ? err.message : `Erreur : ${err instanceof Error ? err.message : String(err)}`;
   }
 }
+
+// --- Pochette (docs/17 §7.5) -----------------------------------------------
+
+const coverInput = document.querySelector<HTMLInputElement>('#cover-input')!;
+const coverStatus = document.querySelector<HTMLElement>('#cover-status')!;
+
+coverInput.addEventListener('change', () => {
+  const file = coverInput.files?.[0];
+  if (!file) return;
+  coverStatus.textContent = 'Lecture…';
+  void importCover(file)
+    .then((imported) => {
+      coverImage?.close();
+      coverImage = imported.image;
+      coverPalette = imported.report.palette;
+      // Le rapport est MONTRÉ, pas seulement calculé : quand la garantie de
+      // contraste a dû corriger une couleur, l'utilisateur doit savoir que ce
+      // qu'il voit n'est pas exactement ce qu'il y avait dans son image.
+      const notes: string[] = [`${imported.fileName} — contraste ${imported.report.contrast.toFixed(1)}:1`];
+      if (imported.report.monochrome) notes.push('image monochrome, accent dérivé de la luminance');
+      if (imported.report.corrected) notes.push('luminance corrigée pour rester lisible');
+      coverStatus.textContent = notes.join(' · ');
+      applyActiveConfiguration();
+    })
+    .catch((err: unknown) => {
+      // Une image refusée n'est pas une panne de l'application : on le dit
+      // dans le panneau, on ne jette pas dans la console.
+      coverStatus.textContent =
+        err instanceof CoverImportError ? err.message : 'Import impossible';
+      coverInput.value = '';
+    });
+});
+
+document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener('click', () => {
+  if (!coverImage) return;
+  // `close()` libère la mémoire du bitmap tout de suite plutôt que d'attendre
+  // le ramasse-miettes — une pochette 4000×4000 pèse 64 Mo décompressée.
+  coverImage.close();
+  coverImage = null;
+  coverPalette = null;
+  coverInput.value = '';
+  coverStatus.textContent = '';
+  // La palette du preset reprend la main : c'est le seul moyen de revenir en
+  // arrière une fois qu'une pochette a imposé la sienne.
+  applyActiveConfiguration();
+});
 
 // --- "Nouvelle variante" (docs/13 : régénère la graine, effet fort, coût nul) ---
 
