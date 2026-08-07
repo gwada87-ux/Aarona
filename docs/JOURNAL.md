@@ -3811,3 +3811,184 @@ Contrôle fonctionnel du champ de graine :
   contrainte prendra son sens au chantier 8, et c'est là qu'elle sera appliquée.
 - Les variantes ne sont pas choisissables : elles dérivent de la graine. Le choix
   explicite viendra avec le compositeur (§7.7, chantier 10).
+
+---
+
+## Phase 2 — Chantier 5 : `monolith` et `iso-pulse`
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 5 (§8). Les styles 4 et 5
+des « styles 4 à 12 » que `docs/00b` §4 réservait à l'après-MVP.
+
+### `monolith` — trap, drill, phonk
+
+« La masse et le silence. » Une masse géométrique sombre en fausse perspective,
+décentrée, occupant les deux tiers du cadre. Sur le kick, une **fissure** s'ouvre
+et se referme — c'est l'accent principal, et la seule chose lumineuse d'un cadre
+par ailleurs sombre, donc identifiable sur une capture figée (§8).
+
+kick → largeur de la fissure · sub → travelling latéral · caisse claire →
+bascule de l'éclairage d'une face à l'autre · charley → étincelles d'arête
+(plafonnées à 40 %) · anticipation → lueur qui monte dans la faille avant
+qu'elle ne s'ouvre · LFO → frémissement de facette.
+
+**DEUX COUCHES seulement**, et c'est le point : le trap a d'énormes vides entre
+les frappes, et tout ce qu'on ajouterait pour meubler détruirait le contraste
+dont la fissure tire son impact. Pas de `FrameFeedback` non plus — une traînée
+adoucirait les arêtes, or c'est leur netteté qui donne son poids à la masse.
+C'est le seul style du catalogue dont le parti pris est de ne PAS traîner.
+
+Deux contraintes de l'API ont façonné la conception :
+
+- `fillPath` ne prend qu'une couleur PLATE. Le volume vient donc du découpage en
+  sept facettes de valeurs différentes, pas d'un ombrage.
+- La lueur intérieure de la faille est un **sprite radial pré-rendu**, posé sept
+  fois le long de la fissure. C'est la seule façon d'obtenir un bord doux avec
+  cette interface.
+
+La fissure n'ouvre pas la géométrie : elle est dessinée par-dessus, en polygone
+à deux lèvres. Image identique à un découpage booléen, pour une fraction du coût.
+
+### `iso-pulse` — house, techno, garage
+
+« La régularité EST le plaisir. » Grille isométrique dont chaque kick lance une
+onde de soulèvement qui se propage en **losange** — distance de Manhattan, pas
+euclidienne : un cercle se lirait mal sur une grille. Plusieurs ondes coexistent
+et s'additionnent, ce qui produit des interférences sur un motif pourtant
+parfaitement régulier.
+
+kick → hauteur des ondes · caisse claire → damier de valeurs · charley →
+scintillement des crêtes · sub → inclinaison de la grille · anticipation →
+resserrement de la maille · LFO → dérive de la trame.
+
+Toute la propagation est comptée en **temps musicaux**, jamais en secondes : à
+128 comme à 170 BPM, une onde traverse la grille en deux temps.
+
+### Écart assumé n°11 — les « 8 tranches de hauteur » sont irréalisables
+
+`docs/17` §8 prévoyait pour `iso-pulse` : « Regroupe par tranche de hauteur —
+**8 tranches, donc 8 `fillPath`**, pas un par tuile. »
+
+C'est impossible. `fillPath(xs, ys, count, color)` dessine **un seul polygone**,
+pas une collection de sous-chemins ; regrouper cent tuiles en huit appels
+demanderait un `beginPath` partagé que l'interface n'expose pas. La phrase du
+prompt supposait une API qui n'existe pas.
+
+Conception retenue : la grille est un **maillage** — une polyligne par rangée et
+par colonne, dont les sommets se soulèvent. Coût `2·(N+1)` appels de
+`strokePath` au lieu de `N²` de `fillPath` : **26 au lieu de 144** pour une
+grille de 12. Seules les tuiles de crête sont remplies, et leur nombre est
+plafonné. Le rendu est bien celui décrit — une grille isométrique qui ondule.
+
+### Déterminisme : hachage plutôt que `step.rng`
+
+Les deux styles tirent leurs formes d'un **hachage de l'index de temps**, jamais
+de `step.rng`. Deux raisons :
+
+1. `step.rng` est PARTAGÉ par toutes les couches d'une scène. Y puiser décale
+   tous les tirages des couches suivantes — un couplage invisible entre couches
+   qui n'ont rien à voir.
+2. Un hachage se recalcule à l'identique après un seek, sans rejouer quoi que ce
+   soit.
+
+### Ce que le typage a attrapé tout seul
+
+Ajouter deux entrées à `STYLE_IDS` a fait échouer la COMPILATION sur
+`INERT_MACROS` (`AdvancedPanel`), qui est typé `Record<StyleId, …>` depuis le
+chantier 1. Impossible d'ajouter un style sans déclarer quelles macros y sont
+inertes — exactement l'effet recherché.
+
+Le même mécanisme manquait à deux tests : leurs tables de styles étaient typées
+`Record<string, …>`, si bien que `monolith` et `iso-pulse` y auraient été
+ignorés en silence. Les deux sont passés en `Record<StyleId, …>`.
+
+Quatre macros sur six sont câblées pour chaque nouveau style. Les deux autres
+sont déclarées inertes plutôt que câblées de force : `monolith` n'a ni densité
+(une seule masse) ni lissage (rien ne se lisse, c'est le principe) ;
+`iso-pulse` n'a pas de chaos — l'origine des ondes est déjà hachée — ni de
+lissage, la maille étant rigide par construction.
+
+### Deux angles morts de mes empreintes de test, encore
+
+Les critères 11 et 12 ont d'abord échoué sur les nouveaux styles. Ni l'un ni
+l'autre n'était un défaut du code :
+
+- L'empreinte ignorait la **couleur des `fillPath`**. Or `monolith` fait réagir
+  la caisse claire sur l'ÉCLAIRAGE des facettes, dont la forme ne bouge pas.
+- Puis elle ignorait la **couleur des `strokePath`**. Or `iso-pulse` fait réagir
+  la caisse claire sur la valeur des lignes en damier.
+
+La couleur fait partie de l'image autant que la géométrie. Les deux empreintes
+l'incluent désormais, et les critères 11 et 12 sont vérifiés sur les **cinq**
+styles.
+
+### Mesures — 60 s de simulation, 3 600 images
+
+| style | `Scene.update` | `Scene.draw` | appels de rendu | par image |
+|---|---|---|---|---|
+| `monolith` | 0,0117 ms/pas | 0,0064 ms/image | 38 793 | ~10,8 |
+| `iso-pulse` | 0,0159 ms/pas | 0,0142 ms/image | 135 248 | ~37,6 |
+
+**Ce que ces chiffres disent, et ce qu'ils ne disent pas.** `Scene.update` est
+mesuré en entier : il n'y a pas de rastérisation dans `update`, donc 0,016 ms
+est le coût RÉEL, très loin du budget de 3 ms. `Scene.draw`, en revanche, est
+mesuré contre un `FakeRenderer` qui enregistre au lieu de dessiner : le chiffre
+ne couvre que la logique et le dispatch, pas le travail Canvas. **Le budget de
+9 ms de `Scene.draw` n'est donc PAS vérifié** — il le sera au navigateur,
+fenêtre au premier plan.
+
+Le nombre d'appels, lui, est significatif et tient la conception : `iso-pulse`
+émet 37,6 appels par image, cohérent avec 26 polylignes plus au plus 20 crêtes
+et un lot de sprites.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 107 fichiers, 870 tests (863 -> 870, +7)
+npm run test:arch   -> 1 test
+npm run build       -> 464,44 kB (gzip 130,52 kB), 1,57 s
+```
+
+Tests automatisés des deux styles : 60 s de simulation sans exception, rendu
+correct en 16:9 / 9:16 / 1:1 sans code conditionnel et sans produire un seul
+`NaN` (Loi 4), image non vide **sans aucun onset** (Loi 3), et empreinte
+identique à graine identique (Loi 1).
+
+Navigateur, onglet neuf, **aucune erreur console**. Le catalogue expose bien les
+cinq styles, et l'avertissement de macro inerte suit le style choisi :
+
+| style | macros marquées inertes |
+|---|---|
+| `pulse` | Profondeur |
+| `field` | — |
+| `spectrum-pro` | — |
+| `monolith` | Densité, Douceur |
+| `iso-pulse` | Chaos, Douceur |
+
+### À valider par Aaron, à l'œil
+
+Rien de ce qui précède ne dit si c'est BEAU. Les points à juger :
+
+- **`monolith` est un pari sur le vide.** S'il paraît simplement vide plutôt que
+  tendu, c'est que le contraste entre l'immobilité et la fissure ne prend pas —
+  et c'est tout le style qui est à revoir, pas un réglage.
+- **La fissure** : `FISSURE_MAX_WIDTH = 0,055`. Trop fine, elle se lit comme une
+  rayure ; trop large, comme un trou.
+- **`iso-pulse` doit être hypnotique, pas monotone.** Le test : peut-on compter
+  le tempo à l'œil, son coupé, pendant trente secondes sans s'ennuyer ?
+- **La densité de la grille** (12 tuiles par côté) et le plafond de crêtes (20).
+- **Les quatre variantes ajoutées** — `monolith` n'en a aucune centrée, sa masse
+  l'étant déjà dans la couche.
+- **Les deux styles n'ont pas encore de preset.** Ils ne sont atteignables que
+  par le sélecteur de style. Les presets trap/house qui devraient y pointer
+  arrivent au chantier 9.
+
+### Limites connues
+
+- **Le budget de 9 ms de `Scene.draw` n'est pas vérifié** (voir plus haut).
+- **Aucun preset ne pointe vers les nouveaux styles** : `trap-dark` et `drill`
+  restent sur `field`, `house` sur `pulse`. La réécriture des presets est le
+  chantier 9 ; changer leur `style` maintenant modifierait le rendu de presets
+  existants sans que le travail de couleurs qui va avec soit fait.
+- Aucune capture d'écran : volet d'aperçu non affiché, `AudioContext` bloqué
+  sans geste utilisateur. Même limite qu'aux chantiers précédents.

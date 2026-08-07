@@ -28,6 +28,8 @@ import type { MusicEvent, PmdiDocument, Section } from '../../src/music/pmdi';
 import { createFieldStyle } from '../../src/visual/styles/field/createFieldStyle';
 import { createPulseStyle } from '../../src/visual/styles/pulse/createPulseStyle';
 import { createSpectrumProStyle } from '../../src/visual/styles/spectrum-pro/createSpectrumProStyle';
+import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
+import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import type { Scene } from '../../src/visual/scene/Scene';
 import { openFrameWithCamera, stepSceneWithDrama } from '../../src/visual/scene/dramaFrame';
@@ -113,10 +115,18 @@ function imageAt(makeScene: () => Scene, untilT: number): string {
         out.push(`rg ${r(call.outerRadius)} ${r(call.inner.r)} ${r(call.inner.g)} ${r(call.inner.b)}`);
         break;
       case 'strokePath':
-        out.push(`sp ${r(call.lineWidth)} ${r(call.ys[0] ?? 0)} ${r(call.ys[7] ?? 0)}`);
+        out.push(
+          `sp ${r(call.lineWidth)} ${r(call.ys[0] ?? 0)} ${r(call.ys[7] ?? 0)} ` +
+            `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+        );
         break;
       case 'fillPath':
-        out.push(`fp ${r(call.ys[0] ?? 0)} ${r(call.ys[2] ?? 0)}`);
+        // La couleur fait partie de l'image : même correctif que dans
+        // `mappingChangesImage.test.ts`, voir la note qui s'y trouve.
+        out.push(
+          `fp ${r(call.ys[0] ?? 0)} ${r(call.ys[2] ?? 0)} ` +
+            `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+        );
         break;
       case 'drawSprite': {
         const t0 = call.transforms[0];
@@ -137,6 +147,8 @@ const STYLES: ReadonlyArray<[string, () => Scene]> = [
   ['pulse', createPulseStyle],
   ['field', createFieldStyle],
   ['spectrum-pro', createSpectrumProStyle],
+  ['monolith', createMonolithStyle],
+  ['iso-pulse', createIsoPulseStyle],
 ];
 
 /** Les quatre moments du livrable, plus un refrain pour servir de repère. */

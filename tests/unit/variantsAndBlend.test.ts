@@ -11,12 +11,14 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { STYLE_VARIANTS, variantFor } from '../../src/presets/styleVariants';
-import { STYLE_IDS } from '../../src/presets/schema';
+import { STYLE_IDS, type StyleId } from '../../src/presets/schema';
 import { safeAreaFor, safeRect, NO_SAFE_AREA } from '../../src/render/safeArea';
 import { applyLayerBlends } from '../../src/visual/scene/dramaFrame';
 import { createFieldStyle } from '../../src/visual/styles/field/createFieldStyle';
 import { createPulseStyle } from '../../src/visual/styles/pulse/createPulseStyle';
 import { createSpectrumProStyle } from '../../src/visual/styles/spectrum-pro/createSpectrumProStyle';
+import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
+import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
 
@@ -63,10 +65,16 @@ describe('variantes de cadrage (§7.10)', () => {
     // Une faute de frappe dans un identifiant de couche ne produit aucune
     // erreur : le mode est simplement ignoré, en silence. C'est exactement le
     // genre de panne que ce chantier existe pour empêcher de revenir.
-    const couches: Readonly<Record<string, readonly string[]>> = {
+    // `Record<StyleId, …>` et non `Record<string, …>` : un style ajouté sans
+    // entrée ici ferait échouer la COMPILATION, au lieu de passer le test avec
+    // un `undefined` silencieux — ce qui est exactement ce qui vient d'arriver
+    // en ajoutant `monolith` et `iso-pulse`.
+    const couches: Readonly<Record<StyleId, readonly string[]>> = {
       pulse: createPulseStyle().layers.map((l) => l.id),
       field: createFieldStyle().layers.map((l) => l.id),
       'spectrum-pro': createSpectrumProStyle().layers.map((l) => l.id),
+      monolith: createMonolithStyle().layers.map((l) => l.id),
+      'iso-pulse': createIsoPulseStyle().layers.map((l) => l.id),
     };
     for (const id of STYLE_IDS) {
       for (const v of STYLE_VARIANTS[id]) {

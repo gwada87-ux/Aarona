@@ -80,6 +80,27 @@ export const STYLE_VARIANTS: Readonly<Record<StyleId, readonly StyleVariant[]>> 
     // au milieu de l'écran.
     { name: 'fuite basse', offsetX: -0.15, offsetY: -0.17, zoom: 1.15 },
   ]),
+  monolith: Object.freeze([
+    // Aucune variante centrée : la masse est déjà décentrée dans la couche, et
+    // la recentrer par la caméra annulerait le cadrage voulu.
+    { name: 'contre-plongée', offsetX: 0.1, offsetY: -0.12, zoom: 1.1 },
+    { name: 'de face, serré', offsetX: 0.14, offsetY: 0.02, zoom: 1.28 },
+  ]),
+  'iso-pulse': Object.freeze([
+    { name: 'plan large', offsetX: 0, offsetY: 0, zoom: 1 },
+    // Grille poussée en bas : la moitié haute reste libre, ce qu'un habillage
+    // de titre demande.
+    { name: 'grille basse', offsetX: 0, offsetY: -0.14, zoom: 1.16 },
+    // `screen` sur la grille : elle éclaircit le duotone sans le saturer comme
+    // le ferait l'additif sur une trame aussi dense.
+    {
+      name: 'diagonale',
+      offsetX: -0.17,
+      offsetY: 0.06,
+      zoom: 1.2,
+      blend: Object.freeze({ isoGrid: 'screen' as BlendMode }),
+    },
+  ]),
   'spectrum-pro': Object.freeze([
     { name: 'plan large', offsetX: 0, offsetY: 0, zoom: 1 },
     // Barres poussées en bas de cadre : la moitié haute reste vide, ce qui est

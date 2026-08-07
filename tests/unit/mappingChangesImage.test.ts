@@ -26,6 +26,8 @@ import type { MusicEvent, PmdiDocument } from '../../src/music/pmdi';
 import { createFieldStyle } from '../../src/visual/styles/field/createFieldStyle';
 import { createPulseStyle } from '../../src/visual/styles/pulse/createPulseStyle';
 import { createSpectrumProStyle } from '../../src/visual/styles/spectrum-pro/createSpectrumProStyle';
+import { createMonolithStyle } from '../../src/visual/styles/monolith/createMonolithStyle';
+import { createIsoPulseStyle } from '../../src/visual/styles/iso-pulse/createIsoPulseStyle';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import type { Scene } from '../../src/visual/scene/Scene';
 import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
@@ -99,10 +101,23 @@ function fingerprint(makeScene: () => Scene, mapping: MappingSchema, frames = 24
           out.push(`rg ${r(call.outerRadius)} ${r(call.inner.r)} ${r(call.inner.g)} ${r(call.inner.b)}`);
           break;
         case 'strokePath':
-          out.push(`sp ${r(call.lineWidth)} ${r(call.xs[0] ?? 0)} ${r(call.ys[0] ?? 0)} ${r(call.ys[7] ?? 0)}`);
+          // Couleur incluse, pour la même raison que `fillPath` ci-dessous :
+          // `iso-pulse` fait réagir la caisse claire sur la VALEUR des lignes
+          // en damier, pas sur leur tracé.
+          out.push(
+            `sp ${r(call.lineWidth)} ${r(call.xs[0] ?? 0)} ${r(call.ys[0] ?? 0)} ${r(call.ys[7] ?? 0)} ` +
+              `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+          );
           break;
         case 'fillPath':
-          out.push(`fp ${r(call.xs[0] ?? 0)} ${r(call.ys[0] ?? 0)} ${r(call.ys[2] ?? 0)}`);
+          // La COULEUR fait partie de l'image autant que la géométrie. Sans
+          // elle, un style dont la caisse claire ne change que l'ÉCLAIRAGE —
+          // `monolith`, dont les facettes gardent la même forme — paraissait
+          // ne réagir à rien.
+          out.push(
+            `fp ${r(call.xs[0] ?? 0)} ${r(call.ys[0] ?? 0)} ${r(call.ys[2] ?? 0)} ` +
+              `${r(call.color.r)} ${r(call.color.g)} ${r(call.color.b)}`,
+          );
           break;
         case 'drawSprite': {
           // La POSITION compte autant que la taille : le charley accélère les
@@ -141,6 +156,8 @@ const STYLES: ReadonlyArray<[string, () => Scene]> = [
   ['pulse', createPulseStyle],
   ['field', createFieldStyle],
   ['spectrum-pro', createSpectrumProStyle],
+  ['monolith', createMonolithStyle],
+  ['iso-pulse', createIsoPulseStyle],
 ];
 
 describe('critère 11 — le mapping atteint réellement l\'image', () => {

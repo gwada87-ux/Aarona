@@ -26,6 +26,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { defaultMapping } from '../../src/behaviour/mapping/defaults';
 import { resolve } from '../../src/behaviour/mapping/resolve';
+import type { StyleId } from '../../src/presets/schema';
 
 const LAYERS_ROOT = join(process.cwd(), 'src', 'visual', 'layers');
 
@@ -106,10 +107,15 @@ describe('couverture des signaux visuels (§6.1)', () => {
     // Un style qui n'en lit qu'un ou deux est sourd au preset, même si le
     // moteur, lui, calcule tout. `spectrum-pro` était dans ce cas : ses trois
     // couches ne lisaient RIEN.
-    const styles: Readonly<Record<string, readonly string[]>> = {
+    // `Record<StyleId, …>` : un style ajouté sans entrée ici ferait échouer la
+    // COMPILATION. Avec `Record<string, …>`, `monolith` et `iso-pulse` auraient
+    // été ajoutés au chantier 5 sans jamais passer sous ce contrôle.
+    const styles: Readonly<Record<StyleId, readonly string[]>> = {
       pulse: ['background/RadialBackground.ts', 'geometry/PulseRings.ts', 'waveform/CircularWaveform.ts', 'glow/CentralGlow.ts', 'postfx/ScreenShake.ts'],
       field: ['background/DeepVignette.ts', 'field/PerspectiveGrid.ts', 'particles/ParticleField.ts', 'postfx/FrameFeedback.ts'],
       'spectrum-pro': ['background/AnimatedDuotone.ts', 'spectrum/SpectrumBars.ts', 'waveform/FlatWaveform.ts'],
+      monolith: ['background/DeepVignette.ts', 'geometry/MonolithMass.ts'],
+      'iso-pulse': ['postfx/FrameFeedback.ts', 'background/AnimatedDuotone.ts', 'field/IsoGrid.ts'],
     };
 
     for (const [style, files] of Object.entries(styles)) {

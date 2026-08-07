@@ -42,6 +42,8 @@ export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
     'pulse.pulseRings.maxActiveRings': { at0: 2, at1: 8 },
     // Spectrum Pro — SpectrumBars.ts : GAP = 0.006 par défaut (plus dense = barres plus serrées).
     'spectrum-pro.spectrumBars.gap': { at0: 0.014, at1: 0.002 },
+    // Iso Pulse — IsoGrid.ts : MAX_CREST = 20 par défaut (tuiles de crête remplies).
+    'iso-pulse.isoGrid.crestCap': { at0: 6, at1: 28 },
   }),
   movement: Object.freeze({
     // Field — ParticleField.ts : DRIFT_Y = 0.012 par défaut.
@@ -50,12 +52,20 @@ export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
     'pulse.pulseRings.lifetimeSec': { at0: 1.8, at1: 0.6 },
     // Spectrum Pro — SpectrumBars.ts : BAR_RISE_TAU = 0.05s par défaut (attaque des barres, pas la retombée — voir smoothness).
     'spectrum-pro.spectrumBars.riseTau': { at0: 0.09, at1: 0.02 },
+    // Monolith — MonolithMass.ts : SUB_TRAVEL = 0,05 par défaut (amplitude du travelling).
+    'monolith.monolithMass.travel': { at0: 0.02, at1: 0.09 },
+    // Iso Pulse — IsoGrid.ts : WAVE_LIFE_BEATS = 2 par défaut (plus court = onde plus rapide).
+    'iso-pulse.isoGrid.waveLifeBeats': { at0: 3.2, at1: 1.2 },
   }),
   depth: Object.freeze({
     // Field — PerspectiveGrid.ts : PERSPECTIVE = 0.65 par défaut ; plus BAS = falloff plus dramatique (formule rayon ∝ 1/profondeur).
     'field.perspectiveGrid.perspective': { at0: 1.2, at1: 0.35 },
     // Spectrum Pro — SpectrumBars.ts : REFLECTION_ALPHA = 0.25 par défaut (repère de « sol » sous les barres).
     'spectrum-pro.spectrumBars.reflectionAlpha': { at0: 0.1, at1: 0.4 },
+    // Monolith — MonolithMass.ts : TOP_NARROW = 0,72 par défaut ; plus BAS = fausse perspective plus marquée.
+    'monolith.monolithMass.topNarrow': { at0: 0.92, at1: 0.5 },
+    // Iso Pulse — IsoGrid.ts : ISO_SQUASH = 0,5 par défaut ; plus bas = grille plus rasante.
+    'iso-pulse.isoGrid.squash': { at0: 0.68, at1: 0.32 },
     // (aucune entrée pulse.* — voir note en tête de fichier)
   }),
   glow: Object.freeze({
@@ -66,6 +76,8 @@ export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
     'pulse.centralGlow.diameter': { at0: 0.35, at1: 0.7 },
     // Spectrum Pro — SpectrumBars.ts : multiplie l'alpha (0.5) du halo par barre.
     'spectrum-pro.spectrumBars.glowAlphaMul': { at0: 0.4, at1: 1.6 },
+    'monolith.monolithMass.glowMul': { at0: 0.5, at1: 1.5 },
+    'iso-pulse.isoGrid.glowMul': { at0: 0.4, at1: 1.6 },
   }),
   chaos: Object.freeze({
     // Field — ParticleField.ts : multiplie l'amplitude des tirages `step.rng` DÉJÀ existants au spawn (angle/vitesse), n'en ajoute aucun.
@@ -74,6 +86,8 @@ export const LAYER_MACRO_CURVES: MacroCurveTable = Object.freeze({
     'pulse.pulseRings.chaosJitter': { at0: 0, at1: 0.04 },
     // Spectrum Pro — SpectrumBars.ts : à-coup de vitesse (unités normalisées/s) tiré à chaque réinitialisation de chapeau de pic.
     'spectrum-pro.spectrumBars.peakChaosJitter': { at0: 0, at1: 0.5 },
+    // Monolith — MonolithMass.ts : amplitude du lacet de la fissure, 0,55 par défaut.
+    'monolith.monolithMass.fissureChaos': { at0: 0.2, at1: 0.9 },
   }),
   smoothness: Object.freeze({
     // Field — ParticleField.ts : DRAG_PER_SEC = 0.6 par défaut (amortissement de vitesse — plus haut = plus « flottant »).

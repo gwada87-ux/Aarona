@@ -27,6 +27,8 @@ import type { MappingSchema } from '../behaviour/mapping/MappingSchema';
 import { createPulseStyle } from '../visual/styles/pulse/createPulseStyle';
 import { createFieldStyle } from '../visual/styles/field/createFieldStyle';
 import { createSpectrumProStyle } from '../visual/styles/spectrum-pro/createSpectrumProStyle';
+import { createMonolithStyle } from '../visual/styles/monolith/createMonolithStyle';
+import { createIsoPulseStyle } from '../visual/styles/iso-pulse/createIsoPulseStyle';
 import type { Scene } from '../visual/scene/Scene';
 import { applyLayerBlends, openFrameWithCamera, stepSceneWithDrama } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
@@ -77,6 +79,8 @@ const STYLE_FACTORIES: Readonly<Record<StyleId, (maxParticles?: number, feedback
   pulse: createPulseStyle,
   field: createFieldStyle,
   'spectrum-pro': createSpectrumProStyle,
+  monolith: createMonolithStyle,
+  'iso-pulse': createIsoPulseStyle,
 };
 
 /** Palette/mapping/classification "aucun preset" : reprend telle quelle la config JSON de Trap Dark — documentée dans `visual/palette/Palette.ts` comme identique à `defaultPalette`. */

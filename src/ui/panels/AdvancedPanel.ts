@@ -40,6 +40,13 @@ const INERT_MACROS: Readonly<Record<StyleId, readonly MacroName[]>> = Object.fre
   pulse: Object.freeze(['depth'] as const),
   field: Object.freeze([] as const),
   'spectrum-pro': Object.freeze([] as const),
+  // Styles du chantier 5. Quatre macros sur six sont câblées ; les deux autres
+  // n'ont pas de paramètre auquel s'accrocher sans dénaturer le style :
+  // `monolith` n'a ni densité (une seule masse) ni lissage (rien ne se lisse,
+  // c'est le principe), `iso-pulse` n'a pas de chaos — l'origine des ondes est
+  // déjà hachée — ni de lissage, la maille étant rigide par construction.
+  monolith: Object.freeze(['density', 'smoothness'] as const),
+  'iso-pulse': Object.freeze(['chaos', 'smoothness'] as const),
 });
 
 export interface AdvancedPanelCallbacks {
