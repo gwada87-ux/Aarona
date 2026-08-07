@@ -1,5 +1,18 @@
 /**
- * Conversion OKLCH <-> sRGB (§3.5).
+ * Conversion OKLCH <-> sRGB (mode live §3.5, remonte dans `core/` au chantier 9
+ * de la phase 2 - docs/17_PHASE2_VISUELS.md §9.2).
+ *
+ * POURQUOI DANS `core/`
+ * ---------------------
+ * Le module etait dans `src/ui/live/util/`, ou seul le mode live pouvait le
+ * lire : `visual/` n'a pas le droit d'importer `ui/`. Deux consequences
+ * mesurables en decoulaient - `visual/palette/contrast.ts` recopiait ses
+ * fonctions de luminance, et la derive de temperature des palettes du mode
+ * fichier interpolait en RGB faute de mieux, ce qui la fait passer par une zone
+ * terne. Le meme deplacement avait ete fait pour le bruit simplex au chantier 6.
+ *
+ * `core/ -> rien` : ce fichier n'importe rien, et c'est ce qui rend le
+ * deplacement licite.
  *
  * MUST : la conversion est faite DANS LE CODE, pas deleguee au support de
  * `oklch()` dans `fillStyle`. Deux raisons : le support navigateur n'est pas

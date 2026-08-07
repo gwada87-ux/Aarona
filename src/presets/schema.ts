@@ -110,6 +110,23 @@ export interface PresetSafety {
 }
 
 /**
+ * Intention de bloom du preset (docs/17 §6.5, chantier 9).
+ *
+ * Deux champs seulement, et c'est voulu : `resolutionScale` est un réglage de
+ * COÛT, qui reste au niveau de qualité. Un preset dit s'il veut du halo et
+ * combien, pas ce que la machine doit y consacrer. Voir `presets/bloom.ts`.
+ *
+ * OPTIONNEL : un preset qui ne le déclare pas garde le comportement d'avant ce
+ * chantier (`DEFAULT_PRESET_BLOOM`), ce qui laisse valides les `.pvproj` et les
+ * presets utilisateur écrits avant.
+ */
+export interface PresetBloomConfig {
+  readonly enabled: boolean;
+  /** Passes de flou voulues, 0 à 3. Modulé ensuite par la macro Glow. */
+  readonly passes: number;
+}
+
+/**
  * `layers` RETIRÉ au chantier 1 de la phase 2 (docs/17_PHASE2_VISUELS.md §9.1).
  *
  * Il était déclaré, recopié par `resolvePreset`, et lu par PERSONNE — ni
@@ -150,6 +167,8 @@ export interface Preset {
   readonly palette: PresetPaletteConfig;
   readonly macros: PresetMacros;
   readonly safety: PresetSafety;
+  /** §6.5, chantier 9. Absent = comportement d'avant, deux passes. */
+  readonly bloom?: PresetBloomConfig;
 }
 
 export type ValidationResult = { ok: true; preset: Preset; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] };
@@ -222,6 +241,23 @@ function checkGenre(genre: unknown, errors: string[]): void {
  * est optionnel par construction ; seuls les champs présents à la racine du
  * preset (identité, genre, palette, macros, safety) sont contrôlés.
  */
+/**
+ * `bloom` est OPTIONNEL (§6.5, chantier 9) : absent, il vaut le defaut. Present,
+ * il est controle - un `passes` hors bornes passerait sinon jusqu'au
+ * `Renderer`, qui en ferait un nombre de passes de flou absurde.
+ */
+function checkBloom(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    errors.push('"bloom" doit être un objet');
+    return;
+  }
+  if (typeof value.enabled !== 'boolean') errors.push('"bloom.enabled" doit être un booléen');
+  if (!isFiniteNumber(value.passes) || value.passes < 0 || value.passes > 3) {
+    errors.push('"bloom.passes" doit être un nombre dans [0,3]');
+  }
+}
+
 export function validatePreset(value: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -240,6 +276,7 @@ export function validatePreset(value: unknown): ValidationResult {
   checkGenre(value.genre, errors);
   checkPalette(value.palette, errors);
   checkMacros(value.macros, errors);
+  checkBloom(value.bloom, errors);
 
   if (value.version !== PRESET_SCHEMA_VERSION) {
     warnings.push(`version de schéma ${String(value.version)} différente de celle supportée (${PRESET_SCHEMA_VERSION})`);

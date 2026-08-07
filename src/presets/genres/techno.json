@@ -1,130 +1,130 @@
 {
-  "id": "house",
+  "id": "techno",
   "version": 1,
-  "name": "House",
+  "name": "Techno",
   "genre": {
     "tempoHint": [
-      118,
-      128
+      128,
+      140
     ],
     "doubleTimeHint": false,
-    "subDominance": 0.5,
-    "onsetDensity": 0.6,
+    "subDominance": 0.7,
+    "onsetDensity": 0.8,
     "continuousRegimePreference": false
   },
-  "style": "iso-pulse",
+  "style": "monolith",
   "mapping": {
     "impact": {
       "from": [
         "KICK"
       ],
-      "gain": 0.9,
-      "decay": 0.16
+      "gain": 1,
+      "decay": 0.13
     },
     "subImpact": {
       "from": [
         "SUB_HIT"
       ],
-      "gain": 0.5,
-      "decay": 0.35
+      "gain": 0.7,
+      "decay": 0.3
     },
     "accent": {
       "from": [
-        "CLAP",
-        "SNARE"
+        "CLAP"
       ],
-      "gain": 0.8,
-      "decay": 0.22
+      "gain": 0.55,
+      "decay": 0.14
     },
     "tick": {
       "from": [
         "HAT"
       ],
-      "gain": 0.6,
-      "decay": 0.09
+      "gain": 0.5,
+      "decay": 0.06
     },
     "sectionShift": {
       "from": [
         "SECTION"
       ],
       "gain": 1,
-      "decay": 1.6
+      "decay": 3
     },
     "drive": {
       "from": "feature:energy",
-      "rise": 0.14,
-      "fall": 0.85
+      "rise": 0.35,
+      "fall": 1.6
     },
     "weight": {
       "from": "feature:band.sub",
-      "rise": 0.08,
-      "fall": 0.45
+      "rise": 0.06,
+      "fall": 0.4
     },
     "brightness": {
       "from": "feature:centroid",
-      "rise": 0.2,
-      "fall": 0.55
+      "rise": 0.4,
+      "fall": 0.9
     },
     "tension": {
       "from": "anticipate:DROP",
-      "window": 8,
+      "window": 12,
       "curve": "easeInQuad"
     },
     "lfoA": {
       "from": "lfo:sine",
-      "bars": 8
+      "bars": 16
     },
     "lfoB": {
       "from": "lfo:triangle",
-      "bars": 4,
-      "phase": 0.25
+      "bars": 8,
+      "phase": 0.5
     },
     "lfoC": {
-      "from": "lfo:sine",
-      "bars": 2,
-      "phase": 0.5
+      "from": "lfo:square",
+      "bars": 4
     },
     "lfoD": {
       "from": "lfo:saw",
-      "bars": 1
+      "bars": 2,
+      "phase": 0.25
     }
   },
   "classification": {
     "kick": {
-      "bassRatio": 0.5
+      "bassRatio": 0.62,
+      "maxCentroid": 180
     },
     "hat": {
-      "minCentroid": 6500
+      "minCentroid": 7500
     }
   },
   "palette": {
     "bg": [
-      "#010006",
-      "#04030f"
+      "#010103",
+      "#04060a"
     ],
-    "primary": "#00b3b6",
-    "secondary": "#006675",
-    "accent": "#ce47c7",
-    "glow": "#00e4e8",
-    "contrast": 0.95,
+    "primary": "#626976",
+    "secondary": "#383d47",
+    "accent": "#9ba5b8",
+    "glow": "#8592ad",
+    "contrast": 0.7,
     "drift": {
-      "lowEnergy": "#004f5d",
-      "highEnergy": "#e25cda"
+      "lowEnergy": "#242932",
+      "highEnergy": "#aeb8cb"
     }
   },
   "macros": {
-    "energy": 0.65,
-    "reactivity": 0.55,
-    "density": 0.75,
-    "movement": 0.7,
-    "depth": 0.65,
-    "glow": 0.6,
-    "chaos": 0.2,
-    "smoothness": 0.65
+    "energy": 0.8,
+    "reactivity": 0.5,
+    "density": 0.35,
+    "movement": 0.3,
+    "depth": 0.85,
+    "glow": 0.3,
+    "chaos": 0.1,
+    "smoothness": 0.55
   },
   "bloom": {
     "enabled": true,
-    "passes": 2
+    "passes": 1
   },
   "safety": {
     "reducedFlashing": false

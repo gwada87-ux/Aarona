@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPalette } from '../../src/presets/palette';
 import { hexToColor } from '../../src/visual/palette/Palette';
+import { rgbToOklch } from '../../src/core/color/oklch';
 import type { PresetPaletteConfig } from '../../src/presets/schema';
 
 function config(overrides: Partial<PresetPaletteConfig> = {}): PresetPaletteConfig {
@@ -63,9 +64,35 @@ describe('buildPalette — temperature() (interpolation drift)', () => {
     expect(palette.temperature(1)).toEqual(hexToColor('#eeeeee'));
   });
 
-  it('energy=0.5 renvoie le point médian', () => {
+  it('energy=0.5 renvoie le point médian PERCEPTUEL, pas arithmétique', () => {
+    // Chantier 9 : la derive est interpolee en OKLCH. Le milieu perceptuel entre
+    // le noir et le blanc n'est PAS 127,5 - c'est un gris nettement plus sombre,
+    // parce que la reponse de l'oeil a la luminance n'est pas lineaire. Le
+    // milieu arithmetique est precisement ce qui rendait ternes les derives
+    // entre deux teintes opposees.
     const palette = buildPalette('p', config({ drift: { lowEnergy: '#000000', highEnergy: '#ffffff' } }));
-    expect(palette.temperature(0.5)).toEqual({ r: 127.5, g: 127.5, b: 127.5, a: 1 });
+    const mid = palette.temperature(0.5);
+    // 4 decimales : la conversion aller-retour laisse un residu de l'ordre de
+    // 1e-5 sur chaque canal, qui n'a aucune existence a l'ecran (les canaux sont
+    // arrondis a l'entier au moment du dessin).
+    expect(mid.r).toBeCloseTo(mid.g, 4);
+    expect(mid.g).toBeCloseTo(mid.b, 4);
+    // Milieu OKLCH de #000000 et #ffffff : L = 0,5, soit environ 99/255. Le
+    // milieu arithmetique vaudrait 127,5.
+    expect(mid.r).toBeLessThan(127.5);
+    expect(mid.r).toBeGreaterThan(94);
+    expect(mid.r).toBeLessThan(104);
+  });
+
+  it('conserve le CHROMA au milieu d\'une derive entre deux teintes', () => {
+    // C'est tout l'objet du changement. `house` derive de `#402410` (brun
+    // sombre) vers `#3CE7FF` (cyan) : en RGB le premier quart du trajet perdait
+    // 58,5 % de son chroma - un gris. Le seuil ci-dessous est tenu par
+    // l'interpolation OKLCH et ne l'etait pas par la RGB (0,0306 mesure).
+    const palette = buildPalette('p', config({ drift: { lowEnergy: '#402410', highEnergy: '#3CE7FF' } }));
+    const q = palette.temperature(0.25);
+    const chroma = rgbToOklch({ r: q.r / 255, g: q.g / 255, b: q.b / 255 }).c;
+    expect(chroma).toBeGreaterThan(0.06);
   });
 
   it('clamp interne : energy < 0 se comporte comme energy=0', () => {

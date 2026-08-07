@@ -25,11 +25,23 @@ const LFO_DRIFT = 0.045;
  *
  * Un sprite est rendu UNE FOIS (`createSprite`, en `init`) : il ne peut donc
  * pas changer de teinte image par image sans le re-rendre, ce que la règle
- * de performance interdit. Compromis retenu : deux variantes pré-rendues
- * (`palette.temperature(0)` froid, `temperature(1)` chaud), dessinées
- * ADDITIVEMENT toutes les deux avec des poids d'alpha complémentaires
- * (`1-brightness` / `brightness`) — un fondu enchaîné entre deux sprites
- * fixes, pas un sprite recoloré.
+ * de performance interdit. Compromis retenu : des variantes pré-rendues de la
+ * dérive de température, dessinées ADDITIVEMENT avec des poids d'alpha dont la
+ * somme fait 1 — un fondu enchaîné entre sprites fixes, pas un sprite recoloré.
+ *
+ * TROIS SPRITES, PAS DEUX (chantier 9, §9.2)
+ * ------------------------------------------
+ * Il y en avait deux, aux EXTRÊMES de la dérive. `temperature(0,5)` n'était donc
+ * lu par personne dans tout le moteur, et le fondu additif entre les deux
+ * extrêmes reproduisait exactement le défaut que l'interpolation OKLCH vient de
+ * corriger : la somme de deux couleurs opposées à demi-alpha est le milieu
+ * ARITHMÉTIQUE, c'est-à-dire la zone terne. Sur `house`, dont la dérive va d'un
+ * brun sombre à un cyan, le point milieu perdait 58,5 % de son chroma.
+ *
+ * Un troisième sprite au milieu perceptuel, et des poids en triangle, font
+ * passer le fondu PAR ce milieu. Une seule allocation de plus, à
+ * l'initialisation, et `temperature` cesse d'être une fonction dont seules les
+ * deux bornes servent.
  */
 export class CentralGlow implements Layer {
   readonly id = 'centralGlow';
@@ -38,6 +50,7 @@ export class CentralGlow implements Layer {
   params: LayerParams = {};
 
   private coolSprite!: SpriteHandle;
+  private midSprite!: SpriteHandle;
   private hotSprite!: SpriteHandle;
   private drive = 0;
   private brightness = 0;
@@ -48,8 +61,10 @@ export class CentralGlow implements Layer {
 
   init(ctx: LayerInitContext): void {
     const cool = ctx.palette.temperature(0);
+    const mid = ctx.palette.temperature(0.5);
     const hot = ctx.palette.temperature(1);
     this.coolSprite = ctx.renderer.createSprite((offCtx) => drawGlowSprite(offCtx, SPRITE_SIZE, cool), SPRITE_SIZE);
+    this.midSprite = ctx.renderer.createSprite((offCtx) => drawGlowSprite(offCtx, SPRITE_SIZE, mid), SPRITE_SIZE);
     this.hotSprite = ctx.renderer.createSprite((offCtx) => drawGlowSprite(offCtx, SPRITE_SIZE, hot), SPRITE_SIZE);
   }
 
@@ -75,8 +90,15 @@ export class CentralGlow implements Layer {
     // quoi que ce soit n'arrive, ce qui est exactement la sensation cherchée.
     const diameter = baseDiameter * (1 + this.tension * TENSION_SWELL);
 
-    const coolAlpha = Math.min(1, (1 - this.brightness) * this.drive * intensityMul);
-    const hotAlpha = Math.min(1, this.brightness * this.drive * intensityMul);
+    // Poids en TRIANGLE sur trois sprites : leur somme vaut 1 pour toute valeur
+    // de `brightness`, donc l'intensité totale du halo ne dépend que de `drive`
+    // - c'est ce qui empêche le fondu de température de se lire comme une
+    // pulsation de luminosité.
+    const b = this.brightness;
+    const gain = this.drive * intensityMul;
+    const coolAlpha = Math.min(1, Math.max(0, 1 - 2 * b) * gain);
+    const midAlpha = Math.min(1, (1 - Math.abs(2 * b - 1)) * gain);
+    const hotAlpha = Math.min(1, Math.max(0, 2 * b - 1) * gain);
     // Tableaux de transformation MUTÉS en place : un littéral par image serait
     // une allocation dans la boucle de rendu, interdite par CLAUDE.md.
     const t = this.transform[0]!;
@@ -86,6 +108,10 @@ export class CentralGlow implements Layer {
     if (coolAlpha > 0.001) {
       t.alpha = coolAlpha;
       renderer.drawSprite(this.coolSprite, this.transform, 1);
+    }
+    if (midAlpha > 0.001) {
+      t.alpha = midAlpha;
+      renderer.drawSprite(this.midSprite, this.transform, 1);
     }
     if (hotAlpha > 0.001) {
       t.alpha = hotAlpha;

@@ -1,6 +1,14 @@
 import type { Color } from '../../render/Renderer';
 
 /**
+ * Ré-exporté ici : `presets/` construit des `Palette`, donc manipule des
+ * couleurs, et la règle de dépendance lui interdit `render/`. Une couleur de
+ * palette est légitimement une notion de palette. Même précédent que
+ * `BlendMode`, ré-exporté par `visual/scene/Layer.ts` pour la même raison.
+ */
+export type { Color };
+
+/**
  * Palette — pas une liste de couleurs, un système (docs/07_VISUAL_ENGINE.md
  * §"Palettes"). `temperature` est ce qui fait dériver la palette avec
  * l'énergie du morceau sans jamais de changement brutal.

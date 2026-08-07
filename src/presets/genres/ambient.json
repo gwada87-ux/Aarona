@@ -1,126 +1,126 @@
 {
-  "id": "lofi",
+  "id": "ambient",
   "version": 1,
-  "name": "Lofi",
+  "name": "Ambient",
   "genre": {
     "tempoHint": [
-      70,
-      90
+      50,
+      80
     ],
     "doubleTimeHint": false,
-    "subDominance": 0.15,
-    "onsetDensity": 0.25,
+    "subDominance": 0.3,
+    "onsetDensity": 0.08,
     "continuousRegimePreference": true
   },
-  "style": "chambre",
+  "style": "aurore",
   "mapping": {
     "impact": {
       "from": [
         "KICK"
       ],
-      "gain": 0.45,
-      "decay": 0.35
+      "gain": 0.25,
+      "decay": 0.7
     },
     "subImpact": {
       "from": [
         "SUB_HIT"
       ],
-      "gain": 0.6,
-      "decay": 0.9
+      "gain": 0.4,
+      "decay": 1.4
     },
     "accent": {
       "from": [
         "SNARE",
         "CLAP"
       ],
-      "gain": 0.45,
-      "decay": 0.4
+      "gain": 0.25,
+      "decay": 0.8
     },
     "tick": {
       "from": [
         "HAT",
         "PERC"
       ],
-      "gain": 0.3,
-      "decay": 0.15
+      "gain": 0.15,
+      "decay": 0.35
     },
     "sectionShift": {
       "from": [
         "SECTION"
       ],
-      "gain": 0.7,
-      "decay": 2.4
+      "gain": 0.6,
+      "decay": 4
     },
     "drive": {
       "from": "feature:energy",
-      "rise": 0.3,
-      "fall": 1.2
+      "rise": 0.6,
+      "fall": 2.4
     },
     "weight": {
       "from": "feature:band.sub",
-      "rise": 0.2,
-      "fall": 0.8
+      "rise": 0.4,
+      "fall": 1.6
     },
     "brightness": {
       "from": "feature:centroid",
-      "rise": 0.5,
-      "fall": 1
+      "rise": 0.9,
+      "fall": 2
     },
     "tension": {
       "from": "anticipate:DROP",
-      "window": 6,
+      "window": 20,
       "curve": "easeInOutSine"
     },
     "lfoA": {
       "from": "lfo:sine",
-      "bars": 8
+      "bars": 16
     },
     "lfoB": {
       "from": "lfo:sine",
-      "bars": 5,
-      "phase": 0.33
+      "bars": 11,
+      "phase": 0.25
     },
     "lfoC": {
-      "from": "lfo:triangle",
-      "bars": 3,
-      "phase": 0.66
+      "from": "lfo:sine",
+      "bars": 7,
+      "phase": 0.5
     },
     "lfoD": {
-      "from": "lfo:sine",
-      "bars": 2,
-      "phase": 0.5
+      "from": "lfo:triangle",
+      "bars": 5,
+      "phase": 0.75
     }
   },
   "palette": {
     "bg": [
-      "#120E0A",
-      "#1A140D"
+      "#000204",
+      "#00080b"
     ],
-    "primary": "#C9A876",
-    "secondary": "#5A4A32",
-    "accent": "#8FBFA8",
-    "glow": "#D8C29A",
-    "contrast": 0.35,
+    "primary": "#0099a6",
+    "secondary": "#00697f",
+    "accent": "#5dd0a9",
+    "glow": "#00c8d8",
+    "contrast": 0.8,
     "drift": {
-      "lowEnergy": "#5A4A32",
-      "highEnergy": "#8FBFA8"
+      "lowEnergy": "#005268",
+      "highEnergy": "#72e4bc"
     }
   },
   "macros": {
-    "energy": 0.35,
-    "reactivity": 0.2,
-    "density": 0.4,
-    "movement": 0.3,
-    "depth": 0.4,
-    "glow": 0.3,
-    "chaos": 0.15,
-    "smoothness": 0.9
+    "energy": 0.25,
+    "reactivity": 0.1,
+    "density": 0.3,
+    "movement": 0.2,
+    "depth": 0.9,
+    "glow": 0.75,
+    "chaos": 0.05,
+    "smoothness": 1
   },
   "bloom": {
     "enabled": true,
-    "passes": 1
+    "passes": 3
   },
   "safety": {
-    "reducedFlashing": false
+    "reducedFlashing": true
   }
 }

@@ -15,7 +15,8 @@ import { DEFAULT_CLASSIFICATION_THRESHOLDS, type ClassificationThresholds } from
 import type { Palette } from '../visual/palette/Palette';
 import { buildPalette } from './palette';
 import { applyMacroCurves, WIRED_MACRO_CURVES, type MacroCurveTable } from './macros';
-import type { ClassificationOverrides, Preset, PresetMacros, PresetMapping, PresetSafety, StyleId } from './schema';
+import type { ClassificationOverrides, Preset, PresetBloomConfig, PresetMacros, PresetMapping, PresetPaletteConfig, PresetSafety, StyleId } from './schema';
+import { DEFAULT_PRESET_BLOOM } from './bloom';
 
 /**
  * `layers` retiré au chantier 1 de la phase 2 — il était rempli ici et lu par
@@ -27,8 +28,17 @@ export interface ResolvedPreset {
   readonly mapping: MappingSchema;
   readonly classification: ClassificationThresholds;
   readonly palette: Palette;
+  /**
+   * La palette AVANT construction, en hexadecimal (docs/17 §9.2, chantier 9).
+   * L'editeur de couleurs part de la, pas de la `Palette` construite : celle-ci
+   * porte une fonction `temperature` et des couleurs 0-255, dont on ne peut pas
+   * revenir aux deux couleurs de derive que l'auteur a ecrites.
+   */
+  readonly paletteConfig: PresetPaletteConfig;
   readonly macros: PresetMacros;
   readonly safety: PresetSafety;
+  /** Intention de bloom du preset (docs/17 SS6.5, chantier 9), jamais absente apres resolution. */
+  readonly bloom: PresetBloomConfig;
 }
 
 export interface ResolvePresetOptions {
@@ -117,7 +127,9 @@ export function resolvePreset(preset: Preset, options: ResolvePresetOptions = {}
     mapping,
     classification: mergeClassification(preset.classification),
     palette: buildPalette(preset.id, preset.palette),
+    paletteConfig: preset.palette,
     macros: preset.macros,
     safety: preset.safety,
+    bloom: preset.bloom ?? DEFAULT_PRESET_BLOOM,
   });
 }

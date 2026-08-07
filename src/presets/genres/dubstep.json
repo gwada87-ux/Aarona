@@ -1,130 +1,129 @@
 {
-  "id": "drill",
+  "id": "dubstep",
   "version": 1,
-  "name": "Drill",
+  "name": "Dubstep",
   "genre": {
     "tempoHint": [
       138,
-      150
+      146
     ],
-    "doubleTimeHint": true,
-    "subDominance": 0.85,
-    "onsetDensity": 0.7,
+    "doubleTimeHint": false,
+    "subDominance": 0.95,
+    "onsetDensity": 0.45,
     "continuousRegimePreference": false
   },
-  "style": "eclats",
+  "style": "pulse",
   "mapping": {
     "impact": {
       "from": [
         "KICK"
       ],
       "gain": 1,
-      "decay": 0.07
+      "decay": 0.18
     },
     "subImpact": {
       "from": [
         "SUB_HIT"
       ],
       "gain": 1,
-      "decay": 0.4
+      "decay": 0.65
     },
     "accent": {
       "from": [
         "SNARE"
       ],
       "gain": 1,
-      "decay": 0.1
+      "decay": 0.24
     },
     "tick": {
       "from": [
-        "HAT"
+        "HAT",
+        "PERC"
       ],
-      "gain": 0.7,
-      "decay": 0.035
+      "gain": 0.45,
+      "decay": 0.07
     },
     "sectionShift": {
       "from": [
         "SECTION"
       ],
       "gain": 1,
-      "decay": 0.9
+      "decay": 1
     },
     "drive": {
       "from": "feature:energy",
-      "rise": 0.06,
-      "fall": 0.45
+      "rise": 0.05,
+      "fall": 0.6
     },
     "weight": {
       "from": "feature:band.sub",
       "rise": 0.03,
-      "fall": 0.22
+      "fall": 0.3
     },
     "brightness": {
       "from": "feature:centroid",
-      "rise": 0.12,
-      "fall": 0.3
+      "rise": 0.1,
+      "fall": 0.35
     },
     "tension": {
       "from": "anticipate:DROP",
-      "window": 2.5,
+      "window": 10,
       "curve": "easeInQuad"
     },
     "lfoA": {
       "from": "lfo:saw",
-      "bars": 2
+      "bars": 4
     },
     "lfoB": {
       "from": "lfo:square",
-      "bars": 1,
-      "phase": 0.5
+      "bars": 2
     },
     "lfoC": {
-      "from": "lfo:triangle",
-      "bars": 0.5
+      "from": "lfo:random",
+      "bars": 1
     },
     "lfoD": {
-      "from": "lfo:random",
-      "bars": 0.25
+      "from": "lfo:triangle",
+      "bars": 0.5,
+      "phase": 0.5
     }
   },
   "classification": {
     "kick": {
-      "bassRatio": 0.64,
-      "maxDecay30": 0.18,
-      "maxCentroid": 200
+      "bassRatio": 0.65
     },
-    "hat": {
-      "minCentroid": 7000
+    "snare": {
+      "minDecay30": 0.05
     }
   },
   "palette": {
     "bg": [
-      "#00020b",
-      "#020715"
+      "#020006",
+      "#07040f"
     ],
-    "primary": "#3673cb",
-    "secondary": "#00508a",
-    "accent": "#00bec7",
-    "glow": "#569dff",
-    "contrast": 0.85,
+    "primary": "#81c042",
+    "secondary": "#2b7c37",
+    "accent": "#9767f2",
+    "glow": "#a7f161",
+    "contrast": 0.95,
     "drift": {
-      "lowEnergy": "#003971",
-      "highEnergy": "#00d1da"
+      "lowEnergy": "#09641f",
+      "highEnergy": "#a97aff"
     }
   },
   "macros": {
-    "energy": 0.85,
-    "reactivity": 0.95,
-    "density": 0.7,
-    "movement": 0.75,
-    "depth": 0.55,
-    "glow": 0.45,
-    "chaos": 0.65,
-    "smoothness": 0.15
+    "energy": 0.95,
+    "reactivity": 1,
+    "density": 0.55,
+    "movement": 0.85,
+    "depth": 0.6,
+    "glow": 0.85,
+    "chaos": 0.7,
+    "smoothness": 0.1
   },
   "bloom": {
     "enabled": true,
-    "passes": 1
+    "passes": 3
   },
   "safety": {
     "reducedFlashing": false

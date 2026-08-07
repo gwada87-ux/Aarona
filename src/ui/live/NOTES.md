@@ -360,7 +360,7 @@ par les nouvelles features au lieu des octets bruts.
 
 ### Ce qui est livre
 
-- `util/oklch.ts` (§3.5) - conversion OKLCH <-> sRGB dans le code, dans les
+- `core/color/oklch.ts` (§3.5, remonté dans `core/` au chantier 9 de la phase 2) - conversion OKLCH <-> sRGB dans le code, dans les
   deux sens, plus luminance WCAG et contraste. Fonctions pures.
 - `render/Palette.ts` (§3.5) - 8 palettes, 5 roles, fondu perceptuel, cache de
   chaines `#rrggbb`, modulation de teinte BORNEE par construction.

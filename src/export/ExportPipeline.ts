@@ -12,7 +12,8 @@ import type { Palette } from '../visual/palette/Palette';
 import { FIXED_DT } from '../core/time/FixedStep';
 import { EXPORT_QUALITY_LEVEL, QUALITY_LEVEL_CONFIGS } from '../perf/qualityLevels';
 import { applyLayerMacrosToScene } from '../presets/layerMacros';
-import type { PresetMacros, StyleId } from '../presets/schema';
+import type { PresetBloomConfig, PresetMacros, StyleId } from '../presets/schema';
+import { resolveBloom } from '../presets/bloom';
 import type { FrameEncoder } from './encoders/FrameEncoder';
 import { drawWatermark } from './watermark';
 import { yieldToEventLoop } from './yieldToEventLoop';
@@ -58,6 +59,12 @@ export interface ExportConfig {
    */
   readonly macros: PresetMacros;
   readonly styleId: StyleId;
+  /**
+   * Intention de bloom du preset (§6.5, chantier 9). Absente = le defaut, donc
+   * le comportement d'avant ce chantier. Meme raison d'etre optionnelle que
+   * `cover` : un appelant ecrit avant reste valide.
+   */
+  readonly bloom?: PresetBloomConfig;
   readonly palette: Palette;
   readonly fps: Fps;
   readonly durationSec: number;
@@ -121,7 +128,13 @@ export async function runExport(
   // soit le niveau courant de la preview — figé ICI plutôt que délégué à l'appelant (`ExportDialog`
   // gèle déjà `getStyleFactory` de la même façon, mais un second point d'application indépendant,
   // dans le pipeline lui-même, ne dépend pas de ce qu'un futur appelant pourrait oublier de faire).
-  target.renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom);
+  // Chantier 9 : le PLAFOND reste celui d'EXPORT_QUALITY_LEVEL, mais ce qui est
+  // pose dessous vient du preset et de la macro Glow (§6.5). Sans cette ligne,
+  // un preset volontairement mat sortirait a l'export avec le halo maximal de la
+  // qualite HIGH - l'apercu et la video ne se ressembleraient plus.
+  target.renderer.setBloomConfig(
+    resolveBloom(config.bloom, config.macros.glow, QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom),
+  );
   target.renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].chromaticAberration);
   target.renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].internalResolutionScale);
   // `bandCount` (Étape 25) : un `layer.params`, pas un réglage de `Renderer` — appliqué APRÈS

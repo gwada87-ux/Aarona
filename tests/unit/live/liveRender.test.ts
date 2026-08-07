@@ -18,7 +18,7 @@ import {
   oklchToRgb,
   rgbToOklch,
   type Oklch,
-} from '../../../src/ui/live/util/oklch';
+} from '../../../src/core/color/oklch';
 import {
   MAX_HUE_MODULATION,
   PALETTES,

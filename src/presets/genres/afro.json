@@ -1,15 +1,15 @@
 {
-  "id": "house",
+  "id": "afro",
   "version": 1,
-  "name": "House",
+  "name": "Afrobeats",
   "genre": {
     "tempoHint": [
-      118,
-      128
+      100,
+      116
     ],
     "doubleTimeHint": false,
-    "subDominance": 0.5,
-    "onsetDensity": 0.6,
+    "subDominance": 0.55,
+    "onsetDensity": 0.75,
     "continuousRegimePreference": false
   },
   "style": "iso-pulse",
@@ -18,109 +18,107 @@
       "from": [
         "KICK"
       ],
-      "gain": 0.9,
-      "decay": 0.16
+      "gain": 0.8,
+      "decay": 0.2
     },
     "subImpact": {
       "from": [
         "SUB_HIT"
       ],
-      "gain": 0.5,
-      "decay": 0.35
+      "gain": 0.7,
+      "decay": 0.45
     },
     "accent": {
       "from": [
-        "CLAP",
-        "SNARE"
+        "PERC",
+        "CLAP"
       ],
-      "gain": 0.8,
-      "decay": 0.22
+      "gain": 0.85,
+      "decay": 0.18
     },
     "tick": {
       "from": [
-        "HAT"
+        "HAT",
+        "PERC"
       ],
-      "gain": 0.6,
-      "decay": 0.09
+      "gain": 0.7,
+      "decay": 0.08
     },
     "sectionShift": {
       "from": [
         "SECTION"
       ],
-      "gain": 1,
-      "decay": 1.6
+      "gain": 0.85,
+      "decay": 1.8
     },
     "drive": {
       "from": "feature:energy",
-      "rise": 0.14,
-      "fall": 0.85
+      "rise": 0.18,
+      "fall": 0.9
     },
     "weight": {
       "from": "feature:band.sub",
-      "rise": 0.08,
-      "fall": 0.45
+      "rise": 0.1,
+      "fall": 0.5
     },
     "brightness": {
       "from": "feature:centroid",
-      "rise": 0.2,
-      "fall": 0.55
+      "rise": 0.28,
+      "fall": 0.65
     },
     "tension": {
       "from": "anticipate:DROP",
-      "window": 8,
-      "curve": "easeInQuad"
+      "window": 6,
+      "curve": "easeInOutSine"
     },
     "lfoA": {
       "from": "lfo:sine",
-      "bars": 8
+      "bars": 3
     },
     "lfoB": {
       "from": "lfo:triangle",
-      "bars": 4,
-      "phase": 0.25
+      "bars": 2,
+      "phase": 0.33
     },
     "lfoC": {
       "from": "lfo:sine",
-      "bars": 2,
-      "phase": 0.5
+      "bars": 1.5,
+      "phase": 0.66
     },
     "lfoD": {
       "from": "lfo:saw",
-      "bars": 1
+      "bars": 0.75
     }
   },
   "classification": {
-    "kick": {
-      "bassRatio": 0.5
-    },
-    "hat": {
-      "minCentroid": 6500
+    "perc": {
+      "minCentroid": 800
     }
   },
   "palette": {
     "bg": [
-      "#010006",
-      "#04030f"
+      "#050100",
+      "#0e0501"
     ],
-    "primary": "#00b3b6",
-    "secondary": "#006675",
-    "accent": "#ce47c7",
-    "glow": "#00e4e8",
-    "contrast": 0.95,
+    "primary": "#c98000",
+    "secondary": "#865a00",
+    "accent": "#fb794a",
+    "glow": "#ffa909",
+    "contrast": 0.82,
     "drift": {
-      "lowEnergy": "#004f5d",
-      "highEnergy": "#e25cda"
+      "lowEnergy": "#6e4300",
+      "highEnergy": "#ff8d5e"
     }
   },
   "macros": {
-    "energy": 0.65,
-    "reactivity": 0.55,
-    "density": 0.75,
-    "movement": 0.7,
-    "depth": 0.65,
-    "glow": 0.6,
-    "chaos": 0.2,
-    "smoothness": 0.65
+    "energy": 0.6,
+    "reactivity": 0.65,
+    "density": 0.8,
+    "movement": 0.6,
+    "depth": 0.55,
+    "glow": 0.5,
+    "chaos": 0.25,
+    "smoothness": 0.6
   },
   "bloom": {
     "enabled": true,

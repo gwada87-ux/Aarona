@@ -4567,3 +4567,251 @@ caractères (hors espaces). »
   colonnes tient, la valeur absolue non.
 - **Aucune capture d'écran** : mêmes limites d'environnement qu'aux chantiers
   précédents. Tout ce qui est affirmé ci-dessus est un comptage de pixels.
+
+---
+
+## Phase 2 — Chantier 9 : couleurs, bloom par preset, presets réécrits
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 9 (§9.2, §6.5, §9.4).
+C'est le chantier qui répond le plus directement au grief d'origine d'Aaron :
+« les presets sont inutilisables, ça ne change rien ».
+
+### OKLCH remonté dans `core/` — et la mesure qui l'a décidé
+
+§9.2 demandait de trancher : porter la conversion OKLCH du mode live vers
+`visual/`, ou pas, en disant pourquoi dans les deux cas.
+
+Elle est portée, et la raison est chiffrée. `temperature(energy)` relie deux
+couleurs choisies dans le preset ; en RGB, le trajet passe par une zone terne.
+Mesuré sur les cinq presets d'alors, chroma OKLCH du point intermédiaire :
+
+| preset | pire perte de chroma en RGB |
+|---|---|
+| `house` | **58,5 %** (au quart du trajet) |
+| `lofi` | 23,9 % |
+| `rnb` | 18,2 % |
+| `trap-dark` | 12,6 % |
+| `drill` | 5,5 % |
+
+`house` dérive de `#402410` (brun sombre) vers `#3CE7FF` (cyan) : le premier
+quart du trajet était **un gris**. C'est le cas d'école qu'OKLCH corrige.
+
+Le module a donc été déplacé de `ui/live/util/` vers `core/color/`, exactement
+comme le bruit simplex au chantier 6 — `core/ → rien`, donc le déplacement est
+licite, et `visual/` comme `presets/` peuvent enfin le lire. **Effet de bord
+bienvenu** : la duplication que j'avais assumée par écrit au chantier 7
+(`relativeLuminance` / `contrastRatio` recopiées dans `visual/palette/contrast
+.ts`) n'a plus de raison d'être et disparaît. La justification d'alors tenait au
+découpage du module ; elle ne tenait plus une fois le module déplacé en entier.
+
+Les EXTRÊMES de la dérive restent rendus tels qu'écrits dans le preset :
+l'aller-retour sRGB → OKLCH → sRGB est exact à 1e-5 près mais pas au bit, et
+`temperature(0)` doit rendre la couleur que l'auteur a tapée.
+
+### La dérive n'était lue nulle part — troisième sprite du halo
+
+En branchant l'OKLCH, j'ai constaté que `temperature(0,5)` **n'était lu par
+personne**. Une seule couche lit `temperature`, `CentralGlow`, et elle n'en
+prenait que les deux bornes, qu'elle fondait ADDITIVEMENT l'une dans l'autre.
+Or la somme de deux couleurs opposées à demi-alpha est le milieu arithmétique —
+c'est-à-dire, exactement, la zone terne qu'on venait de corriger. L'amélioration
+aurait été invisible.
+
+Un troisième sprite au milieu perceptuel et des poids en TRIANGLE (dont la somme
+vaut 1 quelle que soit la valeur de `brightness`, pour que le fondu de
+température ne se lise pas comme une pulsation de luminosité). Une allocation de
+plus, à l'initialisation.
+
+### Le bloom appartient au preset (§6.5)
+
+Avant : `ui/App.ts` et `ExportPipeline.ts` passaient directement le bloom du
+NIVEAU DE QUALITÉ au `Renderer`. Un preset volontairement mat et un preset
+volontairement incandescent recevaient donc le même halo, et **la macro Glow —
+qui a pourtant un curseur dans le panneau Simple — n'avait aucune action sur
+lui**. Un réglage offert au choix qui ne change rien : le diagnostic de §5, mot
+pour mot.
+
+`resolveBloom(preset, glow, plafond)` :
+
+- le **veto du plafond est absolu** — le niveau `low` coupe le bloom parce que la
+  machine ne suit pas, et aucune intention artistique ne le rallume ;
+- mais `ultra` **n'impose plus** ses deux passes à un preset qui n'en veut
+  qu'une ;
+- `resolutionScale` reste entièrement au plafond : c'est un réglage de COÛT, pas
+  d'intention. Un preset n'a rien à en dire.
+
+**Un test a corrigé ma formule.** J'avais écrit `passes × (0,5 + glow)` en
+commentant qu'à Glow = 0 un preset d'une passe devait pouvoir tomber à zéro. Il
+tombait à 0,5, que `Math.round` remonte à 1 : le curseur n'avait pas de bas de
+course, et mon propre commentaire affirmait le contraire. Corrigé en
+`passes × 2 × glow`, où 0,5 reste le point neutre.
+
+### Onze presets, et chaque style en a un (§9.4)
+
+Cinq presets ne pointaient que sur **trois** styles : `pulse` deux fois, `field`
+deux fois, `spectrum-pro` une fois. Deux presets sur cinq rendaient donc la même
+géométrie, à la palette près — troisième cause du grief d'origine, après les
+sept signaux jetés (chantier 2) et l'absence de dramaturgie (chantier 3).
+
+Les cinq d'origine sont redirigés, les six presets 6 à 11 de `docs/00b` §4 sont
+ajoutés :
+
+| preset | style | preset | style |
+|---|---|---|---|
+| Trap Dark | `field` | Techno | `monolith` |
+| Drill | `eclats` | Dubstep | `pulse` |
+| House | `iso-pulse` | EDM Festival | `spectrum-pro` |
+| Lofi | `chambre` | Phonk | `eclats` |
+| R&B | `aurore` | Afrobeats | `iso-pulse` |
+| | | Ambient | `aurore` |
+
+Onze pour huit : trois styles en portent deux, avec des câblages et des palettes
+sans rapport. Un test vérifie que **chaque style a au moins un preset** — sans
+lui, le style ajouté au chantier suivant redeviendrait inatteignable par le
+sélecteur de preset.
+
+Chaque preset déclare désormais les **treize entrées câblables**, LFO compris.
+En omettre une la fait retomber sur `defaultMapping`, donc rend deux presets
+identiques sur ce signal — ce que §9.4 refuse. Un test le vérifie, un autre
+vérifie qu'aucun preset ne partage le câblage d'un autre.
+
+**Deux intentions documentées ont failli être perdues.** En réécrivant les cinq
+presets d'origine, j'ai écrasé le recâblage R&B (`impact` sur SNARE/CLAP, parce
+que « le snare mène, pas le kick ») et les seuils de classification du drill
+(remontés à cause des faux positifs sur les 808 glissantes). Deux tests écrits
+au MVP les ont rattrapés immédiatement. Restaurés, et le pourquoi est désormais
+en commentaire à côté de la valeur.
+
+### Le catalogue de palettes : les huit du mode live, pas huit inventées
+
+§9.2 : « Regarde-les avant d'en inventer. » Elles ont été regardées, et elles
+sont reprises telles quelles. Elles ont derrière elles une contrainte que rien
+n'égale ici : elles ont tourné en direct, sur du son réel, avec une modulation de
+teinte en temps réel, et un test leur impose déjà 4:1.
+
+Ce qu'il a fallu ajouter, le mode fichier ayant des rôles que le live n'a pas :
+`bg` est une PAIRE (le fond live plus une version assombrie en OKLCH, donc à
+teinte constante) ; `glow` n'existe pas en live — le `highlight` presque blanc
+laverait la palette, c'est donc la primaire remontée en clarté et en chroma ;
+`drift`, les deux bornes de `temperature`.
+
+Les recettes sont écrites **en OKLCH** et converties au chargement. Écrire
+directement l'hexadécimal aurait figé des valeurs dont personne n'aurait plus pu
+dire d'où elles viennent, alors qu'ici on lit « même teinte, clarté 0,2 de
+moins ».
+
+**Une valeur a dû être corrigée** : l'accent de `lime-violet`, à la clarté du
+mode live, ne tenait que 3,81:1 contre le fond du mode fichier, plus sombre.
+Remonté de 0,55 à 0,63. Un accent marque une frappe : il porte de l'information
+et doit tenir le seuil **pour lui-même**, pas seulement par le biais de la
+primaire. Un test le vérifie sur les huit.
+
+### L'éditeur avertit, il n'interdit pas
+
+§9.2 est explicite là-dessus, et c'est la bonne règle : sur une palette extraite
+d'une pochette sombre, l'utilisateur n'a aucun moyen de « corriger » son image,
+et une interdiction le bloquerait sur un réglage qu'il n'a pas choisi.
+
+**Priorité des couleurs** : édition explicite, puis pochette, puis preset. Une
+couleur choisie à la main est l'acte le plus délibéré, elle l'emporte ;
+symétriquement, importer une pochette EFFACE l'édition en cours — demander les
+couleurs d'une image, c'est renoncer aux siennes.
+
+Les huit pastilles se remplissent depuis la palette ACTIVE, pas depuis celle du
+preset : sinon, bouger une seule pastille ramènerait d'un coup les sept autres à
+des valeurs que l'utilisateur ne voyait plus, notamment après un import de
+pochette.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 114 fichiers, 1034 tests (1007 -> 1034, +27)
+npm run test:arch   -> 1 test
+npm run build       -> 506,56 kB (gzip 143,92 kB), 2,11 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console** après avoir parcouru les onze
+presets, appliqué une palette du catalogue et fait « revenir à la palette du
+preset ». Mesures par lecture des pixels du canevas d'aperçu.
+
+**Critère 11, les onze presets rendent onze images différentes.** Empreinte à
+`t = 3,17 s` (moyennes RGB, pixels clairs, luminance par quadrant) :
+**11 empreintes distinctes sur 11**.
+
+**Le catalogue de palettes agit**, mesuré sur le CONTENU DESSINÉ seul (pixels de
+luminance > 20, pour que le fond noir ne noie pas la moyenne), `t = 26,6 s` :
+
+| palette | R | G | B |
+|---|---|---|---|
+| celle du preset (trap-dark) | 135,9 | 25,1 | 74,4 |
+| `ember` | 110,3 | 48,5 | 22,5 |
+| `glacier` | 45,8 | 66,6 | 87,4 |
+| `lime-violet` | 73,2 | 44,9 | 101,5 |
+| retour à celle du preset | 135,3 | 25,5 | 74,7 |
+
+**L'avertissement de contraste se déclenche.** Palette poussée à l'illisible
+(gris très sombres sur fond noir) :
+
+```
+Contraste 1.1:1 — sous le seuil de 4:1. Le visuel sera difficile à lire.
+```
+
+...et le réglage est appliqué quand même, comme §9.2 le demande.
+
+**Le curseur Glow agit sur le halo** (pixels de luminance intermédiaire /
+pixels vifs) :
+
+| Glow | lumière étalée | pixels vifs |
+|---|---|---|
+| 0 | 16 207 | 164 |
+| 0,5 | 18 420 | 1 226 |
+| 1 | 19 184 | **2 597** |
+
+À l'aperçu, cet effet est COMBINÉ : le curseur Glow pilote à la fois les macros
+de couche et, depuis ce chantier, le bloom. Le navigateur ne peut pas séparer les
+deux ; c'est `resolveBloom` qui est testé unitairement pour ça, veto du plafond
+et bas de course compris, plus un test qui vérifie que l'aperçu ET l'export
+passent tous les deux par lui.
+
+### À valider par Aaron, à l'œil et à l'oreille
+
+- **Les cinq presets d'origine ont CHANGÉ DE STYLE.** C'est le changement le plus
+  visible du chantier et le plus discutable : `drill` passe de `pulse` à
+  `eclats`, `house` de `spectrum-pro` à `iso-pulse`, `lofi` de `pulse` à
+  `chambre`, `rnb` de `field` à `aurore`. Seul `trap-dark` garde `field`. La
+  justesse du genre associé à chaque style est exactement ce que §12 demande de
+  valider à l'œil.
+- **Les six nouveaux genres**, et surtout `ambient` — le seul preset marqué
+  `reducedFlashing` et le seul dont l'analyse ratera probablement le tempo. C'est
+  le test de la Loi 3 : « un morceau non analysable doit rester beau. »
+- **Les palettes du catalogue sur de vrais morceaux.** Elles viennent du mode
+  live, où le fond est plus clair : elles peuvent paraître trop saturées ici.
+- **Le halo du style `pulse` est passé à trois sprites.** À regarder sur un
+  morceau qui monte en brillance : le fondu de température doit se lire comme un
+  changement de couleur, pas comme une pulsation de luminosité.
+- **Les valeurs de `bloom.passes` par preset** (1 pour `drill`, `lofi`, `techno` ;
+  3 pour `rnb`, `dubstep`, `edm`, `ambient` ; 2 pour les autres). C'est le
+  réglage le plus subjectif du lot.
+
+### Limites connues
+
+- **Ni la palette éditée ni le texte ne sont persistés** — même limite qu'aux
+  chantiers 7 et 8, même cause (`docs/13_PROJECT_FORMAT.md`), à traiter avec
+  l'interface du chantier 10. Une palette patiemment réglée est perdue au
+  rechargement.
+- **Le critère 13 (`FlashLimiter` et modes de fusion) reste non vérifié**, comme
+  aux chantiers 5 et 6.
+- **Les onze presets n'ont pas été écoutés sur leur genre.** Leurs câblages sont
+  raisonnés (temps de décroissance, dominance du sub, densité d'onsets) et testés
+  pour leur distinction mutuelle, mais aucun n'a été confronté à un morceau du
+  genre visé.
+- **`suggest.ts` n'a pas été retouché.** Son algorithme est générique — il score
+  les `genre` du catalogue, sans identifiant en dur — donc il fonctionne sur onze
+  presets sans modification. Mais sa constante de normalisation de densité porte
+  un commentaire devenu faux : « faute de genre réellement dense dans le
+  catalogue MVP ». `drill`, `techno` et `afro` le sont maintenant. La suggestion
+  reste donc à recalibrer, et rien ne le signalera tant que personne ne la
+  compare à ce qu'un humain choisirait.
+- Aucune capture d'écran : mêmes limites d'environnement qu'aux chantiers
+  précédents. Tout ce qui est affirmé ci-dessus est un comptage de pixels.

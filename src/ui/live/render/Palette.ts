@@ -23,7 +23,7 @@
  * ramene alors un gris neutre au lieu d'un halo colore.
  */
 
-import { contrastRatio, mixOklch, oklchToHex, oklchToRgb, type Oklch } from '../util/oklch';
+import { contrastRatio, mixOklch, oklchToHex, oklchToRgb, type Oklch } from '../../../core/color/oklch';
 
 export type PaletteRole = 'background' | 'primary' | 'secondary' | 'accent' | 'highlight';
 

@@ -3,19 +3,95 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PRESET_CATALOG } from '../../src/presets/index';
 import { resolvePreset } from '../../src/presets/resolve';
+import { buildPalette } from '../../src/presets/palette';
+import { contrastRatio } from '../../src/visual/palette/contrast';
 import { MACRO_NAMES, STYLE_IDS, STYLE_LABELS, validatePreset } from '../../src/presets/schema';
 import trapDarkJson from '../../src/presets/genres/trap-dark.json';
 import drillJson from '../../src/presets/genres/drill.json';
 import houseJson from '../../src/presets/genres/house.json';
 import lofiJson from '../../src/presets/genres/lofi.json';
 import rnbJson from '../../src/presets/genres/rnb.json';
+import technoJson from '../../src/presets/genres/techno.json';
+import dubstepJson from '../../src/presets/genres/dubstep.json';
+import edmJson from '../../src/presets/genres/edm.json';
+import phonkJson from '../../src/presets/genres/phonk.json';
+import afroJson from '../../src/presets/genres/afro.json';
+import ambientJson from '../../src/presets/genres/ambient.json';
 
-describe('PRESET_CATALOG — les 5 presets du MVP (docs/08_PRESETS.md)', () => {
-  it('contient exactement les 5 presets attendus', () => {
-    expect(PRESET_CATALOG.map((p) => p.id).sort()).toEqual(['drill', 'house', 'lofi', 'rnb', 'trap-dark'].sort());
+describe('PRESET_CATALOG — les 11 presets de genre (docs/17 §9.4, chantier 9)', () => {
+  it('contient exactement les 11 presets attendus', () => {
+    expect(PRESET_CATALOG.map((p) => p.id).sort()).toEqual(
+      ['trap-dark', 'drill', 'house', 'lofi', 'rnb', 'techno', 'dubstep', 'edm', 'phonk', 'afro', 'ambient'].sort(),
+    );
   });
 
-  it('chaque preset a un style parmi les 3 valides et une plage de tempo croissante', () => {
+  it('CHAQUE STYLE a au moins un preset', () => {
+    // C'est la troisieme cause du grief d'origine : cinq presets ne pointaient
+    // que sur TROIS styles, donc deux presets sur cinq rendaient la meme
+    // geometrie a la palette pres. Sans ce test, ajouter un style au chantier
+    // suivant le laisserait de nouveau inatteignable par le selecteur de preset.
+    const couverts = new Set(PRESET_CATALOG.map((p) => p.style));
+    for (const id of STYLE_IDS) {
+      expect(couverts.has(id), `aucun preset ne pointe sur le style ${id}`).toBe(true);
+    }
+  });
+
+  it('chaque preset declare les TREIZE entrees cablables', () => {
+    // Une entree omise retombe sur `defaultMapping`, donc rend deux presets
+    // identiques sur ce signal - ce que §9.4 refuse explicitement.
+    const attendues = [
+      'impact', 'subImpact', 'accent', 'tick', 'sectionShift',
+      'drive', 'weight', 'brightness', 'tension',
+      'lfoA', 'lfoB', 'lfoC', 'lfoD',
+    ];
+    for (const preset of PRESET_CATALOG) {
+      for (const signal of attendues) {
+        expect(preset.mapping?.[signal as keyof typeof preset.mapping], `${preset.id}.mapping.${signal}`).toBeDefined();
+      }
+    }
+  });
+
+  it('aucun preset ne partage le cablage d\'un autre', () => {
+    const empreintes = PRESET_CATALOG.map((p) => JSON.stringify(p.mapping));
+    expect(new Set(empreintes).size, 'deux presets ont exactement le meme cablage').toBe(PRESET_CATALOG.length);
+  });
+
+  it('les presets qui partagent un style ont des palettes DIFFERENTES', () => {
+    // Onze presets pour huit styles : trois styles en portent deux. S'ils
+    // avaient aussi la meme palette, ils seraient indiscernables a l'oeil.
+    const parStyle = new Map<string, string[]>();
+    for (const p of PRESET_CATALOG) {
+      const l = parStyle.get(p.style) ?? [];
+      l.push(JSON.stringify(p.palette));
+      parStyle.set(p.style, l);
+    }
+    for (const [style, palettes] of parStyle) {
+      expect(new Set(palettes).size, `deux presets du style ${style} ont la meme palette`).toBe(palettes.length);
+    }
+  });
+
+  it('chaque preset declare son intention de BLOOM (§6.5)', () => {
+    for (const preset of PRESET_CATALOG) {
+      expect(preset.bloom, `${preset.id}.bloom`).toBeDefined();
+      expect(preset.bloom!.passes, `${preset.id}.bloom.passes`).toBeGreaterThanOrEqual(0);
+      expect(preset.bloom!.passes, `${preset.id}.bloom.passes`).toBeLessThanOrEqual(3);
+    }
+    // ...et toutes les valeurs ne sont pas identiques, sinon le champ ne sert a
+    // rien et le curseur Glow module la meme chose partout.
+    expect(new Set(PRESET_CATALOG.map((p) => p.bloom!.passes)).size).toBeGreaterThan(1);
+  });
+
+  it('chaque palette de preset tient le rapport de 4:1 (§9.2, critere 10)', () => {
+    for (const preset of PRESET_CATALOG) {
+      const pal = buildPalette(preset.id, preset.palette);
+      const plusIntense = [pal.primary, pal.secondary, pal.accent, pal.glow].reduce((m, c) =>
+        contrastRatio(c, pal.bg[1]) > contrastRatio(m, pal.bg[1]) ? c : m,
+      );
+      expect(contrastRatio(plusIntense, pal.bg[1]), `${preset.id} : fond contre couleur la plus intense`).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('chaque preset a un style valide et une plage de tempo croissante', () => {
     for (const preset of PRESET_CATALOG) {
       expect(STYLE_IDS).toContain(preset.style);
       expect(preset.genre.tempoHint[0]).toBeLessThanOrEqual(preset.genre.tempoHint[1]);
@@ -85,13 +161,19 @@ describe('catalogue de styles — source unique', () => {
   });
 });
 
-describe('validatePreset — sur les 5 fichiers JSON bruts (avant import typé)', () => {
+describe('validatePreset — sur les 11 fichiers JSON bruts (avant import typé)', () => {
   const files: Array<[string, unknown]> = [
     ['trap-dark.json', trapDarkJson],
     ['drill.json', drillJson],
     ['house.json', houseJson],
     ['lofi.json', lofiJson],
     ['rnb.json', rnbJson],
+    ['techno.json', technoJson],
+    ['dubstep.json', dubstepJson],
+    ['edm.json', edmJson],
+    ['phonk.json', phonkJson],
+    ['afro.json', afroJson],
+    ['ambient.json', ambientJson],
   ];
 
   for (const [name, json] of files) {

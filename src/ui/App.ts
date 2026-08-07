@@ -54,7 +54,13 @@ import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
-import type { MacroName } from '../presets/schema';
+import type { MacroName, PresetBloomConfig } from '../presets/schema';
+import type { PresetPaletteConfig } from '../presets/schema';
+import { DEFAULT_PRESET_BLOOM, resolveBloom } from '../presets/bloom';
+import { PALETTE_CATALOGUE, cataloguePaletteById } from '../presets/paletteCatalogue';
+import { buildPalette } from '../presets/palette';
+import { MIN_CONTRAST, contrastRatio } from '../visual/palette/contrast';
+import { rgbToHex } from '../core/color/oklch';
 import { applyLayerMacrosToScene } from '../presets/layerMacros';
 import { importTrack, type ImportedTrack } from './pipeline';
 import { LiveAudioSource } from '../audio/LiveAudioSource';
@@ -181,6 +187,12 @@ let currentStyleId: StyleId = 'pulse';
 let currentMacros: PresetMacros = neutralMacros();
 let currentMapping: MappingSchema | null = null;
 let currentPalette: Palette | null = null;
+/** Intention de bloom du preset actif (§6.5, chantier 9), modulee par la macro Glow. */
+let currentBloom: PresetBloomConfig = DEFAULT_PRESET_BLOOM;
+/** Palette EDITEE a la main ou choisie au catalogue (§9.2). `null` = celle du preset. */
+let paletteOverride: PresetPaletteConfig | null = null;
+/** Palette du preset actif, en hexadecimal : point de depart de l'editeur. */
+let presetPaletteConfig: PresetPaletteConfig | null = null;
 let reducedFlashing = false;
 
 let simT = 0;
@@ -273,7 +285,14 @@ function applyActiveConfiguration(): void {
   // c'est tout l'intérêt de l'extraction. Changer de preset après coup ne la
   // reprend donc pas — il faut retirer la pochette pour cela, ce que le bouton
   // « Retirer » fait explicitement.
-  currentPalette = coverPalette ?? resolved.palette;
+  // PRIORITE DES COULEURS (§9.2, chantier 9) : edition explicite, puis pochette,
+  // puis preset. Une couleur choisie a la main est l'acte le plus deliberé, elle
+  // l'emporte donc ; symetriquement, importer une pochette EFFACE l'edition en
+  // cours - demander les couleurs d'une image, c'est renoncer aux siennes.
+  currentPalette = paletteOverride
+    ? buildPalette('personnalisée', paletteOverride)
+    : (coverPalette ?? resolved.palette);
+  presetPaletteConfig = resolved.paletteConfig;
   flashLimiter.setReducedFlashing(resolved.safety.reducedFlashing);
 
   const styleChanged = currentStyleId !== sceneStyleId;
@@ -307,7 +326,8 @@ function applyActiveConfiguration(): void {
   refreshVariant();
   applyLayerMacros();
   applyTextParams();
-  renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom);
+  currentBloom = resolved.bloom;
+  applyBloom();
   renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[currentQualityLevel].chromaticAberration);
   renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[currentQualityLevel].internalResolutionScale);
 
@@ -328,6 +348,7 @@ function applyActiveConfiguration(): void {
     }
   }
 
+  refreshPaletteEditor();
   simplePanel.setPalette(currentPalette);
   simplePanel.setMacros(currentMacros);
   advancedPanel.setMacros(currentMacros);
@@ -358,7 +379,7 @@ function applyQualityLevel(level: QualityLevel, reason: 'auto' | 'manual'): void
   currentQualityLevel = level;
   qualityChangeReason = reason;
   advancedPanel.selectQuality(level);
-  renderer.setBloomConfig(QUALITY_LEVEL_CONFIGS[level].bloom);
+  applyBloom();
   renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[level].chromaticAberration);
   renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[level].internalResolutionScale);
 
@@ -413,6 +434,20 @@ function applyLayerMacros(): void {
   if (spectrumBarsLayer) {
     spectrumBarsLayer.params = { ...spectrumBarsLayer.params, bandCount: QUALITY_LEVEL_CONFIGS[currentQualityLevel].spectrumBands };
   }
+}
+
+/**
+ * Bloom = intention du PRESET, modulee par la macro Glow, PLAFONNEE par le
+ * niveau de qualite (docs/17 §6.5, chantier 9).
+ *
+ * Rappele a deux moments : quand le preset ou les macros changent, et quand le
+ * niveau de qualite change. Avant ce chantier, `setBloomConfig` recevait
+ * directement le bloom du niveau de qualite - un preset mat et un preset
+ * incandescent recevaient donc exactement le meme halo, et le curseur Glow
+ * n'avait aucune action sur lui.
+ */
+function applyBloom(): void {
+  renderer.setBloomConfig(resolveBloom(currentBloom, currentMacros.glow, QUALITY_LEVEL_CONFIGS[currentQualityLevel].bloom));
 }
 
 /**
@@ -541,6 +576,7 @@ const exportDialog = new ExportDialog({
   getCover: () => coverImage,
   getMacros: () => currentMacros,
   getStyleId: () => currentStyleId,
+  getBloom: () => currentBloom,
   getAudioBuffer: () => currentAudioBuffer,
   getProjectSeed: () => projectSeed,
   seekToStart: () => handleSeek(0, 'release'),
@@ -1132,6 +1168,11 @@ coverInput.addEventListener('change', () => {
       coverImage?.close();
       coverImage = imported.image;
       coverPalette = imported.report.palette;
+      // Demander les couleurs d'une image, c'est renoncer aux siennes : une
+      // edition manuelle en cours l'emporterait sinon sur la palette extraite,
+      // et l'import n'aurait aucun effet visible (§9.2, chantier 9).
+      paletteOverride = null;
+      paletteSelect.value = '';
       // Le rapport est MONTRÉ, pas seulement calculé : quand la garantie de
       // contraste a dû corriger une couleur, l'utilisateur doit savoir que ce
       // qu'il voit n'est pas exactement ce qu'il y avait dans son image.
@@ -1161,6 +1202,115 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
   coverStatus.textContent = '';
   // La palette du preset reprend la main : c'est le seul moyen de revenir en
   // arrière une fois qu'une pochette a imposé la sienne.
+  applyActiveConfiguration();
+});
+
+// --- Couleurs (docs/17 §9.2) -----------------------------------------------
+
+const paletteSelect = document.querySelector<HTMLSelectElement>('#palette-select')!;
+const paletteWarning = document.querySelector<HTMLElement>('#palette-warning')!;
+const paletteContrastInput = document.querySelector<HTMLInputElement>('#palette-contrast')!;
+const SWATCHES = {
+  bg0: document.querySelector<HTMLInputElement>('#col-bg0')!,
+  bg1: document.querySelector<HTMLInputElement>('#col-bg1')!,
+  primary: document.querySelector<HTMLInputElement>('#col-primary')!,
+  secondary: document.querySelector<HTMLInputElement>('#col-secondary')!,
+  accent: document.querySelector<HTMLInputElement>('#col-accent')!,
+  glow: document.querySelector<HTMLInputElement>('#col-glow')!,
+  driftLo: document.querySelector<HTMLInputElement>('#col-drift-lo')!,
+  driftHi: document.querySelector<HTMLInputElement>('#col-drift-hi')!,
+};
+
+paletteSelect.replaceChildren(
+  ...[
+    { value: '', label: 'Palette du preset' },
+    ...PALETTE_CATALOGUE.map((p) => ({ value: p.id, label: p.label })),
+  ].map(({ value, label }) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
+  }),
+);
+
+/** `Color` (0-255) vers `#rrggbb`, pour remplir un `<input type="color">`. */
+function colorToHex(c: { r: number; g: number; b: number }): string {
+  return rgbToHex({ r: c.r / 255, g: c.g / 255, b: c.b / 255 });
+}
+
+/**
+ * Remplit les huit pastilles et le curseur depuis la palette ACTIVE.
+ *
+ * Depuis l'active et non depuis celle du preset : l'edition doit partir de ce
+ * qui est a l'ecran, sinon deplacer une seule pastille ramenerait d'un coup les
+ * sept autres a des valeurs que l'utilisateur ne voyait plus - notamment apres
+ * l'import d'une pochette.
+ */
+function refreshPaletteEditor(): void {
+  const p = currentPalette;
+  if (!p) return;
+  SWATCHES.bg0.value = colorToHex(p.bg[0]);
+  SWATCHES.bg1.value = colorToHex(p.bg[1]);
+  SWATCHES.primary.value = colorToHex(p.primary);
+  SWATCHES.secondary.value = colorToHex(p.secondary);
+  SWATCHES.accent.value = colorToHex(p.accent);
+  SWATCHES.glow.value = colorToHex(p.glow);
+  const config = paletteOverride ?? presetPaletteConfig;
+  SWATCHES.driftLo.value = config?.drift.lowEnergy ?? colorToHex(p.temperature(0));
+  SWATCHES.driftHi.value = config?.drift.highEnergy ?? colorToHex(p.temperature(1));
+  paletteContrastInput.value = String(p.contrast);
+
+  // §9.2 : « L'editeur AVERTIT quand un choix passe sous ce seuil - il avertit,
+  // il n'interdit pas. » Interdire serait pire : sur une palette extraite d'une
+  // pochette sombre, l'utilisateur n'a aucun moyen de « corriger » son image, et
+  // se retrouverait bloque sur un reglage qu'il n'a pas choisi.
+  const plusIntense = [p.primary, p.secondary, p.accent, p.glow].reduce((m, c) =>
+    contrastRatio(c, p.bg[1]) > contrastRatio(m, p.bg[1]) ? c : m,
+  );
+  const ratio = contrastRatio(plusIntense, p.bg[1]);
+  paletteWarning.textContent =
+    ratio < MIN_CONTRAST
+      ? `Contraste ${ratio.toFixed(1)}:1 — sous le seuil de ${MIN_CONTRAST}:1. Le visuel sera difficile à lire.`
+      : '';
+}
+
+/** Construit une configuration depuis les huit pastilles et le curseur. */
+function readPaletteEditor(): PresetPaletteConfig {
+  return {
+    bg: [SWATCHES.bg0.value, SWATCHES.bg1.value] as const,
+    primary: SWATCHES.primary.value,
+    secondary: SWATCHES.secondary.value,
+    accent: SWATCHES.accent.value,
+    glow: SWATCHES.glow.value,
+    contrast: Number(paletteContrastInput.value),
+    drift: { lowEnergy: SWATCHES.driftLo.value, highEnergy: SWATCHES.driftHi.value },
+  };
+}
+
+for (const input of Object.values(SWATCHES)) {
+  input.addEventListener('input', () => {
+    paletteOverride = readPaletteEditor();
+    // Le catalogue retombe sur « Palette du preset » : les couleurs ne sont plus
+    // celles d'une entree du catalogue des qu'on en a bouge une.
+    paletteSelect.value = '';
+    applyActiveConfiguration();
+  });
+}
+
+paletteContrastInput.addEventListener('input', () => {
+  paletteOverride = readPaletteEditor();
+  applyActiveConfiguration();
+});
+
+paletteSelect.addEventListener('change', () => {
+  const entry = cataloguePaletteById(paletteSelect.value);
+  paletteOverride = entry ? entry.config : null;
+  applyActiveConfiguration();
+});
+
+document.querySelector<HTMLButtonElement>('#btn-palette-reset')!.addEventListener('click', () => {
+  paletteOverride = null;
+  paletteSelect.value = '';
   applyActiveConfiguration();
 });
 

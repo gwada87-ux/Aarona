@@ -6,27 +6,31 @@
  * les palettes écrites à la main ; il devient indispensable dès qu'une palette
  * est EXTRAITE d'une pochette, puisque plus personne ne la relit avant usage.
  *
- * DUPLICATION ASSUMÉE. `src/ui/live/util/oklch.ts` contient déjà
- * `relativeLuminance` et `contrastRatio`. Ils n'ont pas été déplacés dans
- * `core/` comme l'a été le bruit simplex au chantier 6, et la différence tient
- * en une phrase : `noise.ts` était un fichier autonome de 120 lignes sans le
- * moindre import, donc un déplacement sans risque ; ces deux fonctions-ci sont
- * huit lignes enfouies dans un module de conversion OKLCH propre au mode live,
- * et les extraire demanderait de découper ce module pour un gain nul. Même
- * arbitrage que `BAND_WIDTH_WEIGHTS`, recopié dans `SpectrumBars` plutôt
- * qu'importé depuis `analysis/`.
+ * DUPLICATION LEVÉE AU CHANTIER 9. Ces deux fonctions étaient recopiées ici
+ * parce que leur original vivait dans `src/ui/live/util/oklch.ts`, et que
+ * `visual/` n'a pas le droit d'importer `ui/`. Le module a été remonté dans
+ * `core/color/oklch.ts` (chantier 9, §9.2), exactement comme le bruit simplex
+ * l'avait été au chantier 6 : la raison invoquée alors pour ne PAS le faire
+ * tenait au découpage du module, et elle ne tient plus une fois le module
+ * déplacé en entier. Il n'y a donc plus qu'un seul jeu de matrices et de
+ * courbes de transfert sRGB dans le projet.
+ *
+ * Ce fichier ne garde que l'ADAPTATION d'unités - `Color` est en 0-255 et
+ * porte un alpha, `Rgb` est en 0-1 et n'en porte pas - et `ensureContrast`,
+ * qui n'a pas d'équivalent côté live.
  *
  * Fonctions pures.
  */
 
+import { contrastRatio as contrastRatio01, relativeLuminance as relativeLuminance01 } from '../../core/color/oklch';
 import type { Color } from '../../render/Renderer';
 
 /** Rapport minimal exigé entre le fond et la couleur la plus intense (§9.2). */
 export const MIN_CONTRAST = 4;
 
-function srgbToLinear(channel255: number): number {
-  const c = Math.min(1, Math.max(0, channel255 / 255));
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+/** `Color` (0-255, avec alpha) vers `Rgb` (0-1). L'alpha ne participe pas au contraste. */
+function toUnit(c: Color): { readonly r: number; readonly g: number; readonly b: number } {
+  return { r: c.r / 255, g: c.g / 255, b: c.b / 255 };
 }
 
 /**
@@ -37,14 +41,12 @@ function srgbToLinear(channel255: number): number {
  * des rapports de contraste faux d'un facteur deux sur les couleurs saturées.
  */
 export function relativeLuminance(c: Color): number {
-  return 0.2126 * srgbToLinear(c.r) + 0.7152 * srgbToLinear(c.g) + 0.0722 * srgbToLinear(c.b);
+  return relativeLuminance01(toUnit(c));
 }
 
 /** Rapport de contraste WCAG entre deux couleurs, de 1 à 21. */
 export function contrastRatio(a: Color, b: Color): number {
-  const la = relativeLuminance(a);
-  const lb = relativeLuminance(b);
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  return contrastRatio01(toUnit(a), toUnit(b));
 }
 
 /**
