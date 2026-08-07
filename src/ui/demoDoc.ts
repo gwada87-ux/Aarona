@@ -9,6 +9,53 @@
  */
 import type { MusicEvent, PmdiDocument, Section } from '../music/pmdi';
 
+/**
+ * Enveloppe d'énergie CONFORME à la structure que ce document déclare
+ * lui-même — sections, montées et drops.
+ *
+ * ## Pourquoi ceci existe
+ *
+ * Elle remplace `0.5 + 0.35 * Math.sin(t * 0.25)`, une sinusoïde lente héritée
+ * du harnais P7 qui ignorait complètement les sections et les drops ajoutés
+ * plus tard. Le document se contredisait :
+ *
+ * | instant | section déclarée | ancienne `energy` |
+ * |---------|------------------|-------------------|
+ * | 5,0 s   | A, énergie 0,30  | **0,832**         |
+ * | 19,4 s  | B, énergie 0,85  | **0,153**         |
+ *
+ * En plein cœur de la section HAUTE, la courbe d'énergie touchait son
+ * MINIMUM. Mesuré au navigateur en travaillant le critère 12 de docs/17 §12
+ * (« l'intro, la montée, le drop et le breakdown donnent des images
+ * visiblement différentes ») : la proportion de pixels clairs suivait la
+ * sinusoïde avec une corrélation de **0,906**, donc le moteur visuel faisait
+ * exactement son travail — il rendait fidèlement une dramaturgie que le
+ * document ne contenait pas. Impossible de démontrer le critère sur un
+ * morceau qui se contredit.
+ *
+ * ## Ce qu'elle vaut
+ *
+ * Base de section (0,30 en A, 0,82 en B), une rampe sur les 3 s de chaque
+ * `BUILDUP`, un pic bref à chaque `DROP` qui retombe sur la base en 1,5 s, et
+ * une ondulation de ±0,05 pour que rien ne soit une ligne morte. Déterministe,
+ * sans `Math.random`, comme tout ce fichier.
+ *
+ * Les six bandes ne sont volontairement PAS touchées : la mesure a montré que
+ * `energy` seul portait la corrélation, et changer le spectre déplacerait la
+ * dominance de grave que lit `suggestPreset`.
+ */
+function structuralEnergy(t: number, durationSec: number, dropTimes: readonly number[]): number {
+  let e = t >= durationSec * 0.3 && t < durationSec * 0.7 ? 0.82 : 0.3;
+  for (const dropT of dropTimes) {
+    // Montée : rampe sur les 3 s qui précèdent, exactement la durée du BUILDUP.
+    if (t >= dropT - 3 && t < dropT) e = Math.max(e, 0.25 + 0.7 * ((t - (dropT - 3)) / 3));
+    // Drop : pic net, retour à la base de section en 1,5 s.
+    if (t >= dropT && t < dropT + 1.5) e = Math.max(e, 0.98 - 0.4 * ((t - dropT) / 1.5));
+  }
+  const ondulation = 0.05 * Math.sin(t * 1.7);
+  return Math.max(0, Math.min(1, e + ondulation));
+}
+
 export function buildDemoDoc(durationSec = 60): PmdiDocument {
   const events: MusicEvent[] = [];
   const beatDur = 0.5; // 120 BPM
@@ -41,7 +88,7 @@ export function buildDemoDoc(durationSec = 60): PmdiDocument {
   for (const id of bandIds) bands[id] = new Array<number>(sampleCount);
   for (let i = 0; i < sampleCount; i++) {
     const t = i / hz;
-    energy[i] = 0.5 + 0.35 * Math.sin(t * 0.25);
+    energy[i] = structuralEnergy(t, durationSec, dropTimes);
     centroid[i] = 0.5 + 0.4 * Math.sin(t * 0.15 + 2);
     bandIds.forEach((id, bandIndex) => {
       const phase = bandIndex * 0.9;

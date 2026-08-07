@@ -71,6 +71,63 @@ describe('buildDemoDoc — durée courte (2s), énumération exacte (120 BPM, be
   });
 });
 
+/**
+ * docs/17 §12, critère 12. Le document doit être D'ACCORD AVEC LUI-MÊME : sa
+ * courbe `energy` doit suivre les sections et les drops qu'il déclare.
+ *
+ * Avant ces tests, elle ne les suivait pas. `energy` valait
+ * `0.5 + 0.35 * sin(t * 0.25)`, une sinusoïde héritée du harnais P7, écrite
+ * avant que les sections n'existent et jamais réconciliée avec elles : à 19,4 s,
+ * en plein cœur de la section B déclarée à 0,85, la courbe touchait son MINIMUM
+ * (0,153). Le moteur visuel rendait fidèlement cette contradiction — corrélation
+ * de 0,906 entre la clarté de l'image et la courbe — si bien que le critère 12
+ * était indémontrable sur la démo, non par la faute du moteur mais par celle du
+ * document.
+ */
+describe('buildDemoDoc — la courbe d\'énergie suit la structure déclarée', () => {
+  const doc = buildDemoDoc(60);
+  const energie = doc.features!.find((f) => f.id === 'energy')!;
+  const a = (t: number) => energie.data[Math.round(t * energie.hz)]!;
+
+  it('la section B (haute) est plus énergique que les sections A (basses)', () => {
+    // Le test qui aurait attrapé le défaut d'origine : il ÉCHOUE sur l'ancienne
+    // sinusoïde, où A valait 0,83 et B 0,15.
+    const enA = [1, 3, 12, 46, 50, 55].map(a);
+    const enB = [22, 26, 30].map(a); // loin des montées et des drops
+    expect(Math.min(...enB), 'le creux de B doit dépasser le sommet de A').toBeGreaterThan(Math.max(...enA));
+  });
+
+  it("chaque montée s'élève au-dessus du niveau qui la précède", () => {
+    for (const drop of [8, 20, 36]) {
+      expect(a(drop - 0.5), `montée avant le drop de ${drop} s`).toBeGreaterThan(a(drop - 3.5));
+    }
+  });
+
+  it('chaque drop est un sommet local', () => {
+    for (const drop of [8, 20, 36]) {
+      expect(a(drop), `drop de ${drop} s`).toBeGreaterThan(a(drop + 2.5));
+    }
+  });
+
+  it('les quatre moments du critère 12 sont réellement distincts', () => {
+    // Les instants exactement capturés dans docs/captures/critere12-*.jpg.
+    const intro = a(2), montee = a(7.5), drop = a(8.3), breakdown = a(50);
+    expect(montee - intro, 'montée vs intro').toBeGreaterThan(0.3);
+    expect(drop - breakdown, 'drop vs breakdown').toBeGreaterThan(0.3);
+    // Intro et breakdown se ressemblent, et c'est CORRECT : le document les
+    // déclare tous deux en section A. Le noter évite qu'on « corrige » un jour
+    // une ressemblance qui est fidèle.
+    expect(Math.abs(intro - breakdown), 'intro et breakdown sont la même section').toBeLessThan(0.15);
+  });
+
+  it('reste dans [0, 1]', () => {
+    for (const v of energie.data) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
 describe('buildDemoDoc — filtre dropTimes selon durationSec', () => {
   it('durationSec=60 (défaut) : les 3 DROP/BUILDUP (8, 20, 36) sont tous présents', () => {
     const doc = buildDemoDoc();

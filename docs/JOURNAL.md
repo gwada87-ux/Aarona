@@ -6206,3 +6206,140 @@ cliquable, et le retrait de la classe restaure l'état initial.
 - **`pulse` et `field`, à 0,0155 et 0,0179 de mouvement p95, sont les plus agités
   des autorisés.** Si Aaron trouve que ça bouge encore trop sous la préférence,
   la frontière se déplace en changeant une ligne de `STYLE_MOTION_LOAD`.
+
+---
+
+## Phase 2 — Critère 12 : les quatre moments, par capture
+
+> « Sur un morceau complet, l'intro, la montée, le drop et le breakdown donnent
+> des images visiblement différentes. **À démontrer par capture.** »
+
+Le dernier des quatorze. Deux obstacles, un de mesure et un de transport.
+
+### D'abord un resultat NEGATIF, et il ne pointait pas ou je regardais
+
+Premiere mesure, style `pulse`, quatre moments pris sur la demo. Ecarts entre
+moments : 0,0207 a 0,0375 sur la difference absolue moyenne par pixel. Or le
+mouvement image a image de `pulse`, mesure au critere 14, vaut deja 0,0155 au
+p95 et 0,0271 au maximum.
+
+**Autant dire rien.** J'ai donc ajoute le controle qui manquait : deux instants
+de la MEME section, a quelques secondes d'ecart. Verdict :
+
+| | ecart |
+|---|---|
+| temoins intra-section | 0,0243 - 0,0339 |
+| entre moments | 0,0238 - 0,0491 |
+
+Les deux plages se recouvrent presque entierement, et `montee / drop` (0,0238)
+tombait SOUS le temoin `intro / intro_bis` (0,0339). Sans ce controle j'aurais
+pu presenter six nombres d'apparence honorable et conclure a tort.
+
+### La cause : la demo se contredisait elle-meme
+
+Les descripteurs ont trahi le coupable. La proportion de pixels clairs suivait
+la courbe `energy` du document avec une correlation de **0,906** — le moteur
+faisait donc exactement son travail. C'est la courbe qui etait fausse :
+
+| instant | section declaree | `energy` |
+|---------|------------------|----------|
+| 5,0 s | A, energie 0,30 | **0,832** |
+| 19,4 s | B, energie 0,85 | **0,153** |
+
+`energy` valait `0.5 + 0.35 * sin(t * 0.25)`, une sinusoide heritee du harnais
+P7, ecrite avant que les sections n'existent et jamais reconciliee avec elles.
+**En plein coeur de la section haute, la courbe touchait son minimum.** Le
+critere 12 etait indemontrable sur ce document, non par la faute du moteur mais
+par celle du morceau.
+
+`structuralEnergy` la remplace : base de section, rampe sur les 3 s de chaque
+BUILDUP, pic a chaque DROP, ondulation de +/-0,05 pour que rien ne soit une
+ligne morte. **Les six bandes ne sont PAS touchees** — la mesure a montre que
+`energy` seul portait la correlation, et deplacer le spectre deplacerait la
+dominance de grave que lit `suggestPreset`.
+
+Remesure, memes instants, memes temoins :
+
+| | ecart |
+|---|---|
+| temoins intra-section | 0,0244 / 0,0346 |
+| intro / montee | **0,0644** |
+| intro / drop | **0,0609** |
+| montee / drop | **0,0626** |
+| montee / breakdown | **0,0726** |
+| drop / breakdown | **0,0662** |
+| intro / breakdown | 0,0277 |
+
+Cinq paires sur six depassent nettement le plancher de bruit. Pixels clairs :
+intro 4,13 %, **montee 24,31 %**, drop 18,40 %, breakdown 3,82 % — six fois
+l'ecart entre l'intro et la montee.
+
+**`intro / breakdown` reste sous le plancher, et c'est CORRECT** : le document
+declare les deux en section A, a la meme energie. Deux moments que la musique
+dit identiques doivent se ressembler. Je ne l'ai pas maquille.
+
+### Le transport : un echec franc avant la solution
+
+Le mot « capture » a coute plus cher que la mesure.
+
+1. Capture d'ecran du panneau : expire, le panneau ne compose pas d'images.
+2. Telechargement du navigateur : atterrit hors du dossier du projet, interdit.
+3. Faire transiter le `toDataURL` par la conversation : **essaye, echoue.**
+   5 543 caracteres arrives sur 23 416, marqueur de fin `fff6` au lieu de
+   `ffd9`. J'ai decode le fichier avant de le montrer, ce qui a revele la
+   troncature. **Une image tronquee qui ressemble a une preuve est pire que pas
+   d'image.**
+
+D'ou `tools/captureSink.ts` : un greffon Vite en `apply: 'serve'`, absent du
+bundle de production, qui recoit un POST et ecrit sous `docs/captures/`. Le
+trajet ne traverse plus rien qui puisse le tronquer.
+
+**Il a d'abord ecrit hors du projet.** `process.cwd()` est le dossier de
+lancement du serveur, pas la racine servie — les deux different ici. Corrige en
+`server.config.root`. Le fichier temoin egare est signale a Aaron plus bas.
+
+### Les captures
+
+- `docs/captures/critere12-pulse.jpg` (1310x864)
+- `docs/captures/critere12-eclats.jpg` (1310x864)
+
+`pulse` est spectaculaire : l'anneau passe d'etroit et sombre a large et
+sature, le coeur s'embrase au drop, le breakdown retombe. **`eclats` est plus
+subtil** : les cellules de Voronoi se redistribuent et la montee est plus
+remplie, mais un oeil presse pourrait trouver les quatre vignettes proches. Je
+le dis plutot que de choisir deux styles flatteurs.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 120 fichiers, 1151 tests (1146 -> 1151, +5)
+npm run test:arch   -> 1 test
+npm run build       -> 532,64 kB (gzip 152,68 kB), 2,14 s
+```
+
+Les cinq tests ajoutes verrouillent la coherence du document. Le principal a ete
+verifie comme un VRAI garde-fou : sur l'ancienne courbe, max(A) = 0,824 et
+min(B) = 0,253, donc il echoue ; sur la nouvelle, 0,350 et 0,805, il passe.
+
+### A valider par Aaron
+
+- **Regarder les deux planches.** C'est un critere visuel ; ma mesure dit que
+  les images different, elle ne dit pas qu'elles sont BELLES ni que la
+  dramaturgie se lit.
+- **La demo a change d'allure.** « Charger une demo » ne donnera plus la meme
+  chose : elle respire maintenant par sections au lieu d'onduler lentement. Si
+  ce n'etait pas souhaite, la fonction est isolee et se retire en une ligne.
+
+### Limites connues
+
+- **Toujours pas un vrai morceau.** La demo est synthetique, et sa structure est
+  maintenant coherente parce que je l'ai rendue telle. Le critere dit « sur un
+  morceau complet » : un import reel reste le seul juge.
+- **Deux styles sur huit** ont ete captures. Les six autres n'ont pas ete
+  regardes sous cet angle.
+- **Un fichier egare hors du projet**, ecrit par la premiere version du greffon :
+  `Correcction, implementation/docs/captures/temoin.png` (93 octets, un carre
+  rouge de 2x2). Je ne sors pas du dossier du projet, donc je ne l'ai pas
+  touche : a supprimer a la main.
+- Le `temoin.png` interne a ete deplace dans `_corbeille/20260808/`.
