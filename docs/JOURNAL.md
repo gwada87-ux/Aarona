@@ -5831,3 +5831,166 @@ ailleurs. Les 20,2 ms sont pour `field` et ses 2 500 particules.
   particules, jamais vérifié sur une couche dont l'état s'accumulerait sur plus
   longtemps. Aucune ne le fait aujourd'hui.
 - Aucune capture d'écran : mêmes limites d'environnement que sur toute la phase.
+
+---
+
+## Phase 2 — Recalibrage de `suggest.ts`
+
+Signalé au chantier 9 : la suggestion automatique choisit désormais parmi onze
+genres, et sa constante de normalisation datait des cinq du MVP.
+
+### Ce que la mesure a dit, et ce qu'elle a démenti
+
+Harnais : pour chaque preset, un document synthétique dont le tempo, la
+dominance de grave et la densité d'onsets valent EXACTEMENT ce qu'il déclare.
+Si un preset ne se retrouve pas lui-même, la suggestion est fausse par
+construction.
+
+**Résultat : 11 sur 11.** Ma note du chantier 9 laissait entendre que le
+calibrage était faux ; sur les profils exacts, il ne l'était pas. C'est écrit ici
+parce que la note d'alors était plus alarmante que la réalité.
+
+Le vrai défaut est ailleurs, et il a fallu mesurer un document RÉEL pour le
+voir :
+
+> La piste de démonstration — kick à la noire, caisse claire aux temps 2 et 4,
+> charley à la croche, 120 BPM — produit **7,55 onsets par seconde**, soit une
+> densité normalisée de **0,94** avec l'ancienne référence de 8.
+
+Autrement dit : **le motif le plus banal qui soit saturait le critère.** Au-delà
+de 8 onsets/s tout valait 1, et le critère cessait de distinguer quoi que ce
+soit — alors que les onze presets déclarent des densités de 0,08 à 0,80,
+c'est-à-dire toutes en dessous.
+
+### La référence passe de 8 à 16 onsets/s
+
+Ce que valent les profils déclarés dans les deux échelles :
+
+| preset | densité | avec 8 | **avec 16** |
+|---|---|---|---|
+| `ambient` | 0,08 | 0,6/s | **1,3/s** |
+| `lofi` | 0,25 | 2,0/s | **4,0/s** |
+| `trap-dark` | 0,55 | 4,4/s | **8,8/s** |
+| `techno` | 0,80 | 6,4/s | **12,8/s** |
+
+Avec 8, `techno` visait 6,4 onsets/s et `lofi` 2 : deux valeurs qu'aucun morceau
+du genre ne produit — la démo, qui n'est ni l'un ni l'autre, en produit déjà
+7,55. Avec 16, la démo tombe à 0,47, au milieu de l'échelle, et sa suggestion
+passe de 0,881 à **0,953** — le critère a recommencé à travailler.
+
+### Deux profils de preset qui se marchaient dessus
+
+Second harnais : 440 morceaux synthétiques tirés autour des profils déclarés
+(±0,12 de dominance, ±0,15 de densité, tempo dans la plage), pour voir si un
+morceau PLAUSIBLE retrouve son preset.
+
+`phonk` sortait à **13 sur 40**, confondu 17 fois avec `trap-dark`. En regardant
+les deux profils, la raison saute aux yeux — et c'est ma faute, ils viennent du
+chantier 9 :
+
+| | tempo | doubleTime | sub | densité |
+|---|---|---|---|---|
+| `trap-dark` | 60–90 | **oui**, donc 120–180 aussi | 0,90 | 0,55 |
+| `phonk` (avant) | 130–160 | oui | 0,90 | 0,60 |
+
+Deux presets identiques à 0,05 près, sur une plage de tempo qui se recouvre
+entièrement. Corrigé sur ce que la musique dit réellement :
+
+- **`phonk.doubleTimeHint` passe à `false`.** Le phonk se compte DROIT à 130–160 ;
+  l'indication de demi-temps est une convention trap/drill, et c'est elle qui
+  faisait recouvrir 130–160 avec le 60–90 doublé de `trap-dark`.
+- **`phonk.onsetDensity` 0,60 → 0,78** : cloche et charleys rapides, plus dense
+  que le trap.
+- **`phonk.subDominance` 0,90 → 0,82** : la cloche vit dans les médiums.
+- **`dubstep.onsetDensity` 0,45 → 0,32** : sa signature est l'ESPACE, des coups
+  énormes et rares. À 0,45 il tombait sur `trap-dark` douze fois sur quarante.
+
+Effet mesuré, sur les mêmes 440 tirages :
+
+| preset | avant | après |
+|---|---|---|
+| `phonk` | 13/40 | **26/40** |
+| `dubstep` | 25/40 | **37/40** |
+| `trap-dark` | 31/40 | **38/40** |
+| `drill` | 28/40 | 18/40 |
+| **total** | 350/440 = 80 % | **366/440 = 83 %** |
+
+### Là où je me suis arrêté, et pourquoi
+
+`drill` recule à 18/40, confondu avec `phonk` et `trap-dark`. J'ai tenté un
+second réglage — `phonk.subDominance` à 0,72, `drill.onsetDensity` à 0,62 — qui
+a rendu `drill` à 22 mais fait retomber `phonk` à 21, pour un total identique.
+J'ai reculé ce réglage.
+
+C'est le moment où l'on cesse de calibrer et où l'on commence à ajuster au
+harnais. **`drill`, `phonk` et `trap-dark` sont réellement voisins** : mêmes
+130–160 BPM, même grave dominant, même percussion dense. Idem pour `edm`,
+`house` et `techno`, tous entre 118 et 140. **Trois scalaires ne les séparent
+pas, et aucune valeur de constante n'y changera rien** — ils décrivent la même
+musique.
+
+### Ce que j'ai fait à la place : le dire
+
+docs/08 : la suggestion est « un bon point de départ », pas de la classification
+de genre. Quand deux presets sont à 0,001 l'un de l'autre, trancher en silence
+n'est pas un verdict, c'est un tirage — et jusqu'ici le vainqueur était le
+premier du catalogue, ce qui n'est pas une raison.
+
+`SuggestResult` porte désormais un `runnerUp`, renseigné quand le second
+candidat est à moins de 0,04 du premier, et le motif affiché le nomme :
+
+```
+suggéré d'après l'analyse (tempo 145 BPM, profil grave) — Phonk conviendrait aussi
+```
+
+Un utilisateur à qui l'on propose « Drill, ou Phonk » choisit en une seconde ; à
+qui l'on impose « Drill » sans rien dire, il ne saura jamais que l'autre
+existait. Le panneau affiche déjà `reason`, donc rien à câbler.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 119 fichiers, 1131 tests (1126 -> 1131, +5)
+npm run test:arch   -> 1 test
+npm run build       -> 531,55 kB (gzip 152,22 kB), 2,17 s
+```
+
+Cinq tests ajoutés, tous sur le VRAI catalogue plutôt que sur des presets de
+laboratoire : les onze se retrouvent eux-mêmes ; un motif ordinaire ne sature
+plus le critère de densité ; le second candidat est nommé quand il est plausible
+et tu quand la suggestion est nette ; un catalogue d'un seul preset n'a pas de
+second.
+
+**Un test existant a été corrigé, et c'est le montage qui était faux** : il
+fabriquait 6,7 onsets/s en les appelant « forte densité ». C'était vrai à
+l'échelle de 8, plus à celle de 16. Compte relevé à 900 sur 60 s, soit 15/s —
+une vraie forte densité.
+
+### Limite de vérification
+
+**La suggestion n'est pas observable au navigateur ici.** Elle n'est calculée
+que sur l'import d'un fichier audio réel : `loadDemo` appelle
+`applyImportedDoc(doc, null, …)` et ne la déclenche jamais. Tout ce qui précède
+est donc mesuré par harnais, sur des documents synthétiques et sur le document
+de démonstration — pas sur un morceau du commerce.
+
+### À valider par Aaron
+
+- **Les 83 %** ne veulent rien dire tant qu'un vrai morceau n'a pas été importé.
+  Le seul juge utile : charger un morceau de chaque genre et regarder ce qui est
+  proposé.
+- **La marge de 0,04** pour nommer un second candidat. Trop large, la mention
+  apparaîtra toujours ; trop étroite, jamais.
+- **Les profils de `phonk` et `dubstep` ont changé.** Ils ne touchent QUE la
+  suggestion — ni le rendu, ni les couleurs, ni le câblage.
+
+### Limites connues
+
+- **`drill` reste le moins bien retrouvé** (18/40), au profit de `phonk` et
+  `trap-dark`. Assumé : les séparer demanderait un quatrième critère — la
+  syncope, ou la présence de 808 glissantes — que l'analyse ne produit pas.
+- **`edm`, `house` et `techno` se confondent** entre eux dans un quart des cas.
+  Même raison, et conséquence bénigne : les trois donnent un rendu plausible sur
+  la même musique.
+- Le harnais de mesure a été archivé dans `_corbeille/` après relevé.

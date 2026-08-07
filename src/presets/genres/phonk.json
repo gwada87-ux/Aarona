@@ -7,9 +7,9 @@
       130,
       160
     ],
-    "doubleTimeHint": true,
-    "subDominance": 0.9,
-    "onsetDensity": 0.6,
+    "doubleTimeHint": false,
+    "subDominance": 0.82,
+    "onsetDensity": 0.78,
     "continuousRegimePreference": false
   },
   "style": "eclats",

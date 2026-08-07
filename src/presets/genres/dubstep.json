@@ -9,7 +9,7 @@
     ],
     "doubleTimeHint": false,
     "subDominance": 0.95,
-    "onsetDensity": 0.45,
+    "onsetDensity": 0.32,
     "continuousRegimePreference": false
   },
   "style": "pulse",

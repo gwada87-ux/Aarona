@@ -2,6 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { suggestPreset } from '../../src/presets/suggest';
 import type { MusicEvent, PmdiDocument } from '../../src/music/pmdi';
 import type { Preset } from '../../src/presets/schema';
+import { PRESET_CATALOG } from '../../src/presets/index';
+import { buildDemoDoc } from '../../src/ui/demoDoc';
+
+/** Document dont le profil mesure EXACTEMENT (bpm, sub, densite). */
+function docPourProfil(bpm: number, sub: number, densite: number): PmdiDocument {
+  const duree = 120;
+  const n = Math.max(1, Math.round(densite * 16 * duree));
+  const events: MusicEvent[] = Array.from({ length: n }, (_, i) => ({
+    t: (i / n) * duree, type: 'KICK', intensity: 0.8, confidence: 0.9,
+  }));
+  const plat = (v: number) => ({ hz: 1, t0: 0, data: new Array<number>(duree).fill(Math.max(0, v)) });
+  return doc({
+    audio: { duration: duree, sampleRate: 48000, channels: 2, ref: { kind: 'none' } },
+    tempo: { global: bpm, confidence: 1, map: [{ t: 0, bpm }] },
+    events,
+    features: [
+      { id: 'band.sub', ...plat(sub / 2) },
+      { id: 'band.bass', ...plat(sub / 2) },
+      { id: 'band.himid', ...plat((1 - sub) / 2) },
+      { id: 'band.high', ...plat((1 - sub) / 2) },
+    ],
+  });
+}
 
 function preset(id: string, overrides: Partial<Preset['genre']> = {}, style: Preset['style'] = 'pulse'): Preset {
   return {
@@ -74,8 +97,13 @@ describe('suggestPreset — étape 3 : densité d\'onsets', () => {
   it('une forte densité d\'événements ponctuels favorise le preset au onsetDensity le plus proche', () => {
     const dense = preset('dense', { onsetDensity: 0.9 });
     const sparse = preset('sparse', { onsetDensity: 0.1 });
-    const events: MusicEvent[] = Array.from({ length: 400 }, (_, i) => ({ t: i * 0.1, type: 'HAT', intensity: 0.5, confidence: 0.8 }));
-    const document = doc({ events, audio: { duration: 60, sampleRate: 44100, channels: 2 } }); // ~6,7 onsets/s
+    // 900 onsets sur 60 s = 15/s. Le compte a été relevé de 400 quand la
+    // référence de normalisation est passée de 8 à 16 onsets/s (recalibrage
+    // post-phase 2) : 6,7/s valait 0,83 sur l'ancienne échelle et n'en vaut plus
+    // que 0,42 sur la nouvelle, donc « dense » ne l'était plus. C'est le montage
+    // du test qui était calé sur l'ancienne constante, pas l'intention.
+    const events: MusicEvent[] = Array.from({ length: 900 }, (_, i) => ({ t: i * (60 / 900), type: 'HAT', intensity: 0.5, confidence: 0.8 }));
+    const document = doc({ events, audio: { duration: 60, sampleRate: 44100, channels: 2 } }); // 15 onsets/s
     const result = suggestPreset(document, [dense, sparse]);
     expect(result?.preset.id).toBe('dense');
   });
@@ -105,6 +133,60 @@ describe('suggestPreset — étape 4 : confiance de grille basse → régime con
     const document = doc({ confidence: { tempo: 1, grid: 0.1, classification: 1, structure: 1 } });
     const result = suggestPreset(document, [onlyEventRegime]);
     expect(result?.preset.id).toBe('event-only');
+  });
+});
+
+/**
+ * Recalibrage post-phase 2. Le catalogue est passé de cinq presets à onze au
+ * chantier 9, et la constante de normalisation de la densité datait des cinq.
+ */
+describe('suggestPreset — calibrage sur le VRAI catalogue', () => {
+  it('chaque preset se retrouve LUI-MÊME depuis son profil déclaré', () => {
+    // Le test qui compte : si le profil qu'un preset déclare ne le retrouve
+    // pas, la suggestion est fausse par construction, quel que soit le reste.
+    // Onze sur onze au moment du recalibrage.
+    for (const p of PRESET_CATALOG) {
+      const bpm = (p.genre.tempoHint[0] + p.genre.tempoHint[1]) / 2;
+      const result = suggestPreset(docPourProfil(bpm, p.genre.subDominance, p.genre.onsetDensity), PRESET_CATALOG);
+      expect(result?.preset.id, `${p.id} ne se retrouve pas`).toBe(p.id);
+    }
+  });
+
+  it('un motif ORDINAIRE ne sature plus le critère de densité', () => {
+    // Ce qui a tranché le recalibrage : la piste de démonstration - kick à la
+    // noire, caisse aux temps 2 et 4, charley à la croche, 120 BPM - produit
+    // 7,55 onsets/s. Avec l'ancienne référence de 8, elle valait 0,94 : le
+    // critère était au plafond dès le motif le plus banal et ne discriminait
+    // plus rien au-dessus.
+    const demo = buildDemoDoc(60);
+    const ponctuels = demo.events.filter((e) => e.dur === undefined).length;
+    const parSeconde = ponctuels / demo.audio.duration;
+    expect(parSeconde).toBeGreaterThan(6);
+    expect(parSeconde / 16, 'un motif ordinaire doit rester au milieu de l\'échelle').toBeLessThan(0.6);
+  });
+
+  it('le SECOND candidat est nommé quand il est aussi plausible', () => {
+    // docs/08 : « un bon point de départ », pas de la classification de genre.
+    // Deux presets à 0,001 près, c'est un choix arbitraire déguisé en verdict.
+    const a = preset('a', { tempoHint: [120, 130], subDominance: 0.5, onsetDensity: 0.5 });
+    const b = preset('b', { tempoHint: [120, 130], subDominance: 0.52, onsetDensity: 0.5 });
+    const result = suggestPreset(docPourProfil(125, 0.5, 0.5), [a, b]);
+    expect(result?.runnerUp?.id, 'le second devrait être nommé').toBe('b');
+    expect(result?.reason).toContain('conviendrait aussi');
+  });
+
+  it('...et TU sur une suggestion nette', () => {
+    // Le nommer quand la suggestion est franche ferait douter sans raison.
+    const proche = preset('proche', { tempoHint: [120, 130], subDominance: 0.5, onsetDensity: 0.5 });
+    const loin = preset('loin', { tempoHint: [40, 50], subDominance: 0.05, onsetDensity: 0.95 });
+    const result = suggestPreset(docPourProfil(125, 0.5, 0.5), [proche, loin]);
+    expect(result?.preset.id).toBe('proche');
+    expect(result?.runnerUp).toBeNull();
+    expect(result?.reason).not.toContain('conviendrait aussi');
+  });
+
+  it('un catalogue d\'UN SEUL preset n\'a pas de second', () => {
+    expect(suggestPreset(doc(), [preset('seul')])?.runnerUp).toBeNull();
   });
 });
 
