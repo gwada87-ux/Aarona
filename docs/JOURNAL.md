@@ -5608,3 +5608,98 @@ MVP à la correction manuelle de l'analyse.
   0,88 par image ne laisse plus rien au bout d'une demi-seconde, jamais vérifié
   sur un pool de particules à durée de vie longue.
 - Aucune capture d'écran : mêmes limites d'environnement que sur toute la phase.
+
+---
+
+## Phase 2 — Critère 13 : le `FlashLimiter` face aux modes de fusion
+
+§12, critère 13 : « Le `FlashLimiter` ne se déclenche pas en permanence sur les
+modes de fusion ajoutés (§7.2). Si un mode le déclenche sans arrêt, il est
+retiré de la liste proposée, et c'est écrit dans le journal. »
+
+Reporté **trois fois** — chantiers 5, 7 et 9 — avec chaque fois la même raison :
+il fallait des pixels réels, et je n'avais pas de moyen de mesurer. Les lots A
+à E ont fourni ce moyen (pilotage pas à pas + lecture du canevas), et
+`FlashLimiter.clampedCount` existe depuis le MVP.
+
+### Comment c'est mesuré
+
+Un crochet de développement, `__pulsarDebug.setBlend(mode)`, force un mode sur
+**toutes** les couches du style — le pire cas, bien au-delà de ce qu'une
+variante fait (une ou deux couches). Un second, `__pulsarDebug.clamped`, expose
+le compteur. Puis : lecture, N images pilotées une par une, différence du
+compteur. `apply()` ne mesurant qu'une image sur deux, **le taux d'écrêtage
+plafonne à 50 %** — c'est la valeur qui signifierait « à chaque image mesurée ».
+
+**Témoin positif, parce qu'un zéro ne prouve rien tant qu'on n'a pas montré que
+le compteur peut bouger.** Bascule du fond blanc/noir d'une image à l'autre, sur
+`pulse` :
+
+```
+images écrêtées, cumulées : 0, 0, 0, 1, 1, 2, 2, 3, 3, 4
+```
+
+Les trois premières transitions passent, les suivantes sont écrêtées : très
+exactement le budget de trois par seconde documenté. Le harnais mesure bien
+quelque chose.
+
+### Le résultat
+
+Environ vingt séries de 240 à 300 images, couvrant les six modes, six styles,
+les deux seuils (0,45 normal et 0,18 en réduction des flashs) et plusieurs
+graines :
+
+| | taux d'écrêtage |
+|---|---|
+| `pulse`, seuil normal, les 6 modes + variante | **0 %** partout |
+| `eclats`, seuil RÉDUIT, `normal` / `additive` / `screen` / `multiply` / `overlay` | **0 %** |
+| `difference`, seuil réduit, sur `spectrum-pro`, `iso-pulse`, `field`, `monolith` | **0 %** |
+| `difference`, seuil réduit, sur `eclats`, 6 graines | **0 %** |
+| `eclats` avec sa propre variante, seuil réduit, 3 graines | **0 %** |
+
+**Aucun mode n'est retiré.** Les six restent proposés, `difference` compris —
+celui que `Renderer.ts` soupçonnait depuis le chantier 4 (« peut produire des
+sauts de luminance que le `FlashLimiter` écrêterait en permanence »). Le
+soupçon n'est pas confirmé.
+
+### Une observation isolée que je n'ai pas su reproduire
+
+Le tout premier relevé sur `eclats` + `difference` + seuil réduit a donné
+**150 images écrêtées sur 300, soit 50 % — le maximum possible**. Et dans la
+même série, `eclats` avec sa propre variante a donné 7 % (21 sur 300).
+
+**Quatorze séries ultérieures, dans les mêmes conditions apparentes, ont toutes
+donné 0 %** — six graines différentes, avec et sans rechargement du morceau,
+avec et sans le témoin positif juste avant.
+
+Hypothèse examinée puis **réfutée** : un verrouillage du limiteur.
+`previousLuminance` serait resté bloqué à une valeur extrême laissée par le
+témoin positif exécuté juste avant, écrêtant ensuite chaque image. C'est faux, et
+c'est mesuré : après une salve forcée qui écrête 5 images, le retour au calme
+donne **0 image écrêtée sur les 240 suivantes**. La fenêtre glisse en temps
+musical, le budget se reconstitue, la scène retrouve sa luminance en une
+transition. Un test unitaire inscrit ce comportement (`flashLimiter.test.ts`,
+« NE RESTE PAS bloqué ») pour qu'une régression le fasse échouer plutôt que de
+ressortir en observation isolée.
+
+Ce que je ne sais pas dire : d'où venaient ces deux relevés. Ils sont écrits ici
+tels quels plutôt que passés sous silence — un 50 % isolé n'est pas une preuve,
+mais ce n'est pas rien non plus.
+
+### À valider par Aaron
+
+- **`difference` à l'œil, en réduction des flashs.** La mesure dit que le
+  limiteur ne s'en mêle pas ; elle ne dit pas que c'est agréable à regarder.
+  Aucune variante ne l'utilise aujourd'hui — c'est le chantier 4 qui s'en était
+  abstenu par précaution, et rien n'oblige à revenir dessus.
+- **Le seuil de la réduction des flashs** (0,18) n'a jamais été confronté à un
+  morceau qui stroboscope vraiment. La démo synthétique ne suffit pas pour ça.
+
+### Limites connues
+
+- **Mesures sur la piste de démonstration**, jamais sur un vrai morceau à
+  breaks rapides — précisément le cas que le chantier 6 redoutait pour `eclats`.
+- Le crochet `setBlend` force le mode sur toutes les couches ; c'est plus dur que
+  la réalité, donc conservateur, mais ce n'est pas la configuration qu'un
+  utilisateur rencontre.
+- **L'observation à 50 % reste inexpliquée.**

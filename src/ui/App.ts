@@ -44,6 +44,7 @@ import type { Scene } from '../visual/scene/Scene';
 import { withCover } from '../visual/scene/withCover';
 import { withText } from '../visual/scene/withText';
 import { composeLayers, type ComposeResult, type LayerComposition } from '../visual/scene/composeLayers';
+import type { BlendMode } from '../visual/scene/Layer';
 import {
   TEXT_ANIMATION_LABELS,
   TEXT_LAYOUT_LABELS,
@@ -2505,6 +2506,25 @@ if (import.meta.env.DEV) {
     /** Automatisation résolue à l'instant courant — vérification du lot D. */
     get automation() {
       return { pistes: automation.length, frame: { ...automationAt(simT) }, macros: automatedMacros };
+    },
+    /**
+     * Force un mode de fusion sur les couches du STYLE — vérification du
+     * critère 13 de §12 (« le FlashLimiter ne se déclenche pas en permanence
+     * sur les modes de fusion »), reporté aux chantiers 5, 7 et 9 faute de
+     * pouvoir mesurer.
+     *
+     * `null` rend la main aux modes de la variante. Les couches d'habillage
+     * sont épargnées, comme partout ailleurs : `applyLayerBlends` les saute.
+     */
+    setBlend(mode: BlendMode | null) {
+      if (!scene) return null;
+      const map: Record<string, BlendMode> = {};
+      if (mode) for (const l of scene.layers) map[l.id] = mode;
+      applyLayerBlends(scene, mode ? map : currentVariant?.blend);
+      return scene.layers.map((l) => ({ id: l.id, blend: l.blend ?? null }));
+    },
+    get clamped() {
+      return flashLimiter.clampedCount;
     },
   };
 }

@@ -37,6 +37,44 @@ describe('FlashRateGate — au-delà de la limite de fréquence', () => {
     expect(allowed).toBe(0.0);
   });
 
+  it('NE RESTE PAS bloqué : la scène redevenue calme repasse sans écrêtage', () => {
+    // Vérification du critère 13 de §12 (chantier 10). Au navigateur, une
+    // mesure isolée avait montré un écrêtage de 50 % — le maximum possible,
+    // `apply` ne mesurant qu'une image sur deux — et la première hypothèse
+    // était un verrouillage : `previousLuminance` figé à une valeur extrême,
+    // clampant ensuite chaque image indéfiniment.
+    //
+    // Elle est FAUSSE, et ce test l'inscrit. Après une salve qui épuise le
+    // budget de transitions, une scène dont la luminance ne bouge plus repasse
+    // intégralement — le delta est sous le seuil, la porte n'est même pas
+    // consultée. Mesuré aussi au navigateur : 5 images écrêtées pendant une
+    // salve forcée, puis 0 sur les 240 images suivantes.
+    const gate = new FlashRateGate(NORMAL_MODE);
+    let precedente = 0;
+    let ecretees = 0;
+    for (let i = 0; i < 8; i++) {
+      const voulue = i % 2 === 0 ? 1 : 0;
+      const rendue = gate.evaluate(i * 0.02, voulue, precedente);
+      if (rendue !== voulue) ecretees++;
+      precedente = rendue;
+    }
+    // La salve a bien fini par écrêter — sinon le reste du test ne prouve rien.
+    expect(ecretees, 'la salve aurait dû épuiser le budget de transitions').toBeGreaterThan(0);
+
+    // Retour au calme. La fenêtre glisse en temps MUSICAL : une seconde plus
+    // tard, le budget est reconstitué et la scène retrouve sa vraie luminance
+    // en une transition — c'est ce moment-là qu'un verrouillage empêcherait.
+    precedente = gate.evaluate(1.5, 0.5, precedente);
+    expect(precedente, 'la scène ne retrouve jamais sa luminance réelle').toBe(0.5);
+
+    // Puis trente images de petites variations : plus rien ne doit être écrêté.
+    for (let i = 0; i < 30; i++) {
+      const voulue = 0.5 + (i % 2) * 0.01;
+      expect(gate.evaluate(1.52 + i * 0.02, voulue, precedente), `image ${i}`).toBe(voulue);
+      precedente = voulue;
+    }
+  });
+
   it('reset() vide la fenêtre de transitions récentes', () => {
     const gate = new FlashRateGate(NORMAL_MODE);
     gate.evaluate(0.0, 1.0, 0.0);
