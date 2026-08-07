@@ -3,7 +3,31 @@
 Refonte du visualiseur live (PROMPT-live-visual-upgrade v2). Ce fichier est le
 journal impose par le prompt (§0, fin de chaque etape de §9).
 
-**Avancement : etapes 1, 2 et 3 de §9 livrees. Etapes 4 a 6 non commencees.**
+**Avancement : etapes 1 a 4 de §9 livrees. Etapes 5 et 6 non commencees.**
+
+## RACCOURCIS CLAVIER (§4.5)
+
+Table unique, partagee par le clavier reel, le panneau d'aide (`?`) et cette
+documentation - elle vit dans `Controls.ts`.
+
+| touche | effet |
+|---|---|
+| `Espace` | tap tempo : 4 frappes imposent BPM ET phase |
+| `A` | retour au tempo automatique |
+| `L` | verrou de scene : seules les variantes changent |
+| `<-` / `->` | scene precedente / suivante, quantifiee a la MESURE suivante |
+| `P` | verrou de palette |
+| `Maj+P` | palette suivante |
+| `+` / `-` | intensite globale, bornee a [0,5 ; 1,5] |
+| fleches haut/bas | reglage de synchro (`userTrimMs`) |
+| `Echap` | panic : scene d'attente, tous overlays coupes, immediat |
+| `D` | HUD de debug |
+| `?` | panneau d'aide |
+
+Persistes dans `localStorage` sous `live-visual-controls` : intensite, trim de
+synchro, visibilite du HUD. Les VERROUS et le tap tempo ne le sont pas -
+retrouver une scene verrouillee au demarrage suivant serait une surprise
+desagreable.
 
 ---
 
@@ -574,3 +598,121 @@ l'anti-repetition et les transitions. Le panneau affiche UNE scene fixe, prise
 dans le registre - deliberement pas de minuteur de rotation, qui serait
 exactement ce que §4.3 interdit, un changement de scene ne tombant sur aucune
 frontiere. Les trois scenes restantes de §4.2 sont l'etape 5.
+
+---
+
+## Etape 4 - Directors, transitions, overlays, controles
+
+### Ce qui est livre
+
+- `IntensityDirector.ts` (§2.8) - budget d'effets, plancher de vide, retenue
+  avant impact, retombee d'apres drop, breakdown quasi-noir, garde-fou de
+  non-saturation.
+- `LiveDirector.ts` (§4.3) - arbitrage des coupes dans l'ordre de priorite
+  strict, anti-repetition, ponderation par l'intensite et l'arc, mode degrade,
+  journal des coupes avec la frontiere qui les a declenchees.
+- `Overlays.ts` (§4.4) - six overlays expressifs, budget, exclusions
+  mutuelles, bascule sur frontiere de mesure, duree de vie minimale.
+- `Controls.ts` (§4.5) - clavier et persistance.
+- Transitions dans `LivePipeline` : fondu additif, feedback PARTAGE, couche
+  scene doublee a 0,6x, `FrameBudget` gele.
+- Tap tempo dans `BeatClock`.
+
+### Ecart assume n°8 - anti-repetition impossible a 3 scenes
+
+§4.3 demande qu'« aucune scene ne revienne avant que 3 autres soient passees
+(4 quand les 12 scenes existeront) ». Avec les 3 scenes de l'etape 3, cette
+regle rend TOUTE scene inelegible en permanence et le director se fige.
+
+La fenetre est donc plafonnee a `nombre de scenes - 1`, soit 2 aujourd'hui.
+Elle passera automatiquement a 3 des que la quatrieme scene sera au registre,
+sans rien changer au code. Ce qui reste garanti dans tous les cas, et ce que
+verifie le test : jamais deux fois la meme scene de suite.
+
+### Ecart assume n°9 - `IntensityDirector` et `SectionEnergy` se partagent §2.8
+
+§2.7.9 (detection de sections) et §2.8 (dramaturgie) sont deux sections du
+prompt, mais une seule chaine de causalite. Le decoupage retenu :
+
+- `SectionEnergy` (etape 2, cote AUDIO) detecte breakdown / build / drop sur
+  les niveaux BRUTS et produit une intensite de base. Il ne connait rien au
+  rendu.
+- `IntensityDirector` (etape 4, cote RENDU) consomme cette detection et produit
+  des AUTORISATIONS. Il ne lit jamais l'audio.
+
+C'est ce qui rend litteralement vraie la regle « aucun effet ne se regle
+directement sur l'audio » : le pipeline recoit un `EffectBudget`, pas des
+features.
+
+### Le plafond de luminance devait etre applique, pas seulement calcule
+
+« Breakdown = quasi-noir assume, <= 15 % de luminance » et « plancher de vide,
+sous 35 % de la moyenne glissante » sont des contraintes sur l'IMAGE, pas sur
+les reglages. Baisser le bloom et la densite ne suffit pas : rien ne garantit
+que la scene elle-meme s'assombrisse.
+
+`LivePipeline.enforceLuminanceCap` mesure la luminance reelle sur le downscale
+32x18 et pose un voile noir dont l'alpha est calcule pour ramener la moyenne
+au plafond. Meme approximation assumee que `FlashLimiter.dimTowards` - un voile
+uniforme deplace la moyenne sans preserver le contraste local - et pour la meme
+raison : cette passe ne s'engage que sur des situations deja extremes.
+
+### Deux defauts trouves par les tests
+
+1. **L'explosion d'apres drop arrivait une trame trop tard.** `barsSinceDrop`
+   etait calcule AVANT l'enregistrement du drop, donc la mesure d'explosion
+   perdait son premier instant - celui qui porte l'impact. Ordre inverse.
+2. **`actionForKey` levait hors DOM.** `target instanceof HTMLInputElement`
+   leve si le global n'existe pas : la fonction etait inutilisable dans ses
+   propres tests. Remplace par un test sur `tagName` et `isContentEditable`.
+   Une regle de securite qu'on ne peut pas tester n'en est pas une.
+
+### Mesures - critere §8.8, 10 minutes de signal synthetique
+
+`tests/unit/live/liveDirectorLong.test.ts`, 600 s reelles analysees trame par
+trame (deux FFT par trame), 30 s de temps de test.
+
+| verification | resultat |
+|---|---|
+| changements de scene | >= 10 |
+| repetition immediate | aucune |
+| coupes hors grille | uniquement en mode degrade ou sur action manuelle |
+| ecart minimal entre coupes | > 6 s (4 mesures a 140 BPM = 6,9 s) |
+| budget d'overlays depasse | jamais |
+
+### Verification navigateur - director en marche
+
+Click track 128 BPM, 90 s, `duotone`/`nocturne`, qualite auto :
+
+```
+etat        LOCKED   tempo 128.13 BPM   kicks 189 acceptes / 0 rejetes
+qualite     3/3   passes 6.36/10   bitmap 960x540   6.6 Mo
+director    nominal   intensite 0.67   budget 2 overlays   actifs [shake aberration]
+  coupe     t=89.7s curl-flow -> slice-displace v1 [phrase-score/deux-mesures]
+  coupe     t=71.0s grid-horizon -> curl-flow v2 [phrase-score/deux-mesures]
+  coupe     t=56.0s slice-displace -> grid-horizon v1 [phrase-score/deux-mesures]
+```
+
+Six coupes en 90 s, rotation propre entre les trois scenes, aucune erreur
+console. Noter la frontiere : `deux-mesures` et non `phrase`. Le click track du
+banc a une confiance de downbeat proche de zero - kick sur chaque temps, snare
+sur 2 et 4, aucune ligne de basse ni variation de mesure - donc la phrase
+n'existe pas et le director se rabat sur deux mesures, exactement comme §2.5
+l'exige. C'est le repli qui fonctionne, pas un defaut.
+
+### A valider par un humain
+
+- **Le rythme des coupes.** 15 a 60 s par scene est ce que demande le prompt,
+  mais c'est un choix de mise en scene : a l'usage, ca peut paraitre long sur
+  un set rapide.
+- **La dramaturgie se voit-elle ?** Le plancher de vide, la retenue avant
+  impact et la retombee d'apres drop sont mesurables mais leur EFFET est une
+  question de gout. C'est le coeur de §2.8 et rien ne le remplace.
+- **Les overlays** : les exclusions et le budget sont verifies, l'esthetique de
+  chacun ne l'est pas.
+
+### Ce qui n'est PAS dans l'etape 4
+
+Les trois scenes restantes de §4.2 - `laser-tunnel`, `mandala-32`, `type-slam`
+- sont l'etape 5. Le polish de §9.6 - easings, affinage du grain et du bloom,
+calibration de `userTrimMs` - est l'etape 6.

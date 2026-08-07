@@ -155,6 +155,16 @@ export class LiveAnalysisEngine {
     return this.lastTime;
   }
 
+  /**
+   * Confiance de tempo REELLE. En tap tempo manuel (§4.5), l'operateur a
+   * impose la grille : elle vaut 1, ce qui fait passer la machine a etats en
+   * LOCKED et rend les frontieres de phrase de nouveau exploitables par le
+   * director - c'est tout l'interet du filet de securite.
+   */
+  get effectiveConfidence(): number {
+    return this.beat.manual ? 1 : this.tempo.confidence;
+  }
+
   /** Audio present et au-dessus du plancher de bruit. */
   get audible(): boolean {
     return this.state === 'REACTIVE' || this.state === 'LOCKED';
@@ -189,7 +199,7 @@ export class LiveAnalysisEngine {
     this.features.update(this.dt, input.freqBandsDb, input.timeDomain, !silent);
     this.updateState(this.dt, silent);
 
-    this.beat.confidence = this.tempo.confidence;
+    this.beat.confidence = this.effectiveConfidence;
     this.beat.advance(this.dt, tAudio);
     this.beat.observe(this.features.macroDb);
 
@@ -319,7 +329,7 @@ export class LiveAnalysisEngine {
       this.unlockedFor = 0;
       return;
     }
-    const conf = this.tempo.confidence;
+    const conf = this.effectiveConfidence;
     if (conf > s.lockedConfidence) {
       this.lockedFor += dt;
       this.unlockedFor = 0;

@@ -4,6 +4,10 @@ import { LiveAnalysisEngine } from './audio/LiveAnalysisEngine';
 import { DebugHud } from './DebugHud';
 import { LivePipeline } from './render/LivePipeline';
 import { playableScenes, sceneById } from './scenes';
+import { IntensityDirector } from './IntensityDirector';
+import { LiveDirector } from './LiveDirector';
+import { OverlayDirector } from './Overlays';
+import { actionForKey, loadControls, saveControls, type PersistedControls } from './Controls';
 import { mergeLiveConfig, type LiveConfig, type LiveConfigPatch } from './LiveConfig';
 
 /**
@@ -31,7 +35,14 @@ export class LiveVisualPanel {
   private config: LiveConfig = mergeLiveConfig();
   private engine: LiveAnalysisEngine | null = null;
   private pipeline: LivePipeline | null = null;
+  private director: LiveDirector | null = null;
+  private intensity: IntensityDirector | null = null;
+  private overlays: OverlayDirector | null = null;
   private hud: DebugHud | null = null;
+  private paletteLocked = false;
+  private helpVisible = false;
+  private persisted: PersistedControls = loadControls();
+  private directorRng: () => number = Math.random;
   private source: LiveAudioSource | null = null;
   private audioContext: AudioContext | null = null;
   private motionQuery: MediaQueryList | null = null;
@@ -85,19 +96,29 @@ export class LiveVisualPanel {
     }
     this.engine = new LiveAnalysisEngine(this.config, sampleRate, source.fftSizeOnset, source.fftSizeBands);
     this.pipeline = new LivePipeline(this.config);
+    this.director = new LiveDirector(this.config.director);
+    this.intensity = new IntensityDirector(this.config.intensity);
+    this.overlays = new OverlayDirector(this.config.director);
     this.hud = new DebugHud(this.config);
+
+    // Reglages persistes (§4.5).
+    this.persisted = loadControls();
+    this.intensity.userScale = this.persisted.userScale;
+    this.hud.visible = this.persisted.hudVisible || this.config.content.debugHudOnStart;
+    this.engine.beat.setUserTrimMs(this.persisted.userTrimMs);
+    this.directorRng = makeSeededRng(0x9e3779b9);
 
     this.canvas.style.display = 'block';
     this.measure();
     this.applyPendingSize();
     this.watchReducedMotion();
 
-    // Une seule scene, fixe. Le CHOIX et la ROTATION des scenes sont le
-    // travail de `LiveDirector` (§4.3), qui n'existe pas encore : arbitrage
-    // des coupes, anti-repetition, ponderation par l'intensite, frontieres de
-    // phrase. Un minuteur de rotation ici serait exactement ce que §4.3
-    // interdit - un changement de scene qui ne tombe sur aucune frontiere.
-    this.selectScene(this.config.content.forcedScene);
+    // Scene imposee par la configuration : elle verrouille le director, sinon
+    // il la remplacerait a la premiere frontiere.
+    if (this.config.content.forcedScene) {
+      this.selectScene(this.config.content.forcedScene);
+      this.director.sceneLocked = true;
+    }
 
     // `getBoundingClientRect()` par trame force un reflow a chaque image
     // (interdit §6.6). Le ResizeObserver ne fait que STOCKER la taille ; la
@@ -144,6 +165,14 @@ export class LiveVisualPanel {
     this.engine = null;
     this.pipeline?.dispose();
     this.pipeline = null;
+    this.director?.reset();
+    this.director = null;
+    this.intensity?.reset();
+    this.intensity = null;
+    this.overlays?.reset();
+    this.overlays = null;
+    this.helpVisible = false;
+    this.paletteLocked = false;
     this.hud = null;
     this.source = null;
     this.audioContext = null;
@@ -191,15 +220,74 @@ export class LiveVisualPanel {
     return this.engine?.beat.bpm ?? 0;
   }
 
+  /**
+   * Controles utilisateur (§4.5). Le panneau traduit une intention en effet ;
+   * `Controls.ts` ne connait ni le rendu ni l'analyse.
+   */
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.engine || !this.hud) return;
-    if (event.key === 'd' || event.key === 'D') {
-      this.hud.toggle();
-      event.preventDefault();
-      return;
+    const engine = this.engine;
+    const pipeline = this.pipeline;
+    const director = this.director;
+    const intensity = this.intensity;
+    if (!engine || !pipeline || !director || !intensity || !this.hud) return;
+
+    const action = actionForKey(event, engine.audioTime);
+    if (!action) return;
+    event.preventDefault();
+
+    switch (action.type) {
+      case 'tap':
+        engine.beat.tap(action.tSec);
+        break;
+      case 'auto-tempo':
+        engine.beat.releaseManual();
+        break;
+      case 'toggle-scene-lock':
+        director.sceneLocked = !director.sceneLocked;
+        break;
+      case 'scene-step':
+        director.requestManual(action.direction);
+        break;
+      case 'toggle-palette-lock':
+        this.paletteLocked = !this.paletteLocked;
+        break;
+      case 'palette-next':
+        pipeline.palette.next(this.config.content.paletteCrossfadeSec);
+        break;
+      case 'intensity':
+        intensity.nudgeUserScale(action.direction);
+        this.persist();
+        break;
+      case 'sync-trim':
+        engine.beat.setUserTrimMs(engine.beat.userTrimMs + action.direction * this.config.sync.userTrimStepMs);
+        this.persist();
+        break;
+      case 'panic': {
+        // Retour IMMEDIAT a la scene d'attente, tous overlays coupes (§4.5).
+        this.overlays?.panic();
+        const decision = director.panic(this.directorInput(engine));
+        if (decision) pipeline.setScene(decision.entry.create(), decision.variant);
+        break;
+      }
+      case 'toggle-help':
+        this.helpVisible = !this.helpVisible;
+        break;
+      case 'toggle-hud':
+        this.hud.toggle();
+        this.persist();
+        break;
     }
-    if (this.hud.handleKey(event.key, this.engine)) event.preventDefault();
   };
+
+  private persist(): void {
+    if (!this.engine || !this.intensity || !this.hud) return;
+    this.persisted = {
+      userScale: this.intensity.userScale,
+      userTrimMs: this.engine.beat.userTrimMs,
+      hudVisible: this.hud.visible,
+    };
+    saveControls(this.persisted);
+  }
 
   private readonly onVisibilityChange = (): void => {
     if (document.hidden) {
@@ -306,29 +394,73 @@ export class LiveVisualPanel {
       });
     }
 
+    const director = this.director;
+    const intensityDirector = this.intensity;
+    const overlays = this.overlays;
+    if (!director || !intensityDirector || !overlays) return;
+
+    // 1. INTENSITE. Tout ce qui suit lit ceci, jamais l'audio (§2.8).
+    intensityDirector.update(engine.dt, engine.section, engine.beat, pipeline.stats.luminance);
+
+    // 2. DIRECTOR. Une transition en cours gele l'adaptation de qualite : son
+    //    cout x2 n'est pas representatif (§3.7).
+    if (pipeline.transitioning) pipeline.budget.freeze(stamp, this.config.perf.transitionFreezeMs);
+    const decision = director.update(this.directorInput(engine));
+    if (decision) {
+      // Fondu plafonne a une demi-mesure (§4.3).
+      const barSec = engine.beat.periodSec > 0 ? engine.beat.periodSec * this.config.beat.beatsPerBar : 2;
+      const maxFade = barSec * this.config.director.maxCrossfadeBars;
+      const fade = this.reducedMotion
+        ? Math.max(decision.fadeSec, this.config.safety.reducedTransitionSec)
+        : Math.min(decision.fadeSec, maxFade);
+      const scene = decision.entry.create();
+      if (fade > 0) pipeline.crossfadeTo(scene, decision.variant, fade);
+      else pipeline.setScene(scene, decision.variant);
+      pipeline.budget.freeze(stamp, this.config.perf.transitionFreezeMs);
+    }
+
+    // 3. OVERLAYS. Bascule sur frontiere de mesure uniquement (§4.4).
+    overlays.update(
+      engine.beat,
+      intensityDirector.budget,
+      intensityDirector.intensity,
+      pipeline.currentScene?.id ?? '',
+      this.reducedMotion,
+      this.directorRng,
+    );
+
     // Fondu de palette sur frontiere de PHRASE (§3.5), coupe franche sur un
-    // drop. Le director de l'etape 4 reprendra cette decision ; en attendant
-    // la regle minimale est deja celle du prompt, pas un minuteur.
-    if (engine.beat.phraseThisFrame) {
-      pipeline.palette.next(this.config.content.paletteCrossfadeSec);
-    } else if (engine.section.dropFired) {
-      pipeline.palette.next(0);
+    // drop - sauf si l'operateur a verrouille la palette (§4.5).
+    if (!this.paletteLocked) {
+      if (engine.beat.phraseThisFrame) pipeline.palette.next(this.config.content.paletteCrossfadeSec);
+      else if (engine.section.dropFired) pipeline.palette.next(0);
     }
     if (engine.beat.beatsThisFrame > 0) pipeline.palette.markBeat();
     // Le shake est une modulation de la CAMERA, pas un effet separe (§3.6).
-    if (engine.firedThisFrame('kick')) pipeline.camera.impulse(engine.onsets.lastStrength('kick'));
+    // L'amplitude passe par le budget : c'est lui qui porte la retenue avant
+    // impact et la retombee d'apres drop.
+    if (engine.firedThisFrame('kick')) {
+      pipeline.camera.impulse(engine.onsets.lastStrength('kick') * intensityDirector.budget.amplitude);
+    }
 
-    pipeline.render(this.ctx2d, this.canvas.width, this.canvas.height, window.devicePixelRatio || 1, {
-      dt: engine.dt,
-      tSec: engine.tSec,
-      state: engine.state,
-      beat: engine.beat,
-      features: engine.features,
-      onsets: engine.onsetSet,
-      energy: engine.section,
-      intensity: engine.section.intensity,
-      reducedMotion: this.reducedMotion,
-    });
+    pipeline.render(
+      this.ctx2d,
+      this.canvas.width,
+      this.canvas.height,
+      window.devicePixelRatio || 1,
+      {
+        dt: engine.dt,
+        tSec: engine.tSec,
+        state: engine.state,
+        beat: engine.beat,
+        features: engine.features,
+        onsets: engine.onsetSet,
+        energy: engine.section,
+        intensity: intensityDirector.intensity,
+        reducedMotion: this.reducedMotion,
+      },
+      { budget: intensityDirector.budget, overlays: overlays.active },
+    );
 
     this.drawBadge(engine, pipeline);
 
@@ -341,8 +473,26 @@ export class LiveVisualPanel {
       this.hud.frameMs = pipeline.budget.medianFrameMs || this.frameMs;
       this.hud.flashClamped = this.flashLimiter.clampedCount;
       this.hud.pipeline = pipeline;
+      this.hud.director = director;
+      this.hud.intensity = intensityDirector;
+      this.hud.overlays = overlays;
       this.hud.draw(this.ctx2d, engine, window.devicePixelRatio || 1);
     }
+    if (this.helpVisible) this.hud?.drawHelp(this.ctx2d, this.canvas.width, this.canvas.height, window.devicePixelRatio || 1);
+  }
+
+  private directorInput(engine: LiveAnalysisEngine): Parameters<LiveDirector['update']>[0] {
+    return {
+      tSec: engine.tSec,
+      dt: engine.dt,
+      state: engine.state,
+      beat: engine.beat,
+      section: engine.section,
+      intensity: this.intensity?.intensity ?? 0,
+      rmsDbfs: engine.features.rmsDbfs,
+      reducedMotion: this.reducedMotion,
+      rng: this.directorRng,
+    };
   }
 
   /**
@@ -389,6 +539,17 @@ export class LiveVisualPanel {
  * `baseLatency` seul (2,9 a 11,6 ms) ne suffit pas - c'est `outputLatency` qui
  * porte la latence materielle, et Safari ne l'expose pas.
  */
+/** PRNG seede du director : les choix de scene doivent etre reproductibles. */
+function makeSeededRng(seed: number): () => number {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return ((s >>> 0) % 1000000) / 1000000;
+  };
+}
+
 function audioAheadMs(ctx: AudioContext, fallbackOutputLatencySec: number): number {
   const ts = ctx.getOutputTimestamp?.();
   if (ts && typeof ts.contextTime === 'number' && ts.contextTime > 0) {

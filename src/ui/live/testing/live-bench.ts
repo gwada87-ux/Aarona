@@ -14,6 +14,9 @@ import { LiveAnalysisEngine } from '../audio/LiveAnalysisEngine';
 import { LivePipeline } from '../render/LivePipeline';
 import { SCENE_REGISTRY, WitnessScene } from '../scenes';
 import { PALETTES } from '../render/Palette';
+import { IntensityDirector } from '../IntensityDirector';
+import { LiveDirector } from '../LiveDirector';
+import { OverlayDirector } from '../Overlays';
 import type { QualityLevel } from '../render/FrameBudget';
 import { mergeLiveConfig } from '../LiveConfig';
 
@@ -27,6 +30,7 @@ const ui = {
   quality: document.getElementById('quality') as HTMLSelectElement,
   palette: document.getElementById('palette') as HTMLSelectElement,
   scene: document.getElementById('scene') as HTMLSelectElement,
+  director: document.getElementById('director') as HTMLInputElement,
   readout: document.getElementById('readout') as HTMLPreElement,
   canvas: document.getElementById('view') as HTMLCanvasElement,
 };
@@ -55,6 +59,17 @@ for (const entry of SCENE_REGISTRY) {
 }
 
 let pipeline: LivePipeline | null = null;
+let director: LiveDirector | null = null;
+let intensityDirector: IntensityDirector | null = null;
+let overlayDirector: OverlayDirector | null = null;
+/** PRNG seede du director : les choix de scene doivent etre reproductibles. */
+let directorSeed = 0x9e3779b9;
+const directorRng = (): number => {
+  directorSeed ^= directorSeed << 13;
+  directorSeed ^= directorSeed >>> 17;
+  directorSeed ^= directorSeed << 5;
+  return ((directorSeed >>> 0) % 1000000) / 1000000;
+};
 /** Historique des temps de trame depuis le dernier changement de qualite, pour la mediane. */
 let frameSamples: number[] = [];
 let currentSceneId = '';
@@ -187,6 +202,10 @@ function start(): void {
   timeDomain = new Float32Array(onset.fftSize);
   engine = new LiveAnalysisEngine(config, ac.sampleRate, onset.fftSize, bands.fftSize);
   pipeline = new LivePipeline(config);
+  director = new LiveDirector(config.director);
+  intensityDirector = new IntensityDirector(config.intensity);
+  overlayDirector = new OverlayDirector(config.director);
+  directorSeed = 0x9e3779b9;
   currentSceneId = '';
   applyScene();
   frameSamples = [];
@@ -205,6 +224,12 @@ function stop(): void {
   engine = null;
   pipeline?.dispose();
   pipeline = null;
+  director?.reset();
+  director = null;
+  intensityDirector?.reset();
+  intensityDirector = null;
+  overlayDirector?.reset();
+  overlayDirector = null;
   void audio?.close();
   audio = null;
   master = null;
@@ -280,26 +305,73 @@ function render(stamp: number): void {
       frameSamples = [];
     }
   }
-  applyScene();
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const useDirector = ui.director.checked;
+  if (!useDirector) applyScene();
+
   const paletteIndex = Number(ui.palette.value);
   if (Number.isFinite(paletteIndex) && pipeline.palette.currentIndex !== paletteIndex) {
     pipeline.palette.crossfadeTo(paletteIndex, config.content.paletteCrossfadeSec);
   }
 
-  if (engine.beat.beatsThisFrame > 0) pipeline.palette.markBeat();
-  if (engine.firedThisFrame('kick')) pipeline.camera.impulse(engine.onsets.lastStrength('kick'));
+  intensityDirector?.update(engine.dt, engine.section, engine.beat, pipeline.stats.luminance);
+  const budget = intensityDirector?.budget ?? {
+    overlays: 1,
+    bloom: 1,
+    amplitude: 1,
+    density: 1,
+    luminanceCap: 1,
+    grainOnly: false,
+  };
 
-  pipeline.render(ctx2d, w, h, window.devicePixelRatio || 1, {
-    dt: engine.dt,
-    tSec: engine.tSec,
-    state: engine.state,
-    beat: engine.beat,
-    features: engine.features,
-    onsets: engine.onsetSet,
-    energy: engine.section,
-    intensity: engine.section.intensity,
-    reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-  });
+  if (useDirector && director && intensityDirector) {
+    if (pipeline.transitioning) pipeline.budget.freeze(stamp, config.perf.transitionFreezeMs);
+    const decision = director.update({
+      tSec: engine.tSec,
+      dt: engine.dt,
+      state: engine.state,
+      beat: engine.beat,
+      section: engine.section,
+      intensity: intensityDirector.intensity,
+      rmsDbfs: engine.features.rmsDbfs,
+      reducedMotion: reduced,
+      rng: directorRng,
+    });
+    if (decision) {
+      const barSec = engine.beat.periodSec > 0 ? engine.beat.periodSec * config.beat.beatsPerBar : 2;
+      const fade = Math.min(decision.fadeSec, barSec * config.director.maxCrossfadeBars);
+      const scene = decision.entry.create();
+      if (fade > 0) pipeline.crossfadeTo(scene, decision.variant, fade);
+      else pipeline.setScene(scene, decision.variant);
+      currentSceneId = decision.entry.id;
+      ui.scene.value = decision.entry.id;
+      pipeline.budget.freeze(stamp, config.perf.transitionFreezeMs);
+    }
+  }
+
+  overlayDirector?.update(engine.beat, budget, intensityDirector?.intensity ?? 0, pipeline.currentScene?.id ?? '', reduced, directorRng);
+
+  if (engine.beat.beatsThisFrame > 0) pipeline.palette.markBeat();
+  if (engine.firedThisFrame('kick')) pipeline.camera.impulse(engine.onsets.lastStrength('kick') * budget.amplitude);
+
+  pipeline.render(
+    ctx2d,
+    w,
+    h,
+    window.devicePixelRatio || 1,
+    {
+      dt: engine.dt,
+      tSec: engine.tSec,
+      state: engine.state,
+      beat: engine.beat,
+      features: engine.features,
+      onsets: engine.onsetSet,
+      energy: engine.section,
+      intensity: intensityDirector?.intensity ?? engine.section.intensity,
+      reducedMotion: reduced,
+    },
+    { budget, overlays: overlayDirector?.active ?? [] },
+  );
 
   const sync = beat.sync;
   const stats = pipeline.stats;
@@ -312,7 +384,11 @@ function render(stamp: number): void {
     `qualite     ${pipeline.budget.level}/3 (${forced === 'auto' ? 'auto' : 'forcee'})   passes ${stats.passes}/${stats.budget}   bitmap ${stats.postW}x${stats.postH}   ${stats.memoryMb.toFixed(1)} Mo`,
     `trame       mediane ${median(frameSamples).toFixed(2)} ms sur ${frameSamples.length} trames   ref ${pipeline.budget.referencePeriodMs.toFixed(2)} ms`,
     `image       luminance ${stats.luminance.toFixed(3)}   palette ${pipeline.palette.current.id}   section ${engine.section.arc}   intensite ${engine.section.intensity.toFixed(2)}`,
-    `scene       ${pipeline.currentScene?.id ?? '-'}   accent ${pipeline.currentScene?.primaryAccent ?? '-'}`,
+    `scene       ${pipeline.currentScene?.id ?? '-'}   accent ${pipeline.currentScene?.primaryAccent ?? '-'}${pipeline.transitioning ? `   FONDU ${(pipeline.fadeProgress * 100).toFixed(0)}%` : ''}`,
+    `director    ${director?.degraded ? 'DEGRADED' : 'nominal'}   intensite ${(intensityDirector?.intensity ?? 0).toFixed(2)}   budget ${budget.overlays} overlays   actifs [${overlayDirector?.active.join(' ') ?? ''}]${intensityDirector?.saturated ? '   SATURE' : ''}${intensityDirector?.forcingVoid ? '   VIDE FORCE' : ''}`,
+    ...(director?.log ?? [])
+      .slice(0, 3)
+      .map((c) => `  coupe     t=${c.tSec.toFixed(1)}s ${c.from} -> ${c.to} v${c.variant} [${c.reason}/${c.boundary}]`),
   ].join('\n');
 }
 

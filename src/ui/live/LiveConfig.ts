@@ -383,6 +383,33 @@ export interface LivePerfConfig {
   readonly transitionFreezeMs: number;
 }
 
+export interface LiveDirectorConfig {
+  /** Duree minimale d'une scene, en secondes. Suspendue par un drop (§4.3). */
+  readonly minSceneSec: number;
+  /** Duree maximale d'une scene, en secondes. Au-dela, coupe a la prochaine frontiere de phrase. */
+  readonly maxSceneSec: number;
+  /** Si aucune frontiere de phrase n'arrive avant ce delai, on coupe a la prochaine frontiere de mesure. */
+  readonly hardMaxSceneSec: number;
+  /** Ecart minimal entre deux coupes, en MESURES. Seule contrainte qui survit a un drop. */
+  readonly minBarsBetweenCuts: number;
+  /** Nombre de scenes qui doivent passer avant qu'une scene revienne. Borne a `nombre de scenes - 1`. */
+  readonly antiRepeat: number;
+  /** Duree maximale d'un fondu de transition, en fraction de mesure. */
+  readonly maxCrossfadeBars: number;
+  /** Resolution de la couche scene pendant une transition. Les deux scenes coexistent : on la reduit. */
+  readonly transitionScale: number;
+  /** Mode degrade : creux d'energie sous cette fraction de la moyenne glissante. */
+  readonly degradedTroughRatio: number;
+  /** Duree minimale du creux, en secondes. */
+  readonly degradedTroughSec: number;
+  /** Minuteur de secours du mode degrade, en secondes. */
+  readonly degradedTimerSec: number;
+  /** Duree du fondu en mode degrade, en secondes. Une coupe seche n'a de sens que sur une grille. */
+  readonly degradedFadeSec: number;
+  /** Duree de vie minimale d'un overlay, en MESURES. Empeche le clignotement. */
+  readonly overlayMinBars: number;
+}
+
 export interface LiveSafetyConfig {
   /** Respecter `prefers-reduced-motion`. Mettre a `false` desactive l'adaptation, pas la detection. */
   readonly respectReducedMotion: boolean;
@@ -392,6 +419,39 @@ export interface LiveSafetyConfig {
   readonly reducedAmplitudeDivider: number;
   /** Duree minimale d'une transition en mouvement reduit, en secondes. Fondu uniquement, jamais de coupe. */
   readonly reducedTransitionSec: number;
+}
+
+export interface LiveIntensityConfig {
+  /** Sous cette intensite, un seul overlay expressif est autorise (§2.8). */
+  readonly overlayThreshold1: number;
+  /** Sous celle-ci, deux. Au-dela, trois. */
+  readonly overlayThreshold2: number;
+  /** Fraction de la moyenne glissante de luminance sous laquelle un temps compte comme « vide ». */
+  readonly voidFloorRatio: number;
+  /** Nombre de temps CONSECUTIFS vides exiges par phrase. */
+  readonly voidFloorBeats: number;
+  /** A partir de cette phase de phrase, si le vide n'a pas eu lieu, il est FORCE. */
+  readonly voidForceFrom: number;
+  /** Amplitude de reaction dans les 2 dernieres mesures d'une montee. < 1 : la retenue avant impact. */
+  readonly buildRestraint: number;
+  /** Nombre de mesures de retenue avant l'impact. */
+  readonly buildRestraintBars: number;
+  /** Mesures d'explosion maximale apres un drop. */
+  readonly dropExplosionBars: number;
+  /** Mesures de retombee apres l'explosion. */
+  readonly dropFalloutBars: number;
+  /** Niveau d'intensite pendant la retombee, en fraction du niveau d'avant le drop. */
+  readonly dropFalloutRatio: number;
+  /** Luminance moyenne maximale en breakdown. Quasi-noir assume. */
+  readonly breakdownLuminance: number;
+  /** Seuil de saturation de la moyenne glissante de luminance (§2.8). */
+  readonly saturationLimit: number;
+  /** Fenetre de la moyenne glissante de luminance, en secondes. */
+  readonly saturationWindowSec: number;
+  /** Multiplicateur d'intensite au clavier : bornes. */
+  readonly userScaleMin: number;
+  readonly userScaleMax: number;
+  readonly userScaleStep: number;
 }
 
 export interface LiveContentConfig {
@@ -412,6 +472,8 @@ export interface LiveConfig {
   readonly state: LiveStateConfig;
   readonly render: LiveRenderConfig;
   readonly perf: LivePerfConfig;
+  readonly director: LiveDirectorConfig;
+  readonly intensity: LiveIntensityConfig;
   readonly safety: LiveSafetyConfig;
   readonly content: LiveContentConfig;
 }
@@ -582,6 +644,38 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     resizeFreezeMs: 500,
     transitionFreezeMs: 1000,
   }),
+  director: Object.freeze({
+    minSceneSec: 15,
+    maxSceneSec: 60,
+    hardMaxSceneSec: 75,
+    minBarsBetweenCuts: 4,
+    antiRepeat: 3,
+    maxCrossfadeBars: 0.5,
+    transitionScale: 0.6,
+    degradedTroughRatio: 0.45,
+    degradedTroughSec: 0.3,
+    degradedTimerSec: 20,
+    degradedFadeSec: 0.8,
+    overlayMinBars: 2,
+  }),
+  intensity: Object.freeze({
+    overlayThreshold1: 0.3,
+    overlayThreshold2: 0.7,
+    voidFloorRatio: 0.35,
+    voidFloorBeats: 2,
+    voidForceFrom: 0.7,
+    buildRestraint: 0.55,
+    buildRestraintBars: 2,
+    dropExplosionBars: 1,
+    dropFalloutBars: 2,
+    dropFalloutRatio: 0.7,
+    breakdownLuminance: 0.15,
+    saturationLimit: 0.55,
+    saturationWindowSec: 4,
+    userScaleMin: 0.5,
+    userScaleMax: 1.5,
+    userScaleStep: 0.1,
+  }),
   safety: Object.freeze({
     respectReducedMotion: true,
     reducedFeedbackKMax: 0.85,
@@ -611,6 +705,8 @@ export function mergeLiveConfig(patch?: LiveConfigPatch, base: LiveConfig = DEFA
     state: Object.freeze({ ...base.state, ...patch.state }),
     render: Object.freeze({ ...base.render, ...patch.render }),
     perf: Object.freeze({ ...base.perf, ...patch.perf }),
+    director: Object.freeze({ ...base.director, ...patch.director }),
+    intensity: Object.freeze({ ...base.intensity, ...patch.intensity }),
     safety: Object.freeze({ ...base.safety, ...patch.safety }),
     content: Object.freeze({ ...base.content, ...patch.content }),
   });

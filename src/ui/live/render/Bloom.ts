@@ -66,8 +66,17 @@ export class Bloom {
    * atteignables - et c'est aussi la seule qui corresponde a ce que coute
    * reellement le remplissage.
    */
-  apply(scene: Layer, dst: CanvasRenderingContext2D, w: number, h: number, scales: number, refArea: number): number {
-    if (scales <= 0) return 0;
+  apply(
+    scene: Layer,
+    dst: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    scales: number,
+    refArea: number,
+    /** Multiplicateur venu d'`IntensityDirector` (§2.8). 1 = gain nominal. */
+    gainScale = 1,
+  ): number {
+    if (scales <= 0 || gainScale <= 0) return 0;
     const cost = (bw: number, bh: number, draws: number): number => (refArea > 0 ? (bw * bh * draws) / refArea : 0);
     const w4 = Math.max(1, Math.round(w / 4));
     const h4 = Math.max(1, Math.round(h / 4));
@@ -105,7 +114,7 @@ export class Bloom {
 
     // SEULE passe reellement plein ecran du bloom : la recomposition.
     dst.globalCompositeOperation = 'lighter';
-    dst.globalAlpha = this.config.bloomGain;
+    dst.globalAlpha = this.config.bloomGain * gainScale;
     dst.imageSmoothingEnabled = true;
     dst.drawImage(bright.canvas as CanvasImageSource, 0, 0, w, h);
     resetCompositing(dst);

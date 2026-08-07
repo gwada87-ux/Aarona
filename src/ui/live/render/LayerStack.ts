@@ -193,6 +193,7 @@ export function resetCompositing(ctx: CanvasRenderingContext2D): void {
 
 export type LayerName =
   | 'scene'
+  | 'sceneB'
   | 'feedbackA'
   | 'feedbackB'
   | 'bright'

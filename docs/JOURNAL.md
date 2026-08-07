@@ -2917,3 +2917,60 @@ Dette introduite : aucune connue.
 Bloque la suite : étape 4 du prompt externe (`LiveDirector`/`IntensityDirector` — choix de scène,
 rotation, budget d'effets simultanés, garde-fou de non-saturation) et étape 5 (trois scènes restantes)
 pour la version complète. Redéploiement Netlify fait immédiatement après cette étape.
+
+## Étape 57 — hors roadmap : directors, transitions, overlays, contrôles (étape 4/6 du prompt externe)
+
+**Hors de docs/00a.** Suite de l'Étape 56 : trois scènes existaient mais restaient figées (une seule
+tournait en continu, sélectionnée une fois au démarrage). Cette étape branche enfin l'orchestration
+automatique — c'est ce qui transforme trois scènes statiques en un vrai spectacle qui vit tout seul.
+
+Nouveau sous `src/ui/live/` : `IntensityDirector.ts` (budget d'effets, plancher de vide, retenue avant
+impact, retombée d'après drop, quasi-noir en breakdown, garde-fou de non-saturation — ne lit **jamais**
+l'audio directement, uniquement la détection de section déjà produite par `SectionEnergy` à l'Étape 55 ;
+c'est ce découpage qui rend vraie la règle « aucun effet ne se règle directement sur l'audio »),
+`LiveDirector.ts` (arbitrage des coupes entre scènes par ordre de priorité strict, anti-répétition,
+pondération par intensité/arc, mode dégradé, journal des coupes avec la frontière qui les a
+déclenchées), `Overlays.ts` (six overlays expressifs avec budget et exclusions mutuelles, bascule
+uniquement sur frontière de mesure), `Controls.ts` (raccourcis clavier : tap tempo, verrous de
+scène/palette, navigation manuelle quantifiée à la mesure suivante, panic, HUD — persistés dans
+`localStorage` sous `live-visual-controls`, sauf les verrous et le tap tempo, qu'on ne veut pas
+retrouver au redémarrage suivant). Plus le tap tempo dans `BeatClock` et les transitions dans
+`LivePipeline` (fondu additif, feedback partagé entre les deux scènes, `FrameBudget` gelé pendant la
+coupe).
+
+Écart assumé documenté avec dérivation dans `NOTES.md` : la règle anti-répétition du prompt externe
+(« aucune scène ne revient avant que 3 autres soient passées ») rendrait TOUTE scène inéligible en
+permanence avec seulement 3 scènes au registre — le director se figerait. La fenêtre est plafonnée à
+`nombre de scènes - 1` (donc 2 aujourd'hui), passera automatiquement à 3 dès que la quatrième scène
+sera ajoutée (étape 5), sans toucher au code. Ce qui reste garanti dans tous les cas et ce que le test
+vérifie : jamais deux fois la même scène de suite.
+
+Deux défauts trouvés par les tests, pas par la lecture : l'explosion d'après drop arrivait une trame
+trop tard (`barsSinceDrop` calculé avant l'enregistrement du drop plutôt qu'après — la trame la plus
+importante, celle qui porte l'impact, était perdue) ; `actionForKey` levait une exception hors DOM
+(`target instanceof HTMLInputElement` explose si `HTMLInputElement` n'existe pas), ce qui rendait la
+fonction elle-même impossible à tester — remplacé par un test sur `tagName`/`isContentEditable`.
+
+Mesuré (`tests/unit/live/liveDirectorLong.test.ts`, critère du prompt externe : 10 minutes de signal
+synthétique) : 600 s réelles analysées trame par trame en 30 s de temps de test, au moins 10
+changements de scène, aucune répétition immédiate, aucune coupe hors grille métrique sauf en mode
+dégradé ou action manuelle, écart minimal de 6 s entre deux coupes, budget d'overlays jamais dépassé.
+
+Vérifié en conditions réelles (Playwright + `file://` contre Beat Studio, échantillonnage de la scène
+courante toutes les 3 s sur 48 s) : **le director bascule effectivement tout seul** —
+`grid-horizon` (0-15 s) → `curl-flow` (18-33 s) → `slice-displace` (36-48 s), deux coupes automatiques
+observées sans aucune intervention manuelle, aucune répétition, tempo resté verrouillé (138-140 BPM)
+pendant toute la rotation, aucune erreur console côté PULSAR.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 776/776 verts (97/97 fichiers, +32 par rapport à
+l'Étape 56, dont le test de 10 minutes simulées). `npm run test:arch` : 1/1. `npm run build` : succès,
+197 modules, `index-QymP7YBH.js` 433,72 ko (gzip 121,38 ko).
+Limites connues : le rythme des coupes (15 à 60 s) est un choix de mise en scène du prompt externe,
+pas mesuré comme « le bon » — à ajuster à l'usage si ça paraît trop long/court sur un set rapide ; la
+dramaturgie (plancher de vide, retenue avant impact, retombée d'après drop) est mesurable mais son
+EFFET perçu reste une question de goût ; l'esthétique des six overlays n'est vérifiée que pour le
+budget/les exclusions, pas pour le rendu lui-même.
+Dette introduite : aucune connue.
+Bloque la suite : étape 5 du prompt externe (trois scènes restantes : `laser-tunnel`, `mandala-32`,
+`type-slam`) et étape 6 (polish — easings, affinage grain/bloom, calibration de `userTrimMs`).
+Redéploiement Netlify fait immédiatement après cette étape.

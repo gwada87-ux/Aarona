@@ -30,6 +30,8 @@
  */
 
 import type { LiveConfig } from '../LiveConfig';
+import type { EffectBudget } from '../IntensityDirector';
+import type { OverlayId } from '../Overlays';
 import type { LiveFrame, LiveScene, SceneContext, Viewport } from '../scenes/types';
 import { Assets } from './Assets';
 import { Bloom } from './Bloom';
@@ -56,6 +58,18 @@ export interface PipelineStats {
   readonly postH: number;
 }
 
+/**
+ * Autorisations produites par `IntensityDirector` et `OverlayDirector`.
+ *
+ * MUST §2.8 : aucun effet ne se regle directement sur l'audio. Le pipeline ne
+ * lit donc jamais `features` ni `onsets` pour decider d'un effet - il lit ceci.
+ */
+export interface RenderDirectives {
+  readonly budget: EffectBudget;
+  /** Overlays expressifs actifs, dans l'ordre d'application de §4.4. */
+  readonly overlays: readonly OverlayId[];
+}
+
 export class LivePipeline {
   readonly stack: LayerStack;
   readonly palette: PaletteBook;
@@ -69,6 +83,21 @@ export class LivePipeline {
 
   private scene: LiveScene | null = null;
   private sceneInited = false;
+  private sceneVariant = 0;
+  /**
+   * Scene ENTRANTE pendant une transition. MUST §4.3 : les deux scenes
+   * partagent un unique buffer de FEEDBACK - leurs trainees se melangent, ce
+   * qui est souhaitable - et seule la couche SCENE est doublee, a 0,6x de
+   * resolution. Un fondu qui doublerait aussi le feedback couterait x2 sur
+   * 120 trames, et `FrameBudget` degraderait la qualite pile pendant la
+   * transition.
+   */
+  private nextScene: LiveScene | null = null;
+  private nextSceneInited = false;
+  private nextVariant = 0;
+  private fadeElapsed = 0;
+  private fadeDuration = 0;
+
   private postW = 0;
   private postH = 0;
   private passes = 0;
@@ -85,17 +114,50 @@ export class LivePipeline {
     this.post = new PostFX(config.render, this.stack, this.assets);
   }
 
-  setScene(scene: LiveScene): void {
+  /** Coupe FRANCHE. C'est le mode par defaut (§4.3). */
+  setScene(scene: LiveScene, variant = 0): void {
     this.scene?.exit();
+    this.nextScene?.exit();
+    this.nextScene = null;
+    this.fadeDuration = 0;
+    this.stack.release('sceneB');
     this.scene = scene;
+    this.sceneVariant = variant;
     this.sceneInited = false;
     // Vidage SEC du feedback sur chaque coupe de scene (§3.3) : un fondu
     // laisserait un fantome de la scene precedente pendant des secondes.
     this.feedback.clear();
   }
 
+  /**
+   * Fondu ADDITIF vers une autre scene, plafonne par l'appelant a une demi-
+   * mesure (§4.3). Le feedback n'est PAS vide : c'est justement ce qui fait
+   * qu'un fondu se lit comme un fondu et non comme deux coupes.
+   */
+  crossfadeTo(scene: LiveScene, variant: number, durationSec: number): void {
+    if (durationSec <= 0 || !this.scene) {
+      this.setScene(scene, variant);
+      return;
+    }
+    this.nextScene?.exit();
+    this.nextScene = scene;
+    this.nextVariant = variant;
+    this.nextSceneInited = false;
+    this.fadeElapsed = 0;
+    this.fadeDuration = durationSec;
+  }
+
   get currentScene(): LiveScene | null {
     return this.scene;
+  }
+
+  /** Une transition est-elle en cours ? `FrameBudget` doit alors etre gele (§3.7). */
+  get transitioning(): boolean {
+    return this.nextScene !== null;
+  }
+
+  get fadeProgress(): number {
+    return this.fadeDuration > 0 ? Math.min(1, this.fadeElapsed / this.fadeDuration) : 0;
   }
 
   get stats(): PipelineStats {
@@ -126,6 +188,7 @@ export class LivePipeline {
     screenH: number,
     dpr: number,
     frame: Omit<LiveFrame, 'view' | 'quality' | 'palette' | 'previousFrame'>,
+    directives: RenderDirectives,
   ): void {
     this.passes = 0;
     const quality = this.budget.profile;
@@ -179,26 +242,72 @@ export class LivePipeline {
     resetCompositing(sctx);
     sctx.fillStyle = this.palette.hex('background');
     sctx.fillRect(0, 0, w, h);
+
+    // Le shake n'est applique que si l'overlay `shake` est actif (§4.4) ; sinon
+    // la camera ne porte que ses repositionnements.
+    const shakeDivider = directives.overlays.includes('shake')
+      ? frame.reducedMotion
+        ? this.config.safety.reducedAmplitudeDivider
+        : 1
+      : 1e6;
+
     if (this.scene) {
       if (!this.sceneInited) {
-        const sc: SceneContext = {
-          ctx: sctx,
-          view,
-          config: this.config,
-          assets: this.assets,
-          rng: this.rng,
-        };
-        this.scene.init(sc);
-        this.scene.enter(full, 0);
+        this.scene.init(this.sceneContext(sctx, view));
+        this.scene.enter(full, this.sceneVariant);
         this.sceneInited = true;
       }
       this.scene.resize(view);
       // La camera est appliquee AVANT la scene : le shake est une modulation
       // de cadrage, pas un effet de post (§3.6).
-      this.camera.apply(sctx, view, frame.reducedMotion ? this.config.safety.reducedAmplitudeDivider : 1);
+      this.camera.apply(sctx, view, shakeDivider);
       this.scene.render(sctx, full);
       sctx.setTransform(1, 0, 0, 1, 0, 0);
       resetCompositing(sctx);
+    }
+
+    // 1bis. TRANSITION. Seule la couche scene est doublee, a `transitionScale`.
+    if (this.nextScene) {
+      this.fadeElapsed += frame.dt;
+      const t = this.fadeProgress;
+      const tw = Math.max(2, Math.round(w * this.config.director.transitionScale));
+      const th = Math.max(2, Math.round(h * this.config.director.transitionScale));
+      const layerB = this.stack.acquire('sceneB', tw, th);
+      if (layerB) {
+        const bctx = layerB.ctx;
+        const viewB: Viewport = { w: tw, h: th, dpr, min: Math.min(tw, th) };
+        bctx.setTransform(1, 0, 0, 1, 0, 0);
+        resetCompositing(bctx);
+        // TRANSPARENT, pas rempli du fond : le fondu est ADDITIF, un fond
+        // opaque effacerait la scene sortante d'un coup.
+        bctx.clearRect(0, 0, tw, th);
+        if (!this.nextSceneInited) {
+          this.nextScene.init(this.sceneContext(bctx, viewB));
+          this.nextScene.enter({ ...full, view: viewB }, this.nextVariant);
+          this.nextSceneInited = true;
+        }
+        this.nextScene.resize(viewB);
+        this.camera.apply(bctx, viewB, shakeDivider);
+        this.nextScene.render(bctx, { ...full, view: viewB });
+        bctx.setTransform(1, 0, 0, 1, 0, 0);
+        resetCompositing(bctx);
+
+        sctx.globalCompositeOperation = 'lighter';
+        sctx.globalAlpha = t;
+        sctx.imageSmoothingEnabled = true;
+        sctx.drawImage(layerB.canvas as CanvasImageSource, 0, 0, w, h);
+        resetCompositing(sctx);
+        this.passes += ((tw * th) / Math.max(1, screenW * screenH)) + (w * h) / Math.max(1, screenW * screenH);
+      }
+      if (t >= 1) {
+        this.scene?.exit();
+        this.scene = this.nextScene;
+        this.sceneInited = false;
+        this.sceneVariant = this.nextVariant;
+        this.nextScene = null;
+        this.fadeDuration = 0;
+        this.stack.release('sceneB');
+      }
     }
     // Le dessin de la scene n'est PAS compte dans le budget : §3.7 chiffre la
     // chaine de POST (feedback, bright pass, composites de bloom, aberration,
@@ -229,9 +338,13 @@ export class LivePipeline {
 
     // 3. COMPOSE.
     const transient = Math.max(frame.onsets.envelope('kick', 0.12), frame.onsets.envelope('snare', 0.1));
+    // L'aberration est desormais un OVERLAY EXPRESSIF (§4.4) : elle n'est
+    // active que si le director l'a retenue dans le budget, en plus de la
+    // condition de qualite. Sans cette porte, elle serait un effet permanent
+    // regle sur l'audio, exactement ce que §2.8 interdit.
     const aberrationPx =
-      quality.aberration && !frame.reducedMotion
-        ? transient * this.config.render.aberrationMaxPx * frame.intensity
+      quality.aberration && directives.overlays.includes('aberration') && !frame.reducedMotion
+        ? transient * this.config.render.aberrationMaxPx * frame.intensity * directives.budget.amplitude
         : 0;
     const aberrationActive = aberrationPx >= this.config.render.aberrationGatePx;
 
@@ -268,7 +381,11 @@ export class LivePipeline {
     target.drawImage(source.canvas as CanvasImageSource, 0, 0, targetW, targetH);
     resetCompositing(target);
     this.passes += (targetW * targetH) / refArea;
-    this.passes += this.bloom.apply(source, target, targetW, targetH, quality.bloomScales, refArea);
+    // Le BUDGET module le bloom : c'est par lui que passent la retenue avant
+    // impact, la retombee d'apres drop, le breakdown et le garde-fou de
+    // saturation. Sous 0,15 le bloom ne se voit plus, on le coupe.
+    const bloomScales = directives.budget.bloom < 0.15 ? 0 : quality.bloomScales;
+    this.passes += this.bloom.apply(source, target, targetW, targetH, bloomScales, refArea, directives.budget.bloom);
 
     // 4. POST.
     // EXCLUSION MUTUELLE aberration / grain (§4.4). Les deux jouent sur le
@@ -280,9 +397,11 @@ export class LivePipeline {
         aberrationPx,
         grain,
         overlay: true,
-        scanlines: quality.scanlines,
+        scanlines: quality.scanlines && directives.overlays.includes('scanlines'),
       });
       this.passes += this.post.lastPasses;
+      this.drawLateOverlays(screenCtx, screenW, screenH, directives, frame);
+      this.enforceLuminanceCap(screenCtx, screenW, screenH, directives.budget.luminanceCap);
       this.post.measure(postLayer.canvas as CanvasImageSource);
       return;
     }
@@ -294,7 +413,7 @@ export class LivePipeline {
       this.assets.drawGrain(target, targetW, targetH, grain, this.rng);
       this.passes += (targetW * targetH) / refArea;
     }
-    this.assets.ensureOverlay(targetW, targetH, quality.scanlines);
+    this.assets.ensureOverlay(targetW, targetH, quality.scanlines && directives.overlays.includes('scanlines'));
     this.assets.drawOverlay(target, targetW, targetH);
     this.passes += (targetW * targetH) / refArea;
 
@@ -310,6 +429,93 @@ export class LivePipeline {
     } else {
       this.post.measure(source.canvas as CanvasImageSource);
     }
+
+    this.drawLateOverlays(screenCtx, screenW, screenH, directives, frame);
+    this.enforceLuminanceCap(screenCtx, screenW, screenH, directives.budget.luminanceCap);
+  }
+
+  /**
+   * Overlays de fin de chaine, dans l'ordre de §4.4 : cadre puis inversion.
+   * Ils sont poses sur le canvas VISIBLE, apres le post, et passeront donc par
+   * le `FlashLimiter` que l'appelant applique ensuite - l'inversion est
+   * exactement le genre d'effet que §6.9 refuse de laisser sortir non filtre.
+   */
+  private drawLateOverlays(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    directives: RenderDirectives,
+    frame: Omit<LiveFrame, 'view' | 'quality' | 'palette' | 'previousFrame'>,
+  ): void {
+    if (directives.overlays.includes('frame')) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      resetCompositing(ctx);
+      const inset = Math.round(Math.min(w, h) * 0.035);
+      const thin = Math.max(1, Math.round(Math.min(w, h) * 0.0016));
+      ctx.strokeStyle = this.palette.hex('accent');
+      ctx.globalAlpha = 0.35 + frame.intensity * 0.25;
+      ctx.lineWidth = thin;
+      // Demi-pixel : un cadre d'epaisseur 1 sur coordonnee entiere scintille.
+      ctx.strokeRect(inset + 0.5, inset + 0.5, w - inset * 2, h - inset * 2);
+      // Marques d'angle : ce qui distingue un cadre d'un simple rectangle.
+      const tick = Math.round(Math.min(w, h) * 0.02);
+      ctx.lineWidth = thin * 2;
+      ctx.beginPath();
+      for (const [cx, cy, sx, sy] of [
+        [inset, inset, 1, 1],
+        [w - inset, inset, -1, 1],
+        [inset, h - inset, 1, -1],
+        [w - inset, h - inset, -1, -1],
+      ] as const) {
+        ctx.moveTo(cx + 0.5, cy + sy * tick + 0.5);
+        ctx.lineTo(cx + 0.5, cy + 0.5);
+        ctx.lineTo(cx + sx * tick + 0.5, cy + 0.5);
+      }
+      ctx.stroke();
+      resetCompositing(ctx);
+      this.passes += 0.05;
+    }
+
+    if (directives.overlays.includes('invert')) {
+      // `'difference'` avec du blanc EST l'inversion : `|1 - c|`. Une seule
+      // passe, et elle passe par le limiteur de flash juste apres.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'difference';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      resetCompositing(ctx);
+      this.passes += 1;
+    }
+  }
+
+  /**
+   * Applique le plafond de luminance du director (§2.8 : breakdown a 15 %,
+   * plancher de vide a 35 %). Sans cette passe, ces deux regles resteraient
+   * des intentions : le director peut baisser le bloom et la densite, il ne
+   * peut pas garantir que la scene elle-meme s'assombrisse.
+   *
+   * Un voile noir uniforme deplace la luminance MOYENNE de facon previsible
+   * sans preserver le contraste local - meme approximation assumee que
+   * `FlashLimiter.dimTowards`, et pour la meme raison : cette passe ne
+   * s'engage que sur des situations deja extremes.
+   */
+  private enforceLuminanceCap(ctx: CanvasRenderingContext2D, w: number, h: number, cap: number): void {
+    if (cap >= 1) return;
+    const measured = this.post.meanLuminance;
+    if (measured <= cap || measured <= 1e-4) return;
+    const alpha = Math.min(0.92, 1 - cap / measured);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, w, h);
+    resetCompositing(ctx);
+    this.passes += 1;
+  }
+
+  private sceneContext(ctx: CanvasRenderingContext2D, view: Viewport): SceneContext {
+    return { ctx, view, config: this.config, assets: this.assets, rng: this.rng };
   }
 
   /** Chemin degrade : plus de memoire canvas, on dessine au moins le fond. */

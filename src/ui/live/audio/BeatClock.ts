@@ -173,6 +173,10 @@ export class BeatClock implements BeatClockState {
    */
   private readonly kickTimes = new Float64Array(64);
   private kickCount = 0;
+  /** Tap tempo : quatre frappes suffisent (§4.5). */
+  private readonly tapTimes = new Float64Array(4);
+  private tapCount = 0;
+  private manualTempo = false;
   private readonly fitIndex = new Float64Array(64);
   private readonly fitTime = new Float64Array(64);
 
@@ -501,7 +505,59 @@ export class BeatClock implements BeatClockState {
    * periode sur 2 s. >= 5 % : reset dur - une rampe de 2 s sur un changement
    * de morceau laisserait 2 s de visuel a un tempo qui n'existe plus.
    */
+  /**
+   * TAP TEMPO (§4.5). Quatre frappes imposent le BPM ET la phase.
+   *
+   * C'est le filet de securite pour la musique live sans grille : quand la
+   * detection echoue - batterie acoustique, tempo libre, morceau sans kick -
+   * l'operateur reprend la main. `confidence` est forcee a 1 tant que le mode
+   * manuel dure, ce qui fait passer la machine a etats en LOCKED et rend les
+   * frontieres de phrase de nouveau utilisables.
+   */
+  tap(tSec: number): void {
+    // Une frappe isolee tres eloignee recommence une serie : deux taps a 6 s
+    // d'intervalle ne decrivent pas un tempo de 10 BPM, ils decrivent un
+    // operateur qui a hesite.
+    const last = this.tapTimes[this.tapCount - 1];
+    if (last !== undefined && tSec - last > this.config.periodMaxSec * 2) this.tapCount = 0;
+
+    if (this.tapCount >= this.tapTimes.length) {
+      for (let i = 1; i < this.tapTimes.length; i++) this.tapTimes[i - 1] = this.tapTimes[i]!;
+      this.tapCount = this.tapTimes.length - 1;
+    }
+    this.tapTimes[this.tapCount++] = tSec;
+    if (this.tapCount < this.tapTimes.length) return;
+
+    let sum = 0;
+    for (let i = 1; i < this.tapCount; i++) sum += this.tapTimes[i]! - this.tapTimes[i - 1]!;
+    const period = sum / (this.tapCount - 1);
+    if (!(period > 0)) return;
+
+    this.periodSec = clamp(period, this.config.periodMinSec, this.config.periodMaxSec);
+    this.manualTempo = true;
+    this.rampEnd = Number.NEGATIVE_INFINITY;
+    this.kickCount = 0;
+    this.hardMisses = 0;
+    this.phaseAcquired = true;
+    this.pendingPhaseShift = 0;
+    // La derniere frappe EST un temps : la phase est l'ecart ecoule depuis.
+    this.phase = wrap01((this.nowTime - tSec) / this.periodSec);
+  }
+
+  /** Retour au suivi automatique (touche `A`, §4.5). */
+  releaseManual(): void {
+    this.manualTempo = false;
+    this.tapCount = 0;
+  }
+
+  /** Le tempo est-il impose a la main ? */
+  get manual(): boolean {
+    return this.manualTempo;
+  }
+
   setTempo(bpm: number, nowTime: number): void {
+    // En mode manuel, l'estimateur n'a plus la main : c'est tout l'interet.
+    if (this.manualTempo) return;
     if (!(bpm > 0)) return;
     const guess = clamp(60 / bpm, this.config.periodMinSec, this.config.periodMaxSec);
     // Affinage immediat sur l'historique de kicks. Sans lui, la periode a
@@ -760,6 +816,8 @@ export class BeatClock implements BeatClockState {
     this.reArm();
     this.periodSec = 0;
     this.nowTime = 0;
+    this.manualTempo = false;
+    this.tapCount = 0;
   }
 }
 

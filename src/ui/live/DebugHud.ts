@@ -13,6 +13,10 @@
 
 import type { LiveAnalysisEngine } from './audio/LiveAnalysisEngine';
 import type { LivePipeline } from './render/LivePipeline';
+import type { LiveDirector } from './LiveDirector';
+import type { IntensityDirector } from './IntensityDirector';
+import type { OverlayDirector } from './Overlays';
+import { SHORTCUTS } from './Controls';
 import type { LiveConfig } from './LiveConfig';
 
 const PAD = 10;
@@ -29,6 +33,9 @@ export class DebugHud {
   flashClamped = 0;
   /** Pipeline de rendu, pour les lignes de qualite et de saturation. */
   pipeline: LivePipeline | null = null;
+  director: LiveDirector | null = null;
+  intensity: IntensityDirector | null = null;
+  overlays: OverlayDirector | null = null;
 
   private readonly lines: string[] = [];
 
@@ -81,8 +88,25 @@ export class DebugHud {
         `section     ${engine.section.arc}   E ${engine.section.lowDb.toFixed(1)} dB / ref ${engine.section.referenceDb.toFixed(1)} dB   intensite ${engine.section.intensity.toFixed(2)}   onsets/s ${engine.onsetRate.toFixed(1)}`,
       );
     }
+    const ints = this.intensity;
+    if (ints) {
+      this.lines.push(
+        `dramaturgie intensite ${ints.intensity.toFixed(2)} (x${ints.userScale.toFixed(1)})   overlays ${ints.budget.overlays}   bloom ${ints.budget.bloom.toFixed(2)}   ampli ${ints.budget.amplitude.toFixed(2)}${ints.saturated ? '   SATURE' : ''}${ints.forcingVoid ? '   VIDE FORCE' : ''}${ints.budget.grainOnly ? '   GRAIN SEUL' : ''}`,
+      );
+    }
+    const dir = this.director;
+    if (dir) {
+      this.lines.push(
+        `director    ${dir.degraded ? 'DEGRADED' : 'nominal'}${dir.sceneLocked ? '   SCENE VERROUILLEE' : ''}${engine.beat.manual ? '   TAP MANUEL' : ''}   overlays actifs ${this.overlays?.active.join(' ') || '-'}`,
+      );
+      for (const change of dir.log) {
+        this.lines.push(
+          `  coupe     t=${change.tSec.toFixed(1)}s  ${change.from} -> ${change.to} v${change.variant}  [${change.reason} / ${change.boundary}]  db=${change.downbeatConfidence.toFixed(2)}`,
+        );
+      }
+    }
     this.lines.push(`marqueurs   ${marker(engine, 'kick')}  ${marker(engine, 'snare')}  ${marker(engine, 'hat')}`);
-    this.lines.push(`fleches haut/bas : trim de synchro   D : fermer`);
+    this.lines.push(`?  aide      D  fermer`);
 
     const scale = Math.max(1, dpr);
     const height = PAD * 2 + this.lines.length * LINE + 22;
@@ -125,19 +149,44 @@ export class DebugHud {
     ctx.restore();
   }
 
-  /** Fleches haut/bas du HUD. Retourne `true` si la touche a ete consommee. */
-  handleKey(key: string, engine: LiveAnalysisEngine): boolean {
-    if (!this.visible) return false;
-    const step = this.config.sync.userTrimStepMs;
-    if (key === 'ArrowUp') {
-      engine.beat.setUserTrimMs(engine.beat.userTrimMs + step);
-      return true;
+  /**
+   * Panneau d'aide (touche `?`, §4.5). Dessine sur le canvas VISIBLE, apres
+   * tout le reste. Sa table vient de `Controls.ts` : une seule source pour
+   * l'aide affichee, la documentation de NOTES.md et le clavier reel.
+   */
+  drawHelp(ctx: CanvasRenderingContext2D, w: number, h: number, dpr: number): void {
+    const scale = Math.max(1, dpr);
+    const lineH = 20;
+    const boxW = 460;
+    const boxH = SHORTCUTS.length * lineH + 48;
+    const x = w / scale / 2 - boxW / 2;
+    const y = h / scale / 2 - boxH / 2;
+
+    ctx.save();
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(8,8,14,0.9)';
+    ctx.fillRect(x, y, boxW, boxH);
+    ctx.strokeStyle = 'rgba(180,140,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, boxW, boxH);
+
+    ctx.fillStyle = 'rgba(240,236,255,0.95)';
+    ctx.font = '13px "IBM Plex Mono", ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('RACCOURCIS', x + 18, y + 16);
+    ctx.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+    for (let i = 0; i < SHORTCUTS.length; i++) {
+      const s = SHORTCUTS[i];
+      if (!s) continue;
+      ctx.fillStyle = 'rgba(255,160,120,0.95)';
+      ctx.fillText(s.key, x + 18, y + 44 + i * lineH);
+      ctx.fillStyle = 'rgba(220,215,245,0.85)';
+      ctx.fillText(s.label, x + 168, y + 44 + i * lineH);
     }
-    if (key === 'ArrowDown') {
-      engine.beat.setUserTrimMs(engine.beat.userTrimMs - step);
-      return true;
-    }
-    return false;
+    ctx.restore();
   }
 }
 
