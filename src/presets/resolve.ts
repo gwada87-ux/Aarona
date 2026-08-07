@@ -15,8 +15,12 @@ import { DEFAULT_CLASSIFICATION_THRESHOLDS, type ClassificationThresholds } from
 import type { Palette } from '../visual/palette/Palette';
 import { buildPalette } from './palette';
 import { applyMacroCurves, WIRED_MACRO_CURVES, type MacroCurveTable } from './macros';
-import type { ClassificationOverrides, Preset, PresetLayers, PresetMacros, PresetMapping, PresetSafety, StyleId } from './schema';
+import type { ClassificationOverrides, Preset, PresetMacros, PresetMapping, PresetSafety, StyleId } from './schema';
 
+/**
+ * `layers` retiré au chantier 1 de la phase 2 — il était rempli ici et lu par
+ * personne. Justification complète dans `schema.ts`, au-dessus de `Preset`.
+ */
 export interface ResolvedPreset {
   readonly id: string;
   readonly styleId: StyleId;
@@ -24,7 +28,6 @@ export interface ResolvedPreset {
   readonly classification: ClassificationThresholds;
   readonly palette: Palette;
   readonly macros: PresetMacros;
-  readonly layers: PresetLayers;
   readonly safety: PresetSafety;
 }
 
@@ -115,7 +118,6 @@ export function resolvePreset(preset: Preset, options: ResolvePresetOptions = {}
     classification: mergeClassification(preset.classification),
     palette: buildPalette(preset.id, preset.palette),
     macros: preset.macros,
-    layers: preset.layers ?? {},
     safety: preset.safety,
   });
 }

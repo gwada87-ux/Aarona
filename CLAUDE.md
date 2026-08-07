@@ -107,10 +107,19 @@ contournement silencieux.
 Une tâche = les fichiers annoncés au début. Si tu découvres qu'un autre fichier doit changer, tu le
 signales et tu demandes avant de le toucher.
 
-### Tu ne dépasses pas le MVP
+### Tu ne dépasses pas le périmètre en cours
 
-Le périmètre est verrouillé dans `docs/00b_MASTER_PROMPT_V2.md` §4. Tu n'ajoutes ni style, ni preset,
-ni option, ni « petit plus pendant que j'y suis ».
+**Le MVP est livré. La phase 2 est ouverte par Aaron** — périmètre décrit dans
+`docs/17_PHASE2_VISUELS.md`, ouverture actée dans `docs/00b_MASTER_PROMPT_V2.md` §4.
+
+Ce qui change : styles 4 à 12, presets 6 à 11, texte personnalisé, mode Expert (composition de
+couches) sont désormais **autorisés**, dans les limites de `docs/17`.
+
+Ce qui ne change pas : **WebGL2, export 4K, rendu serveur, mobile, i18n, lyrics, notes/mélodie/
+accords restent hors périmètre.** Les cinq Lois restent intouchables. Et la règle de fond tient
+toujours : tu n'ajoutes rien qui ne soit demandé — pas de « petit plus pendant que j'y suis ».
+
+Un chantier de `docs/17` à la fois, validé par Aaron avant le suivant.
 
 ---
 

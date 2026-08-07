@@ -1,10 +1,17 @@
 /**
  * Panneau Simple (docs/08_PRESETS.md §"Deux niveaux d'interface") : preset +
  * palette + 3 macros (Énergie, Densité, Glow) + format d'export — 85 % des
- * utilisateurs. Densité/Glow affichées mais honnêtement annoncées comme
- * sans effet visuel pour l'instant (docs/JOURNAL.md, Étape 13/P11 : seules
- * `energy`/`reactivity` sont câblées) — le HTML statique (index.html) porte
- * déjà l'avertissement, ce module ne fait qu'y raccorder le comportement.
+ * utilisateurs.
+ *
+ * L'en-tête annonçait jusqu'ici Densité et Glow comme « sans effet visuel pour
+ * l'instant », en renvoyant à l'Étape 13/P11 où seules `energy`/`reactivity`
+ * étaient câblées. C'était vrai à l'époque et faux depuis l'Étape 20 : les huit
+ * macros agissent, les six autres via `presets/layerMacros.ts`. Corrigé au
+ * chantier 1 de la phase 2 (docs/17_PHASE2_VISUELS.md §5.6).
+ *
+ * Seule exception subsistante, signalée par `AdvancedPanel` et non ici :
+ * `depth` n'a aucun effet en style `pulse`. Elle n'est pas exposée dans ce
+ * panneau, donc rien à en dire.
  */
 import type { Palette } from '../../visual/palette/Palette';
 import type { Preset, PresetMacros } from '../../presets/schema';

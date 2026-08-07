@@ -21,6 +21,23 @@ export const STYLE_IDS = ['pulse', 'field', 'spectrum-pro'] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
 /**
+ * Libellés d'affichage des styles. Ils vivent ICI, à côté de `STYLE_IDS`, et
+ * non dans le HTML : jusqu'au chantier 1 de la phase 2, les options du
+ * `<select>` de style étaient écrites en dur dans `index.html`, si bien
+ * qu'ajouter un style obligeait à modifier TROIS fichiers sans qu'aucun test ne
+ * signale l'oubli du troisième. `Record<StyleId, string>` force désormais le
+ * compilateur à réclamer le libellé dès qu'un identifiant est ajouté.
+ *
+ * Un libellé est une donnée d'interface dans un module de presets, ce qui se
+ * discute — mais le faire vivre ailleurs, c'est accepter qu'il dérive.
+ */
+export const STYLE_LABELS: Readonly<Record<StyleId, string>> = Object.freeze({
+  pulse: 'Pulse',
+  field: 'Field',
+  'spectrum-pro': 'Spectrum Pro',
+});
+
+/**
  * Signaux réellement lus par `BehaviourEngine.update()`
  * (`src/behaviour/BehaviourEngine.ts`) — `pulse`/`barPulse` en sont
  * volontairement absents : ce sont des fonctions directes de
@@ -84,16 +101,35 @@ export interface PresetSafety {
 }
 
 /**
- * Passage brut, non typé finement : AUCUNE couche visuelle du MVP
- * (`ParticleField`, `PerspectiveGrid`, `FrameFeedback`, `ScreenShake`,
- * `SpectrumBars`) n'accepte de paramètres de construction aujourd'hui — P7/P9
- * les ont livrées avec des constantes internes fixes (voir docs/JOURNAL.md,
- * Étape 13/P11, « Limites connues »). Conservé tel quel pour qu'un futur
- * consommateur (couches rendues configurables) puisse le lire sans casser le
- * format de preset entre-temps.
+ * `layers` RETIRÉ au chantier 1 de la phase 2 (docs/17_PHASE2_VISUELS.md §9.1).
+ *
+ * Il était déclaré, recopié par `resolvePreset`, et lu par PERSONNE — ni
+ * `ui/App.ts`, ni `export/ExportPipeline.ts`. Trois raisons de le retirer
+ * plutôt que de le brancher :
+ *
+ * 1. Ses clés ne désignent aucune couche réelle. `trap-dark.json` écrivait
+ *    `particles` / `field` / `postfx`, alors que les identifiants sont
+ *    `particleField` / `perspectiveGrid` / `frameFeedback` / `screenShake`. Le
+ *    brancher aurait exigé d'inventer une table de correspondance qui n'a jamais
+ *    existé, donc de deviner l'intention.
+ * 2. Il entrait en collision avec `presets/layerMacros.ts`, qui écrit déjà
+ *    `field.perspectiveGrid.rows` — le bloc annonçait `rows: 24` pour le même
+ *    paramètre. Deux mécanismes sur un même chemin, le dernier écrit gagne, en
+ *    silence : exactement le piège que l'en-tête de `layerMacros.ts` documente.
+ * 3. Un seul preset sur cinq l'utilisait.
+ *
+ * Le besoin qu'il aurait servi — des valeurs ABSOLUES par preset, là où les
+ * macros n'offrent qu'une courbe partagée — est réel, et c'est le compositeur
+ * de couches (docs/17 §7.7, chantier 10) qui y répondra, avec des identifiants
+ * de couche vérifiés.
+ *
+ * Les valeurs qui étaient déclarées sont consignées dans docs/JOURNAL.md pour
+ * que l'intention ne soit pas perdue.
+ *
+ * `validatePreset` ignore les champs inconnus : un `.pvproj` ou un preset
+ * utilisateur qui porte encore un bloc `layers` reste valide, il est simplement
+ * sans effet — comme il l'était déjà.
  */
-export type PresetLayers = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
-
 export interface Preset {
   readonly id: string;
   readonly version: number;
@@ -104,7 +140,6 @@ export interface Preset {
   readonly classification?: ClassificationOverrides;
   readonly palette: PresetPaletteConfig;
   readonly macros: PresetMacros;
-  readonly layers?: PresetLayers;
   readonly safety: PresetSafety;
 }
 

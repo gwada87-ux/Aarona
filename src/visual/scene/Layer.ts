@@ -6,10 +6,25 @@ import type { Palette } from '../palette/Palette';
 
 /**
  * Familles de docs/07_VISUAL_ENGINE.md §"Familles de couches" — celles
- * utilisées par Pulse (P7), Field et Spectrum Pro (P9). `text`/`overlay`
- * restent hors périmètre, attendent P12.
+ * utilisées par Pulse (P7), Field et Spectrum Pro (P9).
+ *
+ * `text` ajouté au chantier 1 de la phase 2 (docs/17_PHASE2_VISUELS.md §9.3) :
+ * la valeur existe désormais, mais AUCUNE couche ne la porte encore — la couche
+ * de texte est le chantier 8. L'ajouter maintenant évite d'avoir à rouvrir ce
+ * fichier au milieu d'un chantier qui n'a rien à voir.
+ *
+ * `overlay` reste hors périmètre : aucun besoin identifié en phase 2.
  */
-export type LayerKind = 'background' | 'geometry' | 'waveform' | 'glow' | 'postfx' | 'field' | 'particles' | 'spectrum';
+export type LayerKind =
+  | 'background'
+  | 'geometry'
+  | 'waveform'
+  | 'glow'
+  | 'postfx'
+  | 'field'
+  | 'particles'
+  | 'spectrum'
+  | 'text';
 
 /** Sérialisable, animable (docs/02) — chaque couche interprète ses propres clés. */
 export type LayerParams = Readonly<Record<string, number | string | boolean>>;

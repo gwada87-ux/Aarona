@@ -6,7 +6,7 @@
  * JSON du preset (docs/08 : « remplace le mode Expert du brief initial »),
  * ouvert depuis ce panneau plutôt que dupliqué en contrôles.
  */
-import { MACRO_NAMES, STYLE_IDS, type MacroName, type PresetMacros, type StyleId } from '../../presets/schema';
+import { MACRO_NAMES, STYLE_IDS, STYLE_LABELS, type MacroName, type PresetMacros, type StyleId } from '../../presets/schema';
 import { QUALITY_LEVELS, type QualityLevel } from '../../perf/qualityLevels';
 
 const MACRO_LABELS: Readonly<Record<MacroName, string>> = {
@@ -21,14 +21,26 @@ const MACRO_LABELS: Readonly<Record<MacroName, string>> = {
 };
 
 /**
- * Les 8 macros ont désormais toutes un effet câblé (Étape 20/JOURNAL.md) :
- * `energy`/`reactivity` sur `behaviour/mapping` (depuis l'Étape 13/P11), les
- * 6 autres sur des paramètres de couches visuelles (`presets/layerMacros.ts`).
- * Exception non signalée individuellement ici (grille commune aux 3 styles,
- * pas de variante par style) : `depth` (Profondeur) n'a AUCUN effet en style
- * `pulse`, volontairement — voir le commentaire en tête de `layerMacros.ts`.
+ * Macros SANS EFFET pour un style donné, par style. Les 8 macros sont toutes
+ * câblées depuis l'Étape 20, mais `presets/layerMacros.ts` n'a aucune entrée
+ * `pulse.*` pour `depth` : le style est délibérément plat/2D, il n'y a rien à
+ * quoi accrocher une sensation de profondeur.
+ *
+ * Jusqu'au chantier 1 de la phase 2, ce cas n'était signalé nulle part dans
+ * l'interface. Le fichier portait bien un mécanisme d'avertissement — un badge
+ * `⚠` et une infobulle — mais il testait `WIRED_MACROS = new Set(MACRO_NAMES)`,
+ * donc un ensemble contenant TOUTES les macros : la condition était
+ * constamment vraie et l'avertissement inatteignable. L'utilisateur voyait un
+ * curseur Profondeur parfaitement normal qui ne faisait rien.
+ *
+ * L'avertissement dépend maintenant du STYLE COURANT, ce qui est la seule
+ * forme utile : une macro peut agir dans un style et pas dans un autre.
  */
-const WIRED_MACROS = new Set<MacroName>(MACRO_NAMES);
+const INERT_MACROS: Readonly<Record<StyleId, readonly MacroName[]>> = Object.freeze({
+  pulse: Object.freeze(['depth'] as const),
+  field: Object.freeze([] as const),
+  'spectrum-pro': Object.freeze([] as const),
+});
 
 export interface AdvancedPanelCallbacks {
   readonly onStyleSelect: (styleId: StyleId) => void;
@@ -44,16 +56,34 @@ export class AdvancedPanel {
   private readonly reducedFlashingCheckbox = document.querySelector<HTMLInputElement>('#reduced-flashing')!;
   private readonly qualitySelect = document.querySelector<HTMLSelectElement>('#quality-select')!;
   private readonly macroInputs = new Map<MacroName, HTMLInputElement>();
+  private readonly macroLabels = new Map<MacroName, HTMLLabelElement>();
+  /** Nœud texte du libellé, muté en place par `refreshInertMarks`. */
+  private readonly macroCaptions = new Map<MacroName, Text>();
+  private currentStyle: StyleId = STYLE_IDS[0];
 
   constructor(callbacks: AdvancedPanelCallbacks) {
-    this.styleSelect.addEventListener('change', () => callbacks.onStyleSelect(this.styleSelect.value as StyleId));
+    // Catalogue de styles construit depuis `STYLE_IDS`, plus écrit en dur dans
+    // `index.html` : ajouter un style ne demande donc plus de toucher au HTML.
+    for (const id of STYLE_IDS) {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = STYLE_LABELS[id];
+      this.styleSelect.appendChild(option);
+    }
+    this.styleSelect.value = this.currentStyle;
+
+    this.styleSelect.addEventListener('change', () => {
+      this.currentStyle = this.styleSelect.value as StyleId;
+      this.refreshInertMarks();
+      callbacks.onStyleSelect(this.currentStyle);
+    });
     this.reducedFlashingCheckbox.addEventListener('change', () => callbacks.onReducedFlashingChange(this.reducedFlashingCheckbox.checked));
     this.qualitySelect.addEventListener('change', () => callbacks.onQualitySelect(this.qualitySelect.value as QualityLevel));
 
     for (const name of MACRO_NAMES) {
       const label = document.createElement('label');
-      const wired = WIRED_MACROS.has(name);
-      label.textContent = MACRO_LABELS[name] + (wired ? '' : ' ⚠');
+      const caption = document.createTextNode(MACRO_LABELS[name]);
+      label.appendChild(caption);
 
       const row = document.createElement('div');
       row.className = 'macro-row';
@@ -62,18 +92,45 @@ export class AdvancedPanel {
       input.min = '0';
       input.max = '1';
       input.step = '0.01';
-      input.title = wired ? '' : "sans effet visuel pour l'instant — à venir";
       input.addEventListener('input', () => callbacks.onMacroChange(name, Number(input.value)));
       this.macroInputs.set(name, input);
+      this.macroLabels.set(name, label);
+      this.macroCaptions.set(name, caption);
 
       row.appendChild(input);
       label.appendChild(row);
       this.macroGrid.appendChild(label);
     }
+    this.refreshInertMarks();
+  }
+
+  /**
+   * Marque les macros sans effet DANS LE STYLE COURANT. Le curseur reste
+   * manœuvrable à dessein : sa valeur est enregistrée dans le preset et
+   * reprendra son effet dès qu'un style qui l'exploite sera choisi. Le griser
+   * ferait croire qu'il est cassé.
+   */
+  private refreshInertMarks(): void {
+    const inert = INERT_MACROS[this.currentStyle];
+    for (const name of MACRO_NAMES) {
+      const label = this.macroLabels.get(name);
+      const input = this.macroInputs.get(name);
+      const caption = this.macroCaptions.get(name);
+      if (!label || !input || !caption) continue;
+      const isInert = inert.includes(name);
+      // Nœud texte DÉDIÉ, muté en place. Retirer `childNodes[0]` serait faux :
+      // au premier appel le premier enfant est la ligne du curseur, pas un
+      // texte — on supprimerait le curseur lui-même.
+      caption.nodeValue = MACRO_LABELS[name] + (isInert ? ' ⚠' : '');
+      input.title = isInert ? `sans effet en style ${STYLE_LABELS[this.currentStyle]}` : '';
+    }
   }
 
   selectStyle(styleId: StyleId): void {
-    if (STYLE_IDS.includes(styleId)) this.styleSelect.value = styleId;
+    if (!STYLE_IDS.includes(styleId)) return;
+    this.styleSelect.value = styleId;
+    this.currentStyle = styleId;
+    this.refreshInertMarks();
   }
 
   setMacros(macros: PresetMacros): void {

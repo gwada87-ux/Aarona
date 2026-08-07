@@ -3057,3 +3057,164 @@ Dette introduite : aucune connue.
 Bloque la suite : rien côté implémentation — les 6 étapes du prompt externe sont livrées. Ne reste que
 la validation humaine listée ci-dessus, à faire par Aaron à l'usage. Redéploiement Netlify fait
 immédiatement après cette étape.
+
+---
+
+## Phase 2 — Chantier 1 : ouverture de phase et fondations
+
+Périmètre : `docs/17_PHASE2_VISUELS.md` §11, chantier 1. Aucun visuel nouveau —
+c'est le terrain qu'on dégage avant les chantiers 2 et 3.
+
+### Ouverture du périmètre
+
+Le MVP verrouillait explicitement ce que la phase 2 demande. `CLAUDE.md`
+interdisait d'ajouter « ni style, ni preset, ni option », et
+`docs/00b_MASTER_PROMPT_V2.md` §4 excluait nommément « styles 4 à 12 · presets
+6 à 11 · mode Expert · texte/logo personnalisés ». Sans levée explicite, toute
+session future se serait arrêtée au premier tour — à juste titre, la règle
+disant elle-même de s'arrêter et de demander en cas de contradiction.
+
+Acté dans les deux fichiers :
+
+- `CLAUDE.md` : la section « Tu ne dépasses pas le MVP » devient « Tu ne dépasses
+  pas le périmètre en cours », et distingue ce qui est ouvert (styles 4-12,
+  presets 6-11, texte, composition de couches) de ce qui reste fermé (WebGL2,
+  export 4K, rendu serveur, mobile, i18n, lyrics, notes/mélodie/accords).
+- `docs/00b` §4 : encadré d'ouverture APRÈS la liste MVP, qui est conservée
+  telle quelle — elle documente ce qui a été livré et sur quoi tout s'appuie.
+
+`docs/17_PHASE2_VISUELS.md` déposé dans le dépôt (700 lignes). L'original vit
+hors du projet, où `CLAUDE.md` interdit d'aller : c'est la copie qui fait foi.
+
+### Le bloc `layers` des presets : RETIRÉ
+
+Il était déclaré dans `Preset`, recopié par `resolvePreset` (`resolve.ts:118`),
+et lu par personne — vérifié par recherche exhaustive sur `src/` et `tests/`,
+y compris les accès dynamiques (`['layers']`, spread, `Object.keys`).
+
+Retiré plutôt que branché, pour trois raisons :
+
+1. **Ses clés ne désignent aucune couche réelle.** `trap-dark.json` écrivait
+   `particles` / `field` / `postfx` ; les identifiants de couche sont
+   `particleField` / `perspectiveGrid` / `frameFeedback` / `screenShake`. Le
+   brancher aurait exigé d'inventer une correspondance qui n'a jamais existé —
+   donc de deviner l'intention d'origine.
+2. **Il entrait en collision avec `layerMacros.ts`**, qui écrit déjà
+   `field.perspectiveGrid.rows` ; le bloc annonçait `rows: 24` pour le même
+   paramètre. Deux mécanismes sur un chemin, dernier écrit gagne, en silence :
+   exactement le piège documenté en tête de `layerMacros.ts`.
+3. **Un seul preset sur cinq l'utilisait** (`trap-dark`).
+
+Le besoin qu'il aurait servi — des valeurs ABSOLUES par preset, là où les macros
+n'offrent qu'une courbe partagée par tous — est réel. C'est le compositeur de
+couches (docs/17 §7.7, chantier 10) qui y répondra, avec des identifiants
+vérifiés.
+
+**Valeurs consignées avant retrait**, pour que l'intention ne soit pas perdue :
+
+```json
+"layers": {
+  "particles": { "count": 2500, "lifetime": [1.2, 3.0], "gravity": -0.02 },
+  "field": { "rows": 24, "perspective": 0.65 },
+  "postfx": { "feedback": 0.90, "shake": 0.012, "chromatic": 0.004 }
+}
+```
+
+`validatePreset` ignore les champs inconnus : un `.pvproj` ou un preset
+utilisateur portant encore un bloc `layers` reste valide, simplement sans effet
+— comme il l'était déjà.
+
+### Catalogue de styles : source unique
+
+Les trois options du `<select id="style-select">` étaient écrites en dur dans
+`index.html` (lignes 253-257). Ajouter un style obligeait donc à modifier
+`schema.ts` (`STYLE_IDS`), `App.ts` (`STYLE_FACTORIES`) **et** le HTML, sans
+qu'aucun test ne signale l'oubli du troisième — ce qui allait devenir un piège
+dès le chantier 5.
+
+- `STYLE_LABELS: Readonly<Record<StyleId, string>>` ajouté dans `schema.ts`, à
+  côté de `STYLE_IDS`. Le type `Record<StyleId, …>` fait échouer la compilation
+  si un identifiant est ajouté sans libellé.
+- `AdvancedPanel` peuple le `<select>` depuis `STYLE_IDS`.
+- Deux tests de non-régression dans `presetCatalog.test.ts` : cohérence
+  `STYLE_IDS` ↔ `STYLE_LABELS` dans les deux sens (le type ne couvre qu'un sens),
+  et `index.html` ne contient plus aucune balise `<option>` dans ce `<select>`.
+
+### Le curseur Profondeur en style `pulse`
+
+`AdvancedPanel` portait bien un mécanisme d'avertissement — badge `⚠` et
+infobulle — mais il testait `WIRED_MACROS = new Set(MACRO_NAMES)`, c'est-à-dire
+un ensemble contenant TOUTES les macros. La condition était constamment vraie et
+l'avertissement **inatteignable**. L'utilisateur voyait un curseur Profondeur
+d'apparence normale qui ne faisait rien en style `pulse`.
+
+Remplacé par `INERT_MACROS: Record<StyleId, readonly MacroName[]>`, évalué
+**selon le style courant** — seule forme utile, une macro pouvant agir dans un
+style et pas dans un autre. Le curseur reste manœuvrable à dessein : sa valeur
+est enregistrée dans le preset et reprend son effet dès qu'un style qui
+l'exploite est choisi. Le griser ferait croire qu'il est cassé.
+
+Défaut trouvé et corrigé pendant l'écriture : la première version faisait
+`label.childNodes[0].remove()` pour remplacer le libellé. Au premier appel, le
+premier enfant du `<label>` est la ligne du curseur, pas un nœud texte — le
+curseur lui-même aurait été supprimé. Corrigé par un nœud texte dédié, muté en
+place.
+
+### En-tête périmé de `SimplePanel`
+
+Il annonçait encore Densité et Glow comme « sans effet visuel pour l'instant »,
+en renvoyant à l'Étape 13/P11. Vrai à l'époque, faux depuis l'Étape 20 : les
+huit macros agissent. Corrigé.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 99 fichiers, 796 tests (794 + 2 nouveaux)
+npm run test:arch   -> 1 test
+npm run build       -> 448,76 kB (gzip 125,35 kB), 202 modules, 1,73 s
+```
+
+Navigateur (`http://localhost:5174/`), **aucune erreur console** :
+
+- `<select id="style-select">` peuplé : `pulse = Pulse`, `field = Field`,
+  `spectrum-pro = Spectrum Pro`, valeur initiale `pulse`.
+- Avertissement contextuel vérifié sur les trois styles :
+
+| style | macros marquées inertes |
+|---|---|
+| `pulse` | `Profondeur ⚠` — infobulle « sans effet en style Pulse » |
+| `field` | aucune |
+| `spectrum-pro` | aucune |
+
+### « Rien n'a changé à l'écran » — ce qui est prouvé, et comment
+
+**Pas par comparaison de pixels.** L'analyse de la démo reste bloquée sur
+« Analyse… » et le canvas reste noir (0 pixel non noir mesuré après 3 s) :
+l'`AudioContext` ne démarre pas sans geste utilisateur réel, et le volet
+d'aperçu n'étant pas affiché, aucune capture n'est possible. Même limite que
+celle déjà notée dans `src/ui/live/NOTES.md`.
+
+Ce qui est prouvé à la place, et qui vaut mieux qu'une empreinte sur une image
+noire : **une seule modification touche le chemin de rendu**, le retrait de
+`ResolvedPreset.layers`. Vérifié qu'aucun code ne le lit, ni statiquement
+(`resolved.layers`, `preset.layers`), ni dynamiquement (`['layers']`, spread,
+`Object.keys`/`Object.entries` sur un preset résolu), ni par sérialisation (le
+preset résolu n'est pas persisté). Tout le reste — `LayerKind`, `STYLE_LABELS`,
+les deux panneaux, le HTML — est soit purement typé et effacé à la compilation,
+soit strictement hors canvas.
+
+`exportDeterminism.test.ts` reste vert. Son en-tête précise qu'il couvre la
+séquence de sous-pas et non les pixels ; c'est bien la simulation qui est
+garantie identique, le rendu en étant une fonction pure.
+
+### Limites connues
+
+- Aucune vérification par capture d'écran ni par empreinte de pixels, pour la
+  raison ci-dessus. Une vérification à l'œil par Aaron, fenêtre au premier plan,
+  reste souhaitable avant le chantier 2.
+- `LayerKind` accepte `'text'` mais aucune couche ne la porte : c'est voulu, la
+  couche de texte est le chantier 8. La valeur est ajoutée maintenant pour ne
+  pas rouvrir ce fichier au milieu d'un chantier sans rapport.
+- Le bloc `layers` retiré rend `trap-dark.json` légèrement plus court que les
+  autres presets ne le laissaient supposer ; aucune conséquence fonctionnelle.

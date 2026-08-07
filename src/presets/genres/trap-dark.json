@@ -42,10 +42,5 @@
     "chaos": 0.35,
     "smoothness": 0.40
   },
-  "layers": {
-    "particles": { "count": 2500, "lifetime": [1.2, 3.0], "gravity": -0.02 },
-    "field": { "rows": 24, "perspective": 0.65 },
-    "postfx": { "feedback": 0.90, "shake": 0.012, "chromatic": 0.004 }
-  },
   "safety": { "reducedFlashing": false }
 }

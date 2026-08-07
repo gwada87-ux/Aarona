@@ -161,6 +161,23 @@ Livrer **moins, mais excellent**. Tout ce qui n'est pas dans cette liste est hor
 **Explicitement exclu du MVP** : WebGL2 · styles 4 à 12 · presets 6 à 11 · mode Expert · notes,
 mélodie, accords · export 4K · texte/logo personnalisés · lyrics · rendu serveur · mobile · i18n.
 
+> ### ⚠️ PHASE 2 OUVERTE — cette liste d'exclusions n'est plus intégralement en vigueur
+>
+> Le MVP ci-dessus est **livré**. Aaron a ouvert la **phase 2**, dont le périmètre et l'ordre de
+> travail sont décrits dans **`docs/17_PHASE2_VISUELS.md`**.
+>
+> **Sortis de l'exclusion** (autorisés, dans les limites de `docs/17`) :
+> styles 4 à 12 · presets 6 à 11 · mode Expert (composition de couches) · texte/logo personnalisés.
+>
+> **Toujours exclus, sans changement** :
+> WebGL2 · export 4K · rendu serveur · mobile · i18n · lyrics · notes, mélodie, accords.
+>
+> Les cinq Lois de §2 restent intouchables et s'appliquent à tout ce qui est ajouté en phase 2 —
+> en particulier la Loi 1, que le texte, la pochette et l'automatisation doivent respecter.
+>
+> La liste MVP est conservée telle quelle au-dessus : elle documente ce qui a été livré et sur quoi
+> tout le reste s'appuie. Ne la réécris pas, ne la « mets pas à jour ».
+
 ### Les dix pièges déjà identifiés — à traiter, pas à redécouvrir
 
 1. Horodatage des trames STFT au **centre** de la fenêtre, moins le retard de groupe du rééchantillonneur.

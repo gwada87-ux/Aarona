@@ -250,11 +250,11 @@
       <fieldset>
         <legend>Style</legend>
         <label>
-          <select id="style-select">
-            <option value="pulse" selected>Pulse</option>
-            <option value="field">Field</option>
-            <option value="spectrum-pro">Spectrum Pro</option>
-          </select>
+          <!-- Options peuplees par AdvancedPanel depuis STYLE_IDS/STYLE_LABELS
+               (presets/schema.ts). Les ecrire ici obligeait a modifier trois
+               fichiers pour ajouter un style, sans qu'aucun test ne signale
+               l'oubli du troisieme. -->
+          <select id="style-select"></select>
         </label>
       </fieldset>
 
