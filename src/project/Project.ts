@@ -63,11 +63,59 @@ export interface PaletteOverride {
   readonly drift?: { readonly lowEnergy?: string; readonly highEnergy?: string };
 }
 
+/**
+ * Texte affiché (docs/17_PHASE2_VISUELS.md §9.3, chantier 10 lot B).
+ *
+ * Copie STRUCTURELLE de `visual/text/textConfig.ts::TextConfig`, pour la même
+ * raison que `PaletteOverride` est une copie de `PresetPaletteConfig` :
+ * `project/` n'a le droit d'importer que `music/` (docs/02, tableau des
+ * dépendances). Le typage structurel de TypeScript fait interopérer les deux
+ * sans import, `ui/App.ts` faisant le pont — il importe les deux couches.
+ *
+ * Les champs sont des chaînes libres et non des unions littérales : un projet
+ * enregistré par une version future peut porter une animation que celle-ci ne
+ * connaît pas, et le rejeter perdrait tout le reste du fichier. C'est
+ * `normaliseTextConfig` qui ramène une valeur inconnue au défaut, au point de
+ * consommation.
+ */
+export interface ProjectText {
+  readonly text: string;
+  readonly layout: string;
+  readonly animation: string;
+  readonly family: string;
+  readonly weight: number;
+  readonly textCase: string;
+  readonly color: string;
+  readonly everyBars: number;
+  readonly durationBars: number;
+  /** Multiplicateur de taille, hors `TextConfig` : c'est un `layer.params`. */
+  readonly size?: number;
+}
+
 export interface ProjectVisual {
   readonly presetId: string;
   readonly presetVersion: number;
   readonly overrides: PresetDiff;
+  /**
+   * Palette CHOISIE OU ÉDITÉE, qui l'emporte sur celle du preset (§9.2).
+   * Une chaîne désigne une entrée du catalogue — la stocker par identifiant
+   * plutôt que par ses huit couleurs laisse le catalogue évoluer sans figer
+   * dans chaque projet la version d'alors.
+   *
+   * Déclaré depuis l'Étape 13 et écrit par PERSONNE jusqu'au chantier 10 :
+   * l'éditeur de couleurs du chantier 9 perdait son réglage au rechargement.
+   */
   readonly palette?: string | PaletteOverride;
+  /** Texte affiché, ou absent (chantier 10 lot B). */
+  readonly text?: ProjectText;
+  /**
+   * Pochette (§7.5). Le NOM du fichier seulement : les octets vivent à côté du
+   * projet — entrée `cover/<nom>` du `.pvproj`, champ `cover` de
+   * l'enregistrement IndexedDB. Mettre une image en base64 dans `project.json`
+   * le ferait grossir de 33 % du poids de l'image, alors que docs/13 exige
+   * qu'il reste petit — c'est déjà la raison pour laquelle le PMDI en est sorti.
+   */
+  readonly coverName?: string;
   /**
    * Copie COMPLÈTE du preset actif quand il vient de l'éditeur JSON (Étape 29,
    * corrige la limite connue depuis l'Étape 15/P13) — `overrides` (diff
@@ -171,6 +219,23 @@ function checkVisual(visual: unknown, errors: string[]): void {
   // `ProjectVisual.customPreset`, `project/` n'a pas le droit d'importer `presets/`).
   if (visual.customPreset !== undefined && !isRecord(visual.customPreset)) {
     errors.push('"visual.customPreset" doit être un objet quand présent');
+  }
+  // Chantier 10 lot B. Même discipline que ci-dessus : on vérifie la FORME, pas
+  // les valeurs. Une animation ou une mise en page inconnue de cette version est
+  // ramenée au défaut par `normaliseTextConfig` au moment de l'application ;
+  // rejeter le projet entier pour ça ferait perdre tout le reste du fichier.
+  if (visual.palette !== undefined && typeof visual.palette !== 'string' && !isRecord(visual.palette)) {
+    errors.push('"visual.palette" doit être un identifiant de catalogue ou un objet de surcharge');
+  }
+  if (visual.text !== undefined) {
+    if (!isRecord(visual.text)) {
+      errors.push('"visual.text" doit être un objet quand présent');
+    } else if (typeof visual.text.text !== 'string') {
+      errors.push('"visual.text.text" doit être une chaîne');
+    }
+  }
+  if (visual.coverName !== undefined && typeof visual.coverName !== 'string') {
+    errors.push('"visual.coverName" doit être une chaîne quand présent');
   }
 }
 

@@ -29,6 +29,18 @@ export interface StoredProject {
   readonly id: string;
   readonly project: Project;
   readonly thumbnail: Blob;
+  /**
+   * Pochette importée, octets d'origine (docs/17 §7.5, chantier 10 lot B).
+   *
+   * AUCUNE MONTÉE DE `DB_VERSION` n'a été nécessaire, et ce n'est pas une
+   * approximation : un magasin IndexedDB n'a pas de schéma de colonnes. Il
+   * stocke des objets structurés-clonables indexés par `keyPath`, donc ajouter
+   * un champ à `StoredProject` est lisible par l'ancienne version comme par la
+   * nouvelle - l'ancienne l'ignore, la nouvelle le trouve `undefined` sur les
+   * enregistrements écrits avant. `DB_VERSION` ne sert qu'à créer ou supprimer
+   * des MAGASINS et des index, et il n'y en a ni l'un ni l'autre ici.
+   */
+  readonly cover?: Blob;
 }
 
 interface AudioCacheRecord {
@@ -97,9 +109,15 @@ export async function requestPersistentStorage(): Promise<boolean> {
 
 // --- projects ---------------------------------------------------------------
 
-export async function saveProject(db: IDBDatabase, project: Project, thumbnail: Blob): Promise<void> {
+export async function saveProject(db: IDBDatabase, project: Project, thumbnail: Blob, cover?: Blob | null): Promise<void> {
   const tx = db.transaction(PROJECTS_STORE, 'readwrite');
-  const record: StoredProject = { id: project.meta.id, project, thumbnail };
+  // `cover` OMIS quand il n'y en a pas, plutôt que mis à `undefined` : un `put`
+  // remplace l'enregistrement entier, donc un champ présent à `undefined` et un
+  // champ absent sont équivalents ici — mais l'enregistrement reste lisible par
+  // une version antérieure qui ne connaît pas le champ.
+  const record: StoredProject = cover
+    ? { id: project.meta.id, project, thumbnail, cover }
+    : { id: project.meta.id, project, thumbnail };
   tx.objectStore(PROJECTS_STORE).put(record);
   await promisifyTransaction(tx);
 }

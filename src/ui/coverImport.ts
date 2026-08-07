@@ -35,6 +35,15 @@ export interface ImportedCover {
   readonly image: ImageBitmap;
   readonly report: CoverPaletteReport;
   readonly fileName: string;
+  /**
+   * Octets D'ORIGINE du fichier (chantier 10 lot B).
+   *
+   * Gardés pour la persistance. Ré-encoder l'`ImageBitmap` au moment de la
+   * sauvegarde aurait deux défauts : une seconde compression avec perte sur un
+   * JPEG, et la disparition de la transparence si l'on écrit en JPEG. Un `Blob`
+   * ne coûte rien à conserver — c'est une référence, pas une copie décodée.
+   */
+  readonly source: Blob;
 }
 
 export class CoverImportError extends Error {
@@ -54,7 +63,7 @@ export class CoverImportError extends Error {
  * le rappelle explicitement). Ce qui en ressort est un `ImageBitmap` déjà
  * décodé, que la couche `CoverArt` se contente de dessiner dans un sprite.
  */
-export async function importCover(file: File): Promise<ImportedCover> {
+export async function importCover(file: Blob & { readonly name?: string }): Promise<ImportedCover> {
   if (file.size > MAX_BYTES) {
     throw new CoverImportError(
       `Image trop lourde : ${(file.size / 1024 / 1024).toFixed(1)} Mo (maximum ${MAX_BYTES / 1024 / 1024} Mo)`,
@@ -71,8 +80,12 @@ export async function importCover(file: File): Promise<ImportedCover> {
     throw new CoverImportError('Image illisible ou format non reconnu', 'DECODE_FAILED');
   }
 
-  const report = paletteFromCover(sampleDominantColors(image), `cover:${file.name}`);
-  return { image, report, fileName: file.name };
+  // `Blob` et non `File` en entrée : au rechargement d'un projet, la pochette
+  // revient d'IndexedDB ou d'une archive `.pvproj`, où elle n'a pas de `name`.
+  // Le repli garde une clé de palette stable et lisible.
+  const fileName = file.name ?? 'pochette';
+  const report = paletteFromCover(sampleDominantColors(image), `cover:${fileName}`);
+  return { image, report, fileName, source: file };
 }
 
 /**

@@ -4973,3 +4973,153 @@ rouge (R nettement supérieur à G et B sur les huit).
 - **La dette de persistance des chantiers 7, 8 et 9 n'est pas payée** : la
   pochette, le texte et la palette éditée sont toujours perdus au rechargement.
   C'est le lot B.
+
+---
+
+## Phase 2 — Chantier 10, lot B : persistance
+
+Trois limites signalées trois fois de suite — la pochette au chantier 7, le
+texte au 8, la palette éditée au 9 — et toutes renvoyées à
+`docs/13_PROJECT_FORMAT.md`. C'est ce lot. Un texte patiemment réglé et une
+pochette importée disparaissaient au rechargement.
+
+### Ce qui n'a PAS eu besoin d'être fait
+
+Les trois chantiers annonçaient soit « une montée de `DB_VERSION` avec
+migration », soit « le mécanisme référence + relink de l'audio ». Ni l'un ni
+l'autre n'a servi, et la raison mérite d'être écrite parce qu'elle vaudra encore
+la prochaine fois :
+
+- **`DB_VERSION` reste à 1.** Un magasin IndexedDB n'a pas de schéma de colonnes.
+  Il stocke des objets structurés-clonables indexés par `keyPath` ; ajouter un
+  champ `cover` à `StoredProject` est donc lisible par l'ancienne version comme
+  par la nouvelle — l'ancienne l'ignore, la nouvelle le trouve `undefined` sur
+  les enregistrements écrits avant. `DB_VERSION` ne sert qu'à créer ou supprimer
+  des MAGASINS et des index, et il n'y en a ni l'un ni l'autre ici.
+- **Aucune migration de `.pvproj`.** Les trois champs sont OPTIONNELS : un projet
+  d'avant ce lot est valide tel quel, et `migrate` préserve déjà les champs
+  inconnus.
+- **`visual.palette` existait déjà.** Déclaré depuis l'Étape 13, du type
+  `string | PaletteOverride`, et écrit par PERSONNE. L'éditeur de couleurs du
+  chantier 9 perdait son réglage dans un champ prévu pour lui depuis un an.
+
+### Trois décisions
+
+**La palette du catalogue est enregistrée par IDENTIFIANT**, pas par ses huit
+couleurs. Figer les valeurs dans chaque projet interdirait au catalogue
+d'évoluer : une correction de contraste comme celle de `lime-violet` au chantier
+9 ne rattraperait aucun projet existant. Une palette éditée à la main, elle, n'a
+pas d'identifiant et part couleur par couleur — et `PaletteOverride` ayant tous
+ses champs optionnels, une surcharge PARTIELLE est complétée depuis le preset
+actif au chargement, ce qui est la définition d'une surcharge.
+
+**La pochette est stockée en octets D'ORIGINE**, pas ré-encodée depuis
+l'`ImageBitmap`. Ré-encoder aurait deux défauts : une seconde compression avec
+perte à chaque sauvegarde d'un JPEG, et la disparition de la transparence si
+l'on écrit en JPEG. `importCover` rend donc désormais aussi son `Blob` source —
+une référence, pas une copie décodée.
+
+**Elle est écrite dans les DEUX contenants.** IndexedDB pour la reprise
+automatique, entrée `cover/<nom>` du `.pvproj` pour le partage. En oublier un
+donnerait un projet qui rouvre avec sa pochette chez soi et sans elle chez le
+destinataire — et le nom, lui, serait bien dans `project.json` : une pochette
+annoncée et absente, pire qu'une absence franche. Un test lit `App.ts` pour
+vérifier les deux.
+
+Le nom seul va dans `project.json`, jamais les octets : une image en base64 le
+ferait grossir de 33 % du poids du fichier, alors que `docs/13` exige qu'il reste
+petit — c'est déjà la raison pour laquelle le PMDI en a été sorti.
+
+### La règle qui gouverne la restauration
+
+**Une valeur absente, inconnue ou illisible remet le réglage à zéro ; elle ne
+fait jamais échouer l'ouverture.** Un projet écrit par une version future doit
+s'ouvrir, quitte à perdre ce que celle-ci ne comprend pas.
+
+`validateProject` vérifie donc la FORME et pas les valeurs : `ProjectText` a des
+champs `string` et non des unions littérales, et une animation
+`kaleidoscope-2029` passe la validation avant d'être ramenée au défaut par
+`normaliseTextConfig` au moment de l'application. Rejeter le projet entier pour
+un champ inconnu ferait perdre tout le reste du fichier. Une pochette illisible
+se dit dans le panneau — « Pochette du projet illisible — réimporte-la » — et
+n'interrompt rien.
+
+### Le piège des contrôles muets
+
+Restaurer `textConfig` ne suffit pas : sans réécrire les huit champs du panneau,
+le texte réapparaîtrait à l'écran pendant que les contrôles afficheraient les
+valeurs par défaut — et **la première interaction avec l'un d'eux écraserait tout
+le reste** par ce qu'affichent les autres, puisque `readTextControls` relit les
+huit d'un coup. D'où `writeTextControls`, l'inverse exact, appelé à la
+restauration. Un test vérifie qu'il est bien appelé juste après.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 115 fichiers, 1060 tests (1045 -> 1060, +15)
+npm run test:arch   -> 1 test
+npm run build       -> 510,27 kB (gzip 145,10 kB), 2,11 s
+```
+
+Navigateur, **aucune erreur console** sur l'ensemble de la séquence ci-dessous.
+
+**Aller-retour complet par IndexedDB.** Réglé : texte « MEL VEL / BASE » sur deux
+lignes, mise en page `lower-third`, animation `slice`, police `mono`, casse
+`lower`, taille 1,35, palette `lime-violet`, pochette synthétique importée
+(disque `#00ff88` sur fond sombre ; accent extrait `#00ff88`, contraste 14,7:1).
+Autosave, **rechargement complet de la page**, réouverture depuis « Projets » :
+
+| champ | avant | après rechargement |
+|---|---|---|
+| texte | `MEL VEL\nBASE` | `MEL VEL\nBASE` |
+| mise en page | `lower-third` | `lower-third` |
+| animation | `slice` | `slice` |
+| police / casse | `mono` / `lower` | `mono` / `lower` |
+| taille | 1,35 | 1,35 |
+| palette | `lime-violet` (`#81c042`) | `lime-violet` (`#81c042`) |
+| pochette | `album-test.png` | `album-test.png — restaurée` |
+
+**Et elle est réellement DESSINÉE**, pas seulement annoncée — pixels vert vif du
+disque de la pochette :
+
+| | pixels verts |
+|---|---|
+| avec la pochette restaurée | **3 260** |
+| après « Retirer » | 47 |
+
+**Aller-retour par `.pvproj`.** Archive de 35 654 octets capturée à
+l'enregistrement, tout remis à zéro (texte vidé, palette réinitialisée, pochette
+retirée — vérifié), puis réimportée : texte, mise en page, animation, taille,
+palette `ember` et pochette reviennent tous.
+
+**Compatibilité arrière.** Un projet enregistré AVANT ce lot, sans aucun des
+trois champs, s'ouvre normalement et remet les trois à zéro — texte vide, palette
+du preset (`#7b4cff`), aucune pochette. Aucune erreur.
+
+### À valider par Aaron
+
+- **Le comportement à l'import d'une pochette** : elle efface l'édition de
+  couleurs en cours (règle posée au chantier 9). Vu depuis la persistance, ça
+  veut dire qu'on ne peut pas enregistrer « pochette + couleurs à moi » en
+  important la pochette EN DERNIER. Il faut importer, puis régler. C'est
+  cohérent mais pas évident.
+- **Le poids des projets.** Une pochette de 4 Mo est stockée deux fois pour un
+  même projet — une dans IndexedDB, une dans chaque `.pvproj` exporté. Le cache
+  audio a un plafond LRU de 500 Mo ; le magasin `projects`, lui, n'en a aucun.
+- **La reprise automatique au démarrage** : PULSAR ne rouvre pas le dernier
+  projet tout seul, il faut passer par « Projets ». Inchangé par ce lot, mais
+  c'est maintenant que ça se remarque, puisqu'il y a quelque chose à reprendre.
+
+### Limites connues
+
+- **La palette extraite d'une pochette n'est pas stockée** — elle est recalculée
+  depuis l'image au chargement. C'est délibéré : l'extraction est déterministe,
+  et la stocker créerait deux sources de vérité qui divergeraient à la première
+  correction de l'algorithme. Conséquence assumée : si `quantize` change, les
+  projets existants changent de couleurs.
+- **`prefs.debugOverlay` est toujours écrit `false` et jamais lu**, comme avant
+  ce lot. Ce n'est pas un champ de ce lot, mais c'est le dernier résidu du même
+  genre que ceux traités en §5.6.
+- **Aucun plafond sur le magasin `projects`.** Voir ci-dessus.
+- Aucune capture d'écran : mêmes limites d'environnement.

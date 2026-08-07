@@ -197,6 +197,18 @@ let currentPalette: Palette | null = null;
 let currentBloom: PresetBloomConfig = DEFAULT_PRESET_BLOOM;
 /** Palette EDITEE a la main ou choisie au catalogue (§9.2). `null` = celle du preset. */
 let paletteOverride: PresetPaletteConfig | null = null;
+/**
+ * Identifiant du catalogue quand `paletteOverride` en vient tel quel (chantier
+ * 10 lot B). `null` des qu'une pastille est touchee : la palette n'est alors
+ * plus celle du catalogue et doit etre enregistree couleur par couleur.
+ */
+let cataloguePaletteId: string | null = null;
+/**
+ * Octets D'ORIGINE de la pochette, gardes pour la persistance (chantier 10 lot
+ * B). `coverImage` est un bitmap DECODE : il ne se reecrit pas dans un fichier
+ * sans une seconde compression.
+ */
+let coverSource: { readonly blob: Blob; readonly name: string } | null = null;
 /** Palette du preset actif, en hexadecimal : point de depart de l'editeur. */
 let presetPaletteConfig: PresetPaletteConfig | null = null;
 let reducedFlashing = false;
@@ -948,6 +960,16 @@ function buildCurrentProject(): Project | null {
       presetVersion: catalogPreset?.version ?? 1,
       overrides,
       ...(customPreset ? { customPreset: customPreset as unknown as Record<string, unknown> } : {}),
+      // Chantier 10 lot B : la palette editee, le texte et le nom de la
+      // pochette rejoignent le projet. Les trois etaient perdus au
+      // rechargement - limite signalee aux chantiers 7, 8 et 9.
+      //
+      // La palette est enregistree par IDENTIFIANT quand elle vient du
+      // catalogue : figer ses huit couleurs dans chaque projet interdirait au
+      // catalogue d'evoluer.
+      ...(cataloguePaletteId ? { palette: cataloguePaletteId } : paletteOverride ? { palette: paletteOverride } : {}),
+      ...(textConfig.text.length > 0 ? { text: { ...textConfig, size: textSize } } : {}),
+      ...(coverSource ? { coverName: coverSource.name } : {}),
     },
     export: { format: '16:9', resolution: [1920, 1080], fps: 30, bitrateMbps: 12, codec: 'h264' },
     // `prefs.quality` (type déjà anticipé en P13, câblé au vrai `QualityGovernor` en P14/Étape 16) :
@@ -978,7 +1000,7 @@ async function saveCurrentProject(): Promise<void> {
   if (!project) return;
   try {
     const thumbnail = await captureThumbnail();
-    await saveProject(db, project, thumbnail);
+    await saveProject(db, project, thumbnail, coverSource?.blob ?? null);
     autosaveStatusEl.textContent = `Enregistré ${new Date().toLocaleTimeString()}`;
   } catch (err) {
     autosaveStatusEl.textContent = 'Échec de la sauvegarde automatique';
@@ -1037,7 +1059,79 @@ function promptRelinkAudio(filename: string, expectedHash: string | undefined): 
 
 // --- Restauration d'un projet (magasin IndexedDB ou fichier .pvproj importé) ---
 
-async function restoreProject(stored: { id: string; project: Project }, providedAudioBlob?: Blob): Promise<void> {
+/**
+ * Restaure la palette, le texte et la pochette (chantier 10 lot B).
+ *
+ * Les trois étaient perdus au rechargement, limite signalée aux chantiers 7, 8
+ * et 9. Regroupés ici plutôt qu'insérés dans `restoreProject`, déjà longue, et
+ * surtout parce qu'ils partagent une même règle : **une valeur absente ou
+ * illisible remet le réglage à zéro, elle ne fait jamais échouer la
+ * restauration.** Un projet écrit par une version future doit s'ouvrir, quitte
+ * à perdre ce que celle-ci ne comprend pas.
+ */
+async function restoreVisualExtras(project: Project, coverBlob: Blob | null): Promise<void> {
+  // --- Palette -------------------------------------------------------------
+  const savedPalette = project.visual.palette;
+  paletteOverride = null;
+  cataloguePaletteId = null;
+  if (typeof savedPalette === 'string') {
+    const entry = cataloguePaletteById(savedPalette);
+    if (entry) {
+      paletteOverride = entry.config;
+      cataloguePaletteId = entry.id;
+    }
+  } else if (savedPalette) {
+    // Surcharge PARTIELLE : `PaletteOverride` a tous ses champs optionnels, et
+    // un projet peut n'en porter qu'un. Les manquants viennent du preset actif,
+    // ce qui est la définition même d'une surcharge.
+    const base = activePresetObject().palette;
+    paletteOverride = {
+      bg: savedPalette.bg ?? base.bg,
+      primary: savedPalette.primary ?? base.primary,
+      secondary: savedPalette.secondary ?? base.secondary,
+      accent: savedPalette.accent ?? base.accent,
+      glow: savedPalette.glow ?? base.glow,
+      contrast: savedPalette.contrast ?? base.contrast,
+      drift: {
+        lowEnergy: savedPalette.drift?.lowEnergy ?? base.drift.lowEnergy,
+        highEnergy: savedPalette.drift?.highEnergy ?? base.drift.highEnergy,
+      },
+    };
+  }
+  paletteSelect.value = cataloguePaletteId ?? '';
+
+  // --- Texte ---------------------------------------------------------------
+  const savedText = project.visual.text;
+  textConfig = normaliseTextConfig(savedText as Partial<TextConfig> | undefined);
+  textSize = savedText?.size ?? 1;
+  writeTextControls();
+
+  // --- Pochette ------------------------------------------------------------
+  coverImage?.close();
+  coverImage = null;
+  coverPalette = null;
+  coverSource = null;
+  coverStatus.textContent = '';
+  coverInput.value = '';
+  if (coverBlob) {
+    try {
+      const named = Object.assign(coverBlob.slice(0, coverBlob.size, coverBlob.type), {
+        name: project.visual.coverName ?? 'pochette',
+      });
+      const imported = await importCover(named);
+      coverImage = imported.image;
+      coverPalette = imported.report.palette;
+      coverSource = { blob: coverBlob, name: imported.fileName };
+      coverStatus.textContent = `${imported.fileName} — restaurée`;
+    } catch {
+      // Une pochette illisible ne doit pas empêcher le projet de s'ouvrir : on
+      // le dit dans le panneau, on ne jette pas.
+      coverStatus.textContent = 'Pochette du projet illisible — réimporte-la.';
+    }
+  }
+}
+
+async function restoreProject(stored: { id: string; project: Project; cover?: Blob }, providedAudioBlob?: Blob): Promise<void> {
   const { project } = stored;
   const ref = project.audio.ref;
   if (ref.kind !== 'file') {
@@ -1115,6 +1209,7 @@ async function restoreProject(stored: { id: string; project: Project }, provided
     reducedFlashing = restored.reducedFlashing;
   }
   simplePanel.selectPreset(selectedPresetId);
+  await restoreVisualExtras(project, stored.cover ?? null);
 
   applyDocCore(doc, waveformPeaks);
 
@@ -1198,7 +1293,14 @@ async function exportPvproj(): Promise<void> {
   }
   const thumbnailBlob = await captureThumbnail();
   const thumbnail = new Uint8Array(await thumbnailBlob.arrayBuffer());
-  const blob = await writePvprojBlob({ project, thumbnail });
+  // La pochette voyage AVEC le fichier, dans son entree `cover/` (chantier 10
+  // lot B). Un .pvproj partage sans elle rouvrirait sans son image, alors que le
+  // nom est bien dans `project.json` : le symptome serait une pochette annoncee
+  // et absente, pire qu'une absence franche.
+  const cover = coverSource
+    ? { filename: coverSource.name, data: new Uint8Array(await coverSource.blob.arrayBuffer()) }
+    : undefined;
+  const blob = await writePvprojBlob({ project, thumbnail, cover });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -1219,7 +1321,8 @@ async function importPvproj(file: File): Promise<void> {
     const result = await readPvprojBlob(file);
     projectsDialog.close();
     const embeddedAudio = result.audio ? new Blob([result.audio.data as BlobPart]) : undefined;
-    await restoreProject({ id: result.project.meta.id, project: result.project }, embeddedAudio);
+    const embeddedCover = result.cover ? new Blob([result.cover.data as BlobPart]) : undefined;
+    await restoreProject({ id: result.project.meta.id, project: result.project, cover: embeddedCover }, embeddedAudio);
   } catch (err) {
     projectsStatus.textContent =
       err instanceof PvprojFormatError || err instanceof ProjectError ? err.message : `Erreur : ${err instanceof Error ? err.message : String(err)}`;
@@ -1240,10 +1343,12 @@ coverInput.addEventListener('change', () => {
       coverImage?.close();
       coverImage = imported.image;
       coverPalette = imported.report.palette;
+      coverSource = { blob: imported.source, name: imported.fileName };
       // Demander les couleurs d'une image, c'est renoncer aux siennes : une
       // edition manuelle en cours l'emporterait sinon sur la palette extraite,
       // et l'import n'aurait aucun effet visible (§9.2, chantier 9).
       paletteOverride = null;
+      cataloguePaletteId = null;
       paletteSelect.value = '';
       // Le rapport est MONTRÉ, pas seulement calculé : quand la garantie de
       // contraste a dû corriger une couleur, l'utilisateur doit savoir que ce
@@ -1270,6 +1375,7 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
   coverImage.close();
   coverImage = null;
   coverPalette = null;
+  coverSource = null;
   coverInput.value = '';
   coverStatus.textContent = '';
   // La palette du preset reprend la main : c'est le seul moyen de revenir en
@@ -1367,7 +1473,9 @@ for (const input of Object.values(SWATCHES)) {
   input.addEventListener('input', () => {
     paletteOverride = readPaletteEditor();
     // Le catalogue retombe sur « Palette du preset » : les couleurs ne sont plus
-    // celles d'une entree du catalogue des qu'on en a bouge une.
+    // celles d'une entree du catalogue des qu'on en a bouge une - et le projet
+    // doit alors les enregistrer une par une, plus par identifiant.
+    cataloguePaletteId = null;
     paletteSelect.value = '';
     applyActiveConfiguration();
   });
@@ -1375,17 +1483,21 @@ for (const input of Object.values(SWATCHES)) {
 
 paletteContrastInput.addEventListener('input', () => {
   paletteOverride = readPaletteEditor();
+  cataloguePaletteId = null;
+  paletteSelect.value = '';
   applyActiveConfiguration();
 });
 
 paletteSelect.addEventListener('change', () => {
   const entry = cataloguePaletteById(paletteSelect.value);
   paletteOverride = entry ? entry.config : null;
+  cataloguePaletteId = entry ? entry.id : null;
   applyActiveConfiguration();
 });
 
 document.querySelector<HTMLButtonElement>('#btn-palette-reset')!.addEventListener('click', () => {
   paletteOverride = null;
+  cataloguePaletteId = null;
   paletteSelect.value = '';
   applyActiveConfiguration();
 });
@@ -1506,6 +1618,28 @@ function readTextControls(): void {
   // Le mode live partage CE texte : c'est la reponse a « `slamText` existe mais
   // aucune interface ne l'expose » (§9.3). Un seul champ, deux moteurs.
   liveVisualPanel?.setSlamText(slamLinesFromText(textConfig.text));
+}
+
+/**
+ * Reflète `textConfig` dans les huit contrôles — l'inverse de
+ * `readTextControls` (chantier 10 lot B).
+ *
+ * Nécessaire dès que le texte peut venir d'AILLEURS que des contrôles : un
+ * projet restauré. Sans ça, le texte réapparaîtrait bien à l'écran mais les
+ * champs afficheraient les valeurs par défaut, et la première interaction avec
+ * l'un d'eux écraserait tout le reste par ce qu'affichent les autres.
+ */
+function writeTextControls(): void {
+  textContent.value = textConfig.text;
+  textLayoutSelect.value = textConfig.layout;
+  textAnimationSelect.value = textConfig.animation;
+  textEverySelect.value = String(textConfig.everyBars);
+  textFamilySelect.value = textConfig.family;
+  textWeightSelect.value = String(textConfig.weight);
+  textCaseSelect.value = textConfig.textCase;
+  textColorSelect.value = textConfig.color;
+  textSizeInput.value = String(textSize);
+  textStatus.textContent = '';
 }
 
 /**

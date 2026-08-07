@@ -22,6 +22,12 @@ const PROJECT_ENTRY = 'project.json';
 const THUMBNAIL_ENTRY = 'thumbnail.jpg';
 const PMDI_ENTRY = 'music.pmdi.json';
 const AUDIO_DIR = 'audio/';
+/**
+ * Pochette (docs/17 SS7.5, chantier 10 lot B). Un DOSSIER et non un nom fixe :
+ * l'extension d'origine est conservee, donc le type MIME se retrouve sans avoir
+ * a le stocker a cote - meme convention que `audio/`.
+ */
+const COVER_DIR = 'cover/';
 
 export class PvprojFormatError extends Error {}
 
@@ -37,10 +43,12 @@ export interface WritePvprojOptions {
   readonly thumbnail: Uint8Array;
   /** Présent seulement en sauvegarde « Complète » (docs/13) — absent en mode « Léger » (audio référencé par hash). */
   readonly audio?: { readonly filename: string; readonly data: Uint8Array };
+  /** Pochette importée, octets d'ORIGINE (chantier 10 lot B). Absente si aucune. */
+  readonly cover?: { readonly filename: string; readonly data: Uint8Array };
 }
 
 export function writePvproj(options: WritePvprojOptions): Uint8Array {
-  const { project, thumbnail, audio } = options;
+  const { project, thumbnail, audio, cover } = options;
   const entries: ZipEntry[] = [];
 
   if (project.music.mode === 'pmdi' && project.music.pmdi) {
@@ -54,6 +62,7 @@ export function writePvproj(options: WritePvprojOptions): Uint8Array {
 
   entries.push({ name: THUMBNAIL_ENTRY, data: thumbnail });
   if (audio) entries.push({ name: `${AUDIO_DIR}${audio.filename}`, data: audio.data });
+  if (cover) entries.push({ name: `${COVER_DIR}${cover.filename}`, data: cover.data });
   return writeZip(entries);
 }
 
@@ -67,6 +76,8 @@ export interface ReadPvprojResult {
   /** Miroir de `project.music.pmdi` — pratique quand l'appelant ne veut pas vérifier `music.mode` lui-même. */
   readonly pmdi: PmdiDocument | null;
   readonly audio: { readonly filename: string; readonly data: Uint8Array } | null;
+  /** Pochette, ou `null` si l'archive n'en porte pas (chantier 10 lot B). */
+  readonly cover: { readonly filename: string; readonly data: Uint8Array } | null;
 }
 
 /** Lit et migre `project.json` (docs/13 §"Migration") — lève `ProjectError` si invalide/trop récent, jamais une lecture partielle. */
@@ -96,7 +107,10 @@ export function readPvproj(data: Uint8Array): ReadPvprojResult {
   const audioEntry = entries.find((e) => e.name.startsWith(AUDIO_DIR));
   const audio = audioEntry ? { filename: audioEntry.name.slice(AUDIO_DIR.length), data: audioEntry.data } : null;
 
-  return { project, thumbnail: byName.get(THUMBNAIL_ENTRY) ?? null, pmdi, audio };
+  const coverEntry = entries.find((e) => e.name.startsWith(COVER_DIR));
+  const cover = coverEntry ? { filename: coverEntry.name.slice(COVER_DIR.length), data: coverEntry.data } : null;
+
+  return { project, thumbnail: byName.get(THUMBNAIL_ENTRY) ?? null, pmdi, audio, cover };
 }
 
 export async function readPvprojBlob(blob: Blob): Promise<ReadPvprojResult> {
