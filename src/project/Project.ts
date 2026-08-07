@@ -47,6 +47,15 @@ export interface ProjectAudio {
 
 export interface ProjectMusic {
   readonly mode: MusicMode;
+  /**
+   * Corrections manuelles de l'analyse (docs/17 §7.8, chantier 10 lot E) :
+   * décalage de grille, drops marqués, frontières de section déplacées.
+   *
+   * Dans `music` et non dans `visual` : elles corrigent la LECTURE du morceau,
+   * pas son habillage. Un « Look » ne doit surtout pas les emporter d'un projet
+   * à l'autre — les instants n'auraient aucun sens ailleurs.
+   */
+  readonly corrections?: Readonly<Record<string, unknown>>;
   readonly analysisProfile?: AnalysisProfile;
   readonly cacheKey?: string;
   /** Embarqué UNIQUEMENT en mode "pmdi" — non reproductible depuis l'audio (vient de PULSAR). */
@@ -121,11 +130,6 @@ export interface ProjectVisual {
    */
   readonly mapping?: Readonly<Record<string, unknown>>;
   /**
-   * Compositeur de couches (§7.7, chantier 10 lot C) : couches désactivées et
-   * ordre voulu. Une couche absente de `enabled` est ACTIVE, et un `order` vide
-   * signifie « celui de la fabrique du style ».
-   */
-  /**
    * Courbes d'automatisation (§7.3, chantier 10 lot D) : cible vers
    * images-clés. Objet opaque, même raison que `mapping` : `project/` ne peut
    * importer que `music/`. `normaliseAutomation` le remet en forme au
@@ -133,6 +137,11 @@ export interface ProjectVisual {
    * `valueAt`.
    */
   readonly automation?: readonly Readonly<Record<string, unknown>>[];
+  /**
+   * Compositeur de couches (§7.7, chantier 10 lot C) : couches désactivées et
+   * ordre voulu. Une couche absente de `enabled` est ACTIVE, et un `order` vide
+   * signifie « celui de la fabrique du style ».
+   */
   readonly layers?: {
     readonly enabled?: Readonly<Record<string, boolean>>;
     readonly order?: readonly string[];

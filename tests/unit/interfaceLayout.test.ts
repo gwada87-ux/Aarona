@@ -59,8 +59,8 @@ describe('le thème passe par des VARIABLES (§10.1)', () => {
 describe('groupes par intention (§10.1)', () => {
   it('les groupes existent, dans l\'ordre', () => {
     // Cinq au lot A (Visuel / Couleurs / Texte / Réactivité / Export), plus
-    // Automatisation au lot D. Elle vient AVANT l'export : on règle une courbe
-    // pendant qu'on regarde, on exporte à la fin.
+    // Automatisation au lot D et Analyse au lot E. Les deux viennent AVANT
+    // l'export : on règle pendant qu'on regarde, on exporte à la fin.
     const ids = [...html.matchAll(/<details class="groupe" id="([^"]+)"/g)].map((m) => m[1]);
     expect(ids).toEqual([
       'groupe-visuel',
@@ -68,6 +68,7 @@ describe('groupes par intention (§10.1)', () => {
       'groupe-texte',
       'groupe-reactivite',
       'groupe-automation',
+      'groupe-analyse',
       'groupe-export',
     ]);
   });

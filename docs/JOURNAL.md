@@ -5467,3 +5467,144 @@ passage : `refreshAutomationStatus` manquait dans le gestionnaire de pose.
 - **La reconstruction de scène en pause** (voir lot C) rend une automatisation
   invisible tant qu'on n'a pas relancé la lecture.
 - Aucune capture d'écran : mêmes limites d'environnement.
+
+---
+
+## Phase 2 — Chantier 10, lot E : marqueurs, corrections, options d'export
+
+§7.8 et §7.12. Dernier lot du chantier 10, donc **dernier lot de la phase 2**.
+
+### Corriger l'analyse (§7.8)
+
+« L'analyse se trompera parfois : un downbeat décalé, un drop manqué, une
+section mal découpée. Aujourd'hui l'utilisateur n'a aucun recours. [...] Loi 3
+le rend d'autant plus utile : les morceaux à faible confiance sont exactement
+ceux qu'il faut pouvoir rattraper. »
+
+**Une transformation du DOCUMENT, pas un étage de plus.** Les corrections
+produisent un `PmdiDocument` corrigé, que `buildMusicTimeline` consomme comme
+n'importe quel autre. Rien en aval ne sait qu'une correction existe : ni la
+timeline, ni les signaux, ni les couches, ni l'export. C'était la seule façon
+d'éviter un « et si c'est corrigé ? » à chaque lecture de la grille — et c'est
+aussi ce qui garantit que l'aperçu et la vidéo voient exactement le même morceau,
+sans qu'aucun test de plus n'ait à le surveiller.
+
+Les trois corrections de §7.8, et ce que chacune touche :
+
+- **Décalage de grille** : décale les cartes de tempo et de mesure, **jamais les
+  événements**. Quand la grille est fausse, ce sont les temps qui tombent à côté ;
+  les onsets viennent du signal audio et sont, eux, à leur place. Un test vérifie
+  que `beatPhaseAt(t + 0,25)` sur la grille décalée vaut `beatPhaseAt(t)` sur
+  l'originale — le décalage est celui demandé, pas un à-peu-près.
+- **Drop marqué à la main** : un `MusicEvent` de type `DROP` ordinaire, avec
+  `confidence: 1` — c'est un humain qui l'a posé, il n'y a rien de plus certain
+  dans le document. `anticipate:DROP` le trouve sans rien savoir de son origine,
+  donc `tension` monte devant lui exactement comme devant un drop détecté :
+  **aucun code de signal à toucher.** Un test l'a d'ailleurs corrigé en cours de
+  route — la démo porte déjà des DROP détectés, et le drop manuel s'y mêle sans
+  qu'on puisse les distinguer. C'est précisément le but.
+- **Frontière de section déplacée**, par index. Les sections sont **retriées**
+  après coup : déplacer une frontière peut la faire passer devant la précédente,
+  et tout ce qui lit `sections()` suppose l'ordre chronologique.
+
+**Le document BRUT est conservé à part du corrigé.** On ne peut pas retirer un
+décalage de grille d'un document auquel on l'a déjà appliqué sans accumuler les
+arrondis, et « annuler toutes les corrections » doit rendre exactement le
+document d'origine.
+
+Le curseur de grille agit sur `change` et non sur `input` : chaque pas
+reconstruit la timeline entière, la scène et la frise. À chaque pixel de course,
+il serait inutilisable.
+
+Rangées dans `music` et non dans `visual` : elles corrigent la LECTURE du
+morceau, pas son habillage. Conséquence voulue — **un « Look » ne les emporte
+pas**, les instants n'auraient aucun sens sur un autre morceau.
+
+### Les deux options d'export (§7.12)
+
+**Image fixe.** « Presque gratuit, la chaîne existe déjà. » C'est vrai, à une
+condition qui ne l'est pas : la scène doit être **simulée** jusqu'à l'instant
+courant avant d'être dessinée. Un `scene.draw` sur une scène fraîche rendrait un
+cadre vide — pools de particules à zéro, feedback noir. Deux secondes de pré-roll,
+le même remède qu'aux vignettes du lot A.
+
+Au passage, `getStyleFactory` a été extraite en `buildExportScene` : l'image fixe
+a besoin exactement de la même scène que la vidéo, et deux fabriques auraient
+divergé jusqu'à ce que l'image ne ressemble plus au film du même projet.
+
+**Export en boucle.** §7.12 demandait de le documenter honnêtement s'il n'était
+pas tenable partout. Il ne l'est pas, et voici la formulation exacte :
+
+> Ce que ça fait : la scène est SIMULÉE sur les deux dernières secondes du
+> morceau avant que la première image ne soit dessinée. Les couches à état —
+> pools de particules, traînée de feedback — démarrent donc dans l'état où elles
+> finissent, et la couture ne se voit plus.
+>
+> Ce que ça ne fait PAS : rendre la dernière image identique à la première. Elle
+> ne peut pas l'être — les signaux viennent de la musique, et la musique de la
+> dernière seconde n'est pas celle de la première. La boucle est visuellement
+> continue, pas mathématiquement fermée.
+
+La case à cocher le dit dans les mêmes termes, en une ligne.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 118 fichiers, 1118 tests (1099 -> 1118, +19)
+npm run test:arch   -> 1 test
+npm run build       -> 531,23 kB (gzip 152,06 kB), 2,12 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**.
+
+**Les trois corrections, et leur annulation :**
+
+| geste | état rapporté |
+|---|---|
+| décalage de grille | `grille 180 ms` |
+| marquer un drop | `grille 180 ms · 1 drop(s) marqué(s)` |
+| déplacer la frontière B | `... · 1 frontière(s) déplacée(s)`, section B passée de 0:18 à 0:00 |
+| tout annuler | `Analyse non corrigée.`, sections revenues à 0:00 / 0:18 / 0:42, décalage 0 ms |
+
+**Persistance** : `grille -120 ms · 1 drop(s) marqué(s)`, sauvegarde automatique,
+**rechargement complet de la page**, réouverture — les deux reviennent, curseur
+compris.
+
+**Image fixe** : PNG **1920×1080, 1 037 Ko**, redécodé et mesuré — **57 261
+pixels clairs**, luminance moyenne 14,39. Une vraie image, pas un cadre noir.
+Refaite après restauration d'un projet : 1 124 Ko, même chaîne.
+
+### Ce que le lot E clôt
+
+Les sept groupes du panneau sont en place — Visuel, Couleurs, Texte, Réactivité,
+Automatisation, Analyse, Export — et les cinq lots du chantier 10 sont livrés.
+Avec eux, **la phase 2 est terminée** : dix chantiers, de l'ouverture du verrou
+MVP à la correction manuelle de l'analyse.
+
+### À valider par Aaron
+
+- **La plage du décalage de grille** : ±500 ms, par pas de 5 ms. Assez pour un
+  demi-temps à 60 BPM ; au-delà, c'est l'analyse qu'il faut refaire.
+- **La tolérance de « retirer le drop le plus proche »** : 400 ms. Trop large, on
+  retire le mauvais ; trop étroite, le bouton semble ne rien faire.
+- **Déplacer une frontière déplace le DÉBUT d'une section**, donc allonge ou
+  raccourcit celle d'avant. C'est la seule lecture possible sans inventer une
+  poignée de fin, mais ça se découvre.
+- **L'export en boucle sur un vrai morceau.** C'est l'option la plus difficile à
+  juger sans regarder : la couture est-elle vraiment invisible, ou voit-on le
+  saut musical ?
+
+### Limites connues
+
+- **Aucune poignée sur la frise pour les sections** : on choisit dans une liste
+  et on déplace à la tête de lecture. Un glisser aurait été plus direct, mais le
+  clic sur la frise sert déjà à l'automatisation depuis le lot D, et empiler un
+  troisième sens sur le même geste aurait rendu les trois illisibles.
+- **Le décalage de grille ne décale pas la forme d'onde**, qui vient de l'audio :
+  c'est correct, mais l'œil peut lire un désaccord entre les traits de mesure et
+  les crêtes — c'est justement ce qu'on est en train de corriger.
+- **`LOOP_PREROLL_SEC` vaut 2 s** : suffisant pour une traînée dont l'alpha de
+  0,88 par image ne laisse plus rien au bout d'une demi-seconde, jamais vérifié
+  sur un pool de particules à durée de vie longue.
+- Aucune capture d'écran : mêmes limites d'environnement que sur toute la phase.

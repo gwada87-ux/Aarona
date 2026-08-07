@@ -24,6 +24,9 @@ import { createViewport } from '../render/Viewport';
 import { Canvas2DRenderer } from '../render/canvas2d/Canvas2DRenderer';
 import { StepContextBuilder } from '../music/StepContext';
 import { buildMusicTimeline, type MusicTimeline } from '../music/MusicTimeline';
+import { NO_CORRECTIONS, addDrop, applyCorrections, isNeutral, moveSectionStart, normaliseCorrections, removeDropNear, type AnalysisCorrections } from '../music/corrections';
+import { FORMATS as EXPORT_FORMATS, findFormat } from '../export/formats';
+import { createOffscreenExportTarget } from '../export/createOffscreenExportTarget';
 import type { PmdiDocument } from '../music/pmdi';
 import type { WaveformPeaks } from '../analysis/waveformPeaks';
 import { BehaviourEngine } from '../behaviour/BehaviourEngine';
@@ -226,6 +229,12 @@ let layerOrder: readonly string[] = [];
 let lastComposition: ComposeResult | null = null;
 /** Courbes d'automatisation (§7.3). Vide = aucune, et le rendu est alors EXACTEMENT celui d'avant. */
 let automation: Automation = [];
+/** Corrections manuelles de l'analyse (§7.8, lot E). */
+let corrections: AnalysisCorrections = NO_CORRECTIONS;
+/** Document d'analyse BRUT, avant corrections — pour pouvoir les annuler. */
+let rawDoc: PmdiDocument | null = null;
+/** Dernières crêtes de forme d'onde, réutilisées quand la frise se reconstruit. */
+let lastWaveformPeaks: WaveformPeaks | null = null;
 /** Cible en cours d'édition sur la frise. */
 let automationTarget = 'intensity';
 /**
@@ -570,6 +579,44 @@ function applyLayerMacros(): void {
 }
 
 /**
+ * La scène telle que l'EXPORT doit la voir.
+ *
+ * Extraite de `getStyleFactory` au lot E, parce que l'export d'image fixe (§7.12)
+ * en a besoin exactement de la même : deux fabriques auraient divergé, et
+ * l'image fixe aurait fini par ne plus ressembler à la vidéo du même projet.
+ *
+ * `composeLayers`, `withCover` et `withText` ICI AUSSI, et pas seulement dans la
+ * boucle d'aperçu : sans eux, l'export produirait la même image moins les
+ * habillages et avec les couches désactivées. C'est très exactement le piège de
+ * l'Étape 25, et trois tests le vérifient.
+ *
+ * docs/10 règle non négociable #2 : l'export fige TOUJOURS le niveau à
+ * `EXPORT_QUALITY_LEVEL`, jamais `currentQualityLevel`.
+ */
+function buildExportScene(): Scene {
+  const built = withText(
+    withCover(
+      composeLayers(
+        STYLE_FACTORIES[currentStyleId](
+          QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
+          QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+        ),
+        layerEnabled,
+        layerOrder,
+      ).scene,
+      coverImage !== null,
+    ),
+    textConfig,
+  );
+  // Les `params` du texte ne passent NI par les macros NI par le preset : le
+  // pipeline d'export ne les poserait donc jamais, et un texte agrandi à
+  // l'aperçu sortirait à sa taille par défaut dans la vidéo.
+  const layer = built.layers.find((l) => l.id === 'text');
+  if (layer) layer.params = { size: textSize };
+  return built;
+}
+
+/**
  * Bloom = intention du PRESET, modulee par la macro Glow, PLAFONNEE par le
  * niveau de qualite (docs/17 §6.5, chantier 9).
  *
@@ -740,31 +787,7 @@ const exportDialog = new ExportDialog({
   // C'est très exactement le piège de l'Étape 25, où les macros de couche
   // avaient été branchées d'un seul côté. Un test lit ce fichier pour le
   // vérifier, sur les deux habillages.
-  getStyleFactory: () => () => {
-    // `composeLayers` ICI AUSSI : sans lui, l'export rendrait toutes les couches
-    // du style, y compris celles que l'utilisateur a désactivées. Même piège de
-    // l'Étape 25 que pour la pochette et le texte, et un test le vérifie.
-    const built = withText(
-      withCover(
-        composeLayers(
-          STYLE_FACTORIES[currentStyleId](
-            QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
-            QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
-          ),
-          layerEnabled,
-          layerOrder,
-        ).scene,
-        coverImage !== null,
-      ),
-      textConfig,
-    );
-    // Les `params` du texte ne passent NI par les macros NI par le preset : le
-    // pipeline d'export ne les poserait donc jamais, et un texte agrandi à
-    // l'aperçu sortirait à sa taille par défaut dans la vidéo.
-    const layer = built.layers.find((l) => l.id === 'text');
-    if (layer) layer.params = { size: textSize };
-    return built;
-  },
+  getStyleFactory: () => buildExportScene,
   getCover: () => coverImage,
   getMacros: () => currentMacros,
   getStyleId: () => currentStyleId,
@@ -1035,26 +1058,51 @@ async function runAnalysisWithProgress(audioBuffer: AudioBuffer, abortSignal: Ab
 }
 
 /** Construit la timeline/scène pour un document déjà décidé, SANS toucher au preset actif — partagé par `applyImportedDoc` (suggestion) et `restoreProject` (préset restauré). */
-function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null): void {
-  currentDoc = doc;
-  currentTimeline = buildMusicTimeline(doc);
+function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null, keepPosition = false): void {
+  // Document BRUT gardé à part du corrigé : les corrections doivent pouvoir
+  // s'annuler, et on ne peut pas retirer un décalage de grille d'un document
+  // auquel on l'a déjà appliqué sans accumuler les arrondis (§7.8, lot E).
+  rawDoc = doc;
+  const corrected = applyCorrections(doc, corrections);
+  currentDoc = corrected;
+  currentTimeline = buildMusicTimeline(corrected);
   stepper = new StepContextBuilder(currentTimeline, projectSeed);
-  simT = 0;
-  lastAudioT = 0;
+  if (!keepPosition) {
+    simT = 0;
+    lastAudioT = 0;
+  }
   fixedStep.reset();
+  lastWaveformPeaks = waveformPeaks ?? lastWaveformPeaks;
 
   applyActiveConfiguration();
 
   resizeTimelineCanvas();
   timelineComponent.setData({
-    duration: doc.audio.duration,
-    waveformPeaks,
-    downbeats: doc.grid?.downbeats ?? [],
+    duration: corrected.audio.duration,
+    waveformPeaks: lastWaveformPeaks,
+    // Downbeats DÉCALÉS comme la grille : ce sont eux qu'on voit sur la frise,
+    // et les laisser en place ferait mentir la correction à l'écran alors
+    // qu'elle agit dans le moteur.
+    downbeats: (corrected.grid?.downbeats ?? []).map((t: number) => Math.max(0, t + corrections.gridOffsetSec)),
     sections: currentTimeline.sections(),
   });
 
-  outGridConfidence.textContent = doc.confidence.grid.toFixed(2);
+  outGridConfidence.textContent = corrected.confidence.grid.toFixed(2);
   dropzone.classList.add('hidden');
+}
+
+/**
+ * Rebâtit la timeline après une correction, SANS perdre la position de lecture.
+ *
+ * `applyDocCore` remet `simT` à zéro — ce qu'on veut au chargement d'un morceau,
+ * jamais quand on vient de déplacer une frontière de section : on regarde
+ * précisément l'endroit qu'on corrige.
+ */
+function reapplyCorrections(): void {
+  if (!rawDoc) return;
+  applyDocCore(rawDoc, lastWaveformPeaks, true);
+  refreshCorrectionsStatus();
+  scheduleAutosave();
 }
 
 function applyImportedDoc(doc: PmdiDocument, suggestedPresetId: string | null, waveformPeaks: WaveformPeaks | null): void {
@@ -1104,7 +1152,12 @@ function buildCurrentProject(): Project | null {
     version: CURRENT_PROJECT_VERSION,
     meta: { id: projectId, name: projectName, createdAt: projectCreatedAt, modifiedAt: new Date().toISOString(), app: 'pulsar-visualizer@0.0.0-p0' },
     audio: { ref: { kind: 'file', name: audioFileName, size: audioFileSize, hash: audioHash }, duration: currentDoc.audio.duration },
-    music: { mode: 'analysis', analysisProfile: 'balanced', cacheKey: analysisCacheKeyValue ?? undefined },
+    music: {
+      mode: 'analysis',
+      analysisProfile: 'balanced',
+      cacheKey: analysisCacheKeyValue ?? undefined,
+      ...(isNeutral(corrections) ? {} : { corrections: corrections as unknown as Record<string, unknown> }),
+    },
     visual: {
       presetId: selectedPresetId ?? 'none',
       presetVersion: catalogPreset?.version ?? 1,
@@ -1271,6 +1324,9 @@ async function restoreVisualExtras(project: Project, coverBlob: Blob | null): Pr
   // `normaliseAutomation` TRIE les points : `valueAt` fait une recherche
   // dichotomique, et un fichier écrit à la main ne garantit pas l'ordre.
   automation = normaliseAutomation(project.visual.automation);
+  // Les corrections vivent dans `music` : elles corrigent la LECTURE du
+  // morceau, pas son habillage (§7.8, lot E).
+  corrections = normaliseCorrections(project.music.corrections);
   automatedMacros = null;
   refreshAutomationLane();
   refreshAutomationStatus();
@@ -1565,6 +1621,141 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
 // Le groupe « Visuel » ne rend ses vignettes qu'une fois ouvert : les huit
 // scènes simulées ne se paient donc que si quelqu'un les regarde.
 document.querySelector<HTMLDetailsElement>('#groupe-visuel')?.addEventListener('toggle', () => refreshStyleThumbnails());
+
+// --- Correction manuelle de l'analyse (docs/17 §7.8) -----------------------
+
+const gridOffsetInput = document.querySelector<HTMLInputElement>('#grid-offset')!;
+const gridOffsetValue = document.querySelector<HTMLElement>('#grid-offset-value')!;
+const sectionSelect = document.querySelector<HTMLSelectElement>('#section-select')!;
+const correctionsStatus = document.querySelector<HTMLElement>('#corrections-status')!;
+
+function refreshCorrectionsStatus(): void {
+  gridOffsetInput.value = String(corrections.gridOffsetSec);
+  gridOffsetValue.textContent = `${Math.round(corrections.gridOffsetSec * 1000)} ms`;
+
+  // Les sections listées viennent du document CORRIGÉ : déplacer une frontière
+  // doit se voir dans la liste, sinon on corrige à l'aveugle.
+  const sections = currentTimeline?.sections() ?? [];
+  const selected = sectionSelect.value;
+  sectionSelect.replaceChildren(
+    ...sections.map((s, i) => {
+      const option = document.createElement('option');
+      option.value = String(i);
+      option.textContent = `${s.letter ?? String.fromCharCode(65 + i)} — ${formatTime(s.t)}`;
+      return option;
+    }),
+  );
+  if (selected && Number(selected) < sections.length) sectionSelect.value = selected;
+
+  const parts: string[] = [];
+  if (corrections.gridOffsetSec !== 0) parts.push(`grille ${Math.round(corrections.gridOffsetSec * 1000)} ms`);
+  if (corrections.drops.length > 0) parts.push(`${corrections.drops.length} drop(s) marqué(s)`);
+  const moved = Object.keys(corrections.sectionStarts).length;
+  if (moved > 0) parts.push(`${moved} frontière(s) déplacée(s)`);
+  correctionsStatus.textContent = parts.length > 0 ? parts.join(' · ') : 'Analyse non corrigée.';
+}
+
+gridOffsetInput.addEventListener('input', () => {
+  gridOffsetValue.textContent = `${Math.round(Number(gridOffsetInput.value) * 1000)} ms`;
+});
+// Sur `change` et non `input` : chaque pas du curseur reconstruit la timeline
+// ENTIÈRE, la scène et la frise. Le faire à chaque pixel de course rendrait le
+// curseur inutilisable.
+gridOffsetInput.addEventListener('change', () => {
+  corrections = { ...corrections, gridOffsetSec: Number(gridOffsetInput.value) };
+  reapplyCorrections();
+});
+
+document.querySelector<HTMLButtonElement>('#btn-drop-add')!.addEventListener('click', () => {
+  corrections = addDrop(corrections, simT);
+  reapplyCorrections();
+});
+document.querySelector<HTMLButtonElement>('#btn-drop-remove')!.addEventListener('click', () => {
+  corrections = removeDropNear(corrections, simT);
+  reapplyCorrections();
+});
+
+document.querySelector<HTMLButtonElement>('#btn-section-move')!.addEventListener('click', () => {
+  const index = Number(sectionSelect.value);
+  if (!Number.isInteger(index)) return;
+  corrections = moveSectionStart(corrections, index, simT);
+  reapplyCorrections();
+});
+
+document.querySelector<HTMLButtonElement>('#btn-corrections-reset')!.addEventListener('click', () => {
+  corrections = NO_CORRECTIONS;
+  reapplyCorrections();
+});
+
+document.querySelector<HTMLDetailsElement>('#groupe-analyse')!.addEventListener('toggle', refreshCorrectionsStatus);
+
+// --- Export d'une image fixe (docs/17 §7.12) -------------------------------
+
+const stillStatus = document.querySelector<HTMLElement>('#still-status')!;
+
+/**
+ * Enregistre l'instant courant en PNG, à la résolution du format d'export.
+ *
+ * §7.12 : « Presque gratuit, la chaîne existe déjà. » C'est vrai, à une
+ * condition qui n'est pas évidente : la scène doit être SIMULÉE jusqu'à `simT`
+ * avant d'être dessinée. Un `scene.draw` sur une scène fraîche rendrait un cadre
+ * vide — pools de particules à zéro, feedback noir. Le pré-roll ci-dessous est
+ * le même remède que celui des vignettes de style du lot A.
+ */
+async function exportStillFrame(): Promise<void> {
+  if (!currentTimeline || !currentPalette || !currentMapping) {
+    stillStatus.textContent = "Importe un morceau d'abord.";
+    return;
+  }
+  // Le format vient du selecteur du dialogue d'export, source unique : une
+  // image fixe et une video du meme projet doivent avoir le meme cadre.
+  const formatId = document.querySelector<HTMLSelectElement>('#export-format')!.value;
+  const format = findFormat(formatId) ?? EXPORT_FORMATS[0]!;
+  stillStatus.textContent = 'Rendu…';
+  try {
+    const { target, canvas } = createOffscreenExportTarget(format.width, format.height, reducedFlashing);
+    const scene = buildExportScene();
+    scene.init({ renderer: target.renderer, palette: currentPalette, cover: coverImage });
+    applyLayerMacrosToScene(scene, automatedMacros ?? currentMacros, currentStyleId);
+    const variant = variantFor(currentStyleId, projectSeed);
+    applyLayerBlends(scene, variant.blend);
+    target.renderer.setBloomConfig(
+      resolveBloom(currentBloom, currentMacros.glow, QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].bloom),
+    );
+
+    const stepperLocal = new StepContextBuilder(currentTimeline, projectSeed);
+    const behaviour = new BehaviourEngine(currentTimeline, currentMapping);
+    const director = new VisualDirector(currentTimeline);
+    // Simulation depuis un PRÉ-ROLL et non depuis zéro : rejouer tout le morceau
+    // pour une image fixe coûterait des minutes sur un long titre, et deux
+    // secondes suffisent à remplir les pools et la traînée.
+    const start = Math.max(0, simT - STILL_PREROLL_SEC);
+    for (let t = start; t < simT; t += FIXED_DT) {
+      stepSceneWithDrama(scene, behaviour, director, stepperLocal.build(t), automationAt(t));
+    }
+    openFrameWithCamera(target.renderer, target.viewport, currentPalette.bg[1], director, framingFor(scene, variant), automationAt(simT));
+    scene.draw(target.renderer, target.viewport);
+    target.renderer.endFrame();
+    target.applyFlashLimiter(simT);
+    scene.dispose();
+
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${projectName || 'pulsar'}-${Math.round(simT * 1000)}ms.png`;
+    link.click();
+    URL.revokeObjectURL(url);
+    stillStatus.textContent = `PNG ${format.width}×${format.height} enregistré (${(blob.size / 1024).toFixed(0)} Ko).`;
+  } catch (err) {
+    stillStatus.textContent = `Échec du rendu : ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/** Secondes de simulation avant la capture d'une image fixe. */
+const STILL_PREROLL_SEC = 2;
+
+document.querySelector<HTMLButtonElement>('#btn-export-still')!.addEventListener('click', () => void exportStillFrame());
 
 // --- Automatisation par images-clés (docs/17 §7.3) -------------------------
 

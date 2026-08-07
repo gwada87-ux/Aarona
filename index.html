@@ -265,6 +265,38 @@
       <button id="btn-automation-clear" type="button">Effacer cette piste</button>
     </details>
 
+    <!-- =============================================== ANALYSE =========== -->
+    <!-- docs/17 §7.8 : corriger ce que l'analyse a raté. Loi 3 le rend d'autant
+         plus utile — les morceaux à faible confiance sont ceux qu'il faut
+         pouvoir rattraper. -->
+    <details class="groupe" id="groupe-analyse">
+      <summary>Analyse</summary>
+      <p class="macro-note">Les corrections s'appliquent au document d'analyse : l'aperçu et l'export voient exactement le même morceau.</p>
+
+      <p class="sous-titre">Décalage de la grille</p>
+      <label>
+        <div class="macro-row">
+          <input type="range" id="grid-offset" min="-0.5" max="0.5" step="0.005" value="0" />
+        </div>
+      </label>
+      <p id="grid-offset-value" class="macro-note">0 ms</p>
+
+      <p class="sous-titre">Drops</p>
+      <div class="bouton-rangee">
+        <button id="btn-drop-add" type="button">Marquer ici</button>
+        <button id="btn-drop-remove" type="button">Retirer</button>
+      </div>
+
+      <p class="sous-titre">Frontière de section</p>
+      <label>
+        <select id="section-select"></select>
+      </label>
+      <button id="btn-section-move" type="button">Déplacer ici</button>
+
+      <p id="corrections-status" class="macro-note"></p>
+      <button id="btn-corrections-reset" type="button">Annuler toutes les corrections</button>
+    </details>
+
     <!-- ================================================== EXPORT ========= -->
     <details class="groupe" id="groupe-export">
       <summary>Export</summary>
@@ -276,6 +308,12 @@
           <option value="free">Gratuit (1280×720, watermark)</option>
         </select>
       </label>
+      <!-- docs/17 §7.12 : deux options peu coûteuses. -->
+      <p class="sous-titre">Image fixe</p>
+      <p class="macro-note">Enregistre l'instant courant en PNG, à la résolution du format choisi.</p>
+      <button id="btn-export-still" type="button">Exporter l'image courante…</button>
+      <p id="still-status" class="macro-note"></p>
+
       <p class="sous-titre" data-mode="avance">Preset JSON</p>
       <button id="btn-preset-editor-open" data-mode="avance">Éditer le preset actif…</button>
     </details>
@@ -301,6 +339,10 @@
     </label>
     <label>
       <input type="checkbox" id="export-watermark" /> Watermark (marque discrète en bas à droite)
+    </label>
+    <!-- docs/17 §7.12 -->
+    <label>
+      <input type="checkbox" id="export-loop" /> Export en boucle (la couture ne se voit plus ; la dernière image n'est pas identique à la première)
     </label>
     <p id="export-status"></p>
     <div class="dialog-actions">

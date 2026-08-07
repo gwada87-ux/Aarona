@@ -23,6 +23,16 @@ import { SUPPORTED_FPS, type Fps } from './formats';
 /** docs/09_EXPORT.md : « progression émise toutes les 15 images ». */
 const PROGRESS_EVERY = 15;
 
+/**
+ * Secondes simulees avant la premiere image en mode boucle.
+ *
+ * Deux secondes : assez pour remplir un pool de particules et saturer une
+ * trainee de feedback (dont l alpha de 0,88 par image ne laisse plus rien de
+ * visible au bout d une demi-seconde), assez peu pour ne pas doubler la duree
+ * d un export court.
+ */
+const LOOP_PREROLL_SEC = 2;
+
 export class ExportCancelledError extends Error {
   constructor() {
     super('Export annulé');
@@ -76,6 +86,21 @@ export interface ExportConfig {
   readonly durationSec: number;
   readonly audioBuffer: AudioBuffer;
   readonly watermarked: boolean;
+  /**
+   * Export EN BOUCLE (docs/17 SS7.12, chantier 10 lot E).
+   *
+   * Ce que ca fait, precisement : la scene est SIMULEE sur les dernieres
+   * secondes du morceau avant que la premiere image ne soit dessinee. Les
+   * couches a etat - pools de particules, trainee de feedback - demarrent donc
+   * dans l etat ou elles finissent, et la couture ne se voit plus.
+   *
+   * Ce que ca ne fait PAS, et SS7.12 demande de le dire honnetement : la
+   * derniere image n est pas IDENTIQUE a la premiere. Elle ne peut pas l etre -
+   * les signaux viennent de la musique, et la musique de la derniere seconde
+   * n est pas celle de la premiere. La boucle est visuellement continue, pas
+   * mathematiquement fermee.
+   */
+  readonly loop?: boolean;
   readonly onProgress?: (framesDone: number, totalFrames: number) => void;
   readonly signal?: AbortSignal;
 }
@@ -170,6 +195,14 @@ export async function runExport(
       auto.cameraZoom = automationValue(curves, 'cameraZoom', t, 1);
       return auto;
     };
+
+    // Pre-roll de bouclage (SS7.12). Avant la premiere image, pas apres : c est
+    // l etat de DEPART qu il faut faire correspondre a celui d arrivee.
+    if (config.loop === true) {
+      for (let t = Math.max(0, config.durationSec - LOOP_PREROLL_SEC); t < config.durationSec; t += FIXED_DT) {
+        stepSceneWithDrama(scene, behaviourEngine, director, stepper.build(t), evaluate(t));
+      }
+    }
 
     let simT = 0;
     for (let f = 0; f < totalFrames; f++) {

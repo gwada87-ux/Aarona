@@ -54,6 +54,7 @@ export class ExportDialog {
   private readonly formatSelect = document.querySelector<HTMLSelectElement>('#export-format')!;
   private readonly fpsSelect = document.querySelector<HTMLSelectElement>('#export-fps')!;
   private readonly watermarkCheckbox = document.querySelector<HTMLInputElement>('#export-watermark')!;
+  private readonly loopCheckbox = document.querySelector<HTMLInputElement>('#export-loop')!;
   private readonly statusEl = document.querySelector<HTMLElement>('#export-status')!;
   private readonly exportBtn = document.querySelector<HTMLButtonElement>('#btn-export')!;
   private readonly cancelBtn = document.querySelector<HTMLButtonElement>('#btn-export-cancel')!;
@@ -113,6 +114,7 @@ export class ExportDialog {
             durationSec,
             audioBuffer,
             watermarked,
+            loop: this.loopCheckbox.checked,
             signal: this.controller.signal,
             onProgress: (done, total) => {
               this.statusEl.textContent = `Encodage : image ${done}/${total}`;
