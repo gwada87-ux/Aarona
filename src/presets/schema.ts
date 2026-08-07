@@ -7,6 +7,7 @@
  * vérifie — même principe que `music/pmdi.ts` / `validatePmdi.ts`.
  */
 import type { MappingEntry } from '../behaviour/mapping/MappingSchema';
+import { ANTICIPATION_CURVES, type AnticipationCurve } from '../behaviour/signals/Anticipation';
 import type {
   ClapThresholds,
   HatThresholds,
@@ -275,6 +276,28 @@ function checkBloom(value: unknown, errors: string[]): void {
   }
 }
 
+/**
+ * Contrôle le SEUL champ de `mapping` capable de tuer la boucle de rendu : le
+ * nom de courbe d'une entrée d'anticipation.
+ *
+ * Le reste de `mapping` reste délibérément non validé — ce sont des diffs
+ * partiels dont chaque champ est optionnel, comme l'explique le commentaire de
+ * `validatePreset`. Cette exception a été payée cher : quatre presets livrés au
+ * chantier 9 déclaraient `curve: "easeInOutSine"`, absente alors de la table du
+ * moteur, et les sélectionner levait une `TypeError` qui figeait l'image sans
+ * le moindre message. Un nom de courbe est un identifiant qui doit exister ;
+ * ce n'est pas un réglage libre.
+ */
+function checkMappingCurves(value: unknown, errors: string[]): void {
+  if (!isRecord(value)) return;
+  for (const [signal, entree] of Object.entries(value)) {
+    if (!isRecord(entree) || entree.curve === undefined) continue;
+    if (!ANTICIPATION_CURVES.includes(entree.curve as AnticipationCurve)) {
+      errors.push(`"mapping.${signal}.curve" doit être l'un de ${ANTICIPATION_CURVES.join(', ')}`);
+    }
+  }
+}
+
 export function validatePreset(value: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -294,6 +317,7 @@ export function validatePreset(value: unknown): ValidationResult {
   checkPalette(value.palette, errors);
   checkMacros(value.macros, errors);
   checkBloom(value.bloom, errors);
+  checkMappingCurves(value.mapping, errors);
 
   if (value.version !== PRESET_SCHEMA_VERSION) {
     warnings.push(`version de schéma ${String(value.version)} différente de celle supportée (${PRESET_SCHEMA_VERSION})`);

@@ -6343,3 +6343,93 @@ min(B) = 0,253, donc il echoue ; sur la nouvelle, 0,350 et 0,805, il passe.
   rouge de 2x2). Je ne sors pas du dossier du projet, donc je ne l'ai pas
   touche : a supprimer a la main.
 - Le `temoin.png` interne a ete deplace dans `_corbeille/20260808/`.
+
+---
+
+## Correctif — quatre presets sur onze figeaient l'image
+
+Signale par Aaron : « quand je clic sur un preset du visualizer, l'image ne
+change pas, est ce normal ? »
+
+Non. C'etait une exception.
+
+### Reproduction
+
+Onze presets essayes un par un au navigateur, chacun sur une demo rechargee,
+avec mesure de l'ecart d'image avant/apres selection :
+
+| preset | ecart | exception |
+|---|---|---|
+| `lofi` `rnb` `afro` `ambient` | **0,0000** | `TypeError: CURVES[this.curve] is not a function` |
+| les sept autres | 0,054 a 0,225 | aucune |
+
+**L'ecart valait exactement zero.** L'exception tuait la boucle de rendu :
+l'image ne changeait pas parce qu'elle ne se dessinait plus du tout. Rien ne
+l'indiquait a l'ecran.
+
+### Cause
+
+Ces quatre presets declarent `curve: "easeInOutSine"` depuis le chantier 9.
+`Anticipation.CURVES` ne contenait que `linear` et `easeInQuad`.
+
+Trois choses rendaient la panne invisible :
+
+1. **`easeInOutSine` EXISTE** dans `core/math/easing`. Elle n'a jamais ete
+   branchee dans cette table-la.
+2. **`ReactionEditor` la propose deja** dans sa liste deroulante — donc
+   l'interface offrait un choix que le moteur ne savait pas honorer. La panne
+   etait atteignable a la main, pas seulement par les presets.
+3. **Les noms de courbes vivaient dans un TYPE TypeScript**, efface a la
+   compilation, alors que les presets sont du JSON lu a l'execution et introduit
+   dans le typage par un `as`. Les deux ne pouvaient pas se rencontrer. Aucun
+   test ne les confrontait.
+
+Le commentaire qui gardait la table — « pas de catalogue de courbes invente sans
+plus de specification » — etait une bonne regle appliquee trop tard : la
+decision d'offrir cette courbe avait deja ete prise deux fois ailleurs.
+
+### Correctif, en trois temps
+
+- **`ANTICIPATION_CURVES`** devient un tableau EXECUTABLE, pas seulement un
+  type, et `easeInOutSine` y entre. C'est ce tableau qui manquait : un type ne
+  peut rien verifier a l'execution.
+- **Repli sur `linear`** au lieu d'une exception quand la courbe est inconnue.
+  Une donnee fausse ne doit pas ARRETER LE RENDU — meme esprit que la Loi 3.
+  L'utilisateur n'a pas vu une erreur, il a vu une image figee.
+- **`validatePreset` refuse le mauvais nom a l'entree**, en le citant. Le reste
+  de `mapping` reste volontairement non valide (diffs partiels), mais un nom de
+  courbe est un identifiant qui doit exister, pas un reglage libre.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 121 fichiers, 1160 tests (1151 -> 1160, +9)
+npm run test:arch   -> 1 test
+npm run build       -> 532,90 kB (gzip 152,76 kB), 2,17 s
+```
+
+Au navigateur, apres correctif, onze presets sur onze : **aucune exception**,
+ecarts de 0,058 a 0,214. Les quatre morts sont revenus — `lofi` 0,070,
+`rnb` 0,078, `afro` 0,214, `ambient` 0,060 — et leurs teintes moyennes sont
+distinctes (`lofi` 41,22,22 chaud ; `ambient` 9,15,24 froid). Reverifie sur une
+page rechargee A NEUF, les erreurs residuelles de la console portant toutes des
+horodatages de modules anterieurs au correctif.
+
+### Ce que ca dit du critere 11
+
+`docs/17` §12 critere 11 — « passer d'un preset a un autre change la geometrie »
+— etait declare tenu. Il l'etait pour sept presets sur onze. **Je ne les avais
+pas tous essayes**, et aucun test ne le faisait a ma place. Le nouveau
+`tests/unit/anticipationCurves.test.ts` parcourt le catalogue REEL.
+
+### Limites connues
+
+- Le repli sur `linear` rend une courbe inconnue SILENCIEUSE a l'execution.
+  C'est voulu — mieux vaut une image un peu fausse qu'une image figee — et
+  `validatePreset` la refuse a l'entree. Mais un preset charge par un chemin qui
+  ne validerait pas passerait sans bruit.
+- **Seule la famille Anticipation** a ete auditee. Les autres familles de
+  `MappingSchema` (Impulse, Continuous, Lfo) peuvent avoir le meme genre de
+  nom-qui-doit-exister non verifie : `lfo:triangle`, `lfo:random`... Non
+  verifie, a faire.
