@@ -102,6 +102,21 @@ export interface Layer {
    * contaminer la suivante.
    */
   blend?: BlendMode;
+  /**
+   * La couche doit être dessinée EN PREMIER (docs/17 §7.7, chantier 10 lot C).
+   *
+   * `ScreenShake` et `FrameFeedback` posent l'une un décalage global, l'autre
+   * l'image précédente : les deux n'affectent que ce qui vient APRÈS elles.
+   * Les descendre dans la pile ne les casse pas visiblement — elles cessent
+   * simplement d'agir sur la moitié du décor, ce qui se lit comme « le style a
+   * perdu sa secousse » et n'oriente vers rien.
+   *
+   * §7.7 : « L'éditeur doit empêcher les ordres invalides, ou au minimum les
+   * signaler. » Il les empêche, et c'est ce drapeau qui le lui permet — plutôt
+   * qu'une liste d'identifiants recopiée dans le compositeur, qui aurait
+   * silencieusement raté la prochaine couche de ce genre.
+   */
+  readonly mustDrawFirst?: boolean;
   params: LayerParams;
 
   init(ctx: LayerInitContext): void;

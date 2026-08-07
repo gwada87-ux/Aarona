@@ -57,8 +57,25 @@ export const STYLE_LABELS: Readonly<Record<StyleId, string>> = Object.freeze({
 export const SIGNAL_NAMES = ['impact', 'subImpact', 'accent', 'tick', 'sectionShift', 'drive', 'weight', 'brightness', 'tension'] as const;
 export type SignalName = (typeof SIGNAL_NAMES)[number];
 
+/**
+ * Les quatre LFO (chantier 2, §7.1) — absents de `SIGNAL_NAMES` jusqu'au
+ * chantier 10 lot C.
+ *
+ * L'omission n'était pas anodine : les onze presets écrits au chantier 9
+ * déclarent tous `lfoA`..`lfoD` dans leur `mapping`, et ces clés n'étaient
+ * couvertes par AUCUN type. Elles passaient parce qu'un JSON importé n'est
+ * confronté au type que par un `as` dans `validatePreset`. L'éditeur de
+ * réaction, lui, les manipule en TypeScript : il fallait les nommer.
+ *
+ * Séparés de `SIGNAL_NAMES` plutôt que fondus dedans : un LFO n'a pas de source
+ * musicale, l'éditeur ne lui propose ni instrument ni gain, et plusieurs tables
+ * indexées par `SignalName` ne le concernent pas.
+ */
+export const LFO_NAMES = ['lfoA', 'lfoB', 'lfoC', 'lfoD'] as const;
+export type LfoName = (typeof LFO_NAMES)[number];
+
 /** Diff partiel sur `MappingSchema` — seules les entrées à recâbler sont présentes, le reste hérite de `defaultMapping`. */
-export type PresetMapping = Partial<Record<SignalName, MappingEntry>>;
+export type PresetMapping = Partial<Record<SignalName | LfoName, MappingEntry>>;
 
 export interface PresetGenreHint {
   readonly tempoHint: readonly [number, number];

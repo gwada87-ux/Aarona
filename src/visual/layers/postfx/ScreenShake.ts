@@ -29,6 +29,8 @@ const DEFAULT_DECAY = 0.15; // docs/07 : « décroissance 0,15 s » — pilotée
  */
 export class ScreenShake implements Layer {
   readonly id = 'screenShake';
+  /** Son effet ne porte que sur ce qui est dessine APRES elle : elle reste en tete (docs/17 SS7.7). */
+  readonly mustDrawFirst = true;
   readonly kind: LayerKind = 'postfx';
   readonly needsDrawPriming = false;
   params: LayerParams = {};

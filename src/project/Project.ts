@@ -109,6 +109,27 @@ export interface ProjectVisual {
   /** Texte affiché, ou absent (chantier 10 lot B). */
   readonly text?: ProjectText;
   /**
+   * Diff de câblage posé par l'éditeur de réaction (§7.11, chantier 10 lot C) :
+   * nom de signal → entrée de `MappingSchema`.
+   *
+   * Objet OPAQUE ici, pour la raison déjà écrite au-dessus de `customPreset` :
+   * `project/` n'a le droit d'importer que `music/`. Il ne peut pas non plus
+   * vivre dans `overrides`, qui est un diff chemin → PRIMITIVE : une entrée de
+   * câblage porte un tableau (`from: EventType[]`), que `computePresetDiff`
+   * ignore délibérément plutôt que d'écrire une valeur qui ne se rechargerait
+   * pas.
+   */
+  readonly mapping?: Readonly<Record<string, unknown>>;
+  /**
+   * Compositeur de couches (§7.7, chantier 10 lot C) : couches désactivées et
+   * ordre voulu. Une couche absente de `enabled` est ACTIVE, et un `order` vide
+   * signifie « celui de la fabrique du style ».
+   */
+  readonly layers?: {
+    readonly enabled?: Readonly<Record<string, boolean>>;
+    readonly order?: readonly string[];
+  };
+  /**
    * Pochette (§7.5). Le NOM du fichier seulement : les octets vivent à côté du
    * projet — entrée `cover/<nom>` du `.pvproj`, champ `cover` de
    * l'enregistrement IndexedDB. Mettre une image en base64 dans `project.json`
@@ -236,6 +257,12 @@ function checkVisual(visual: unknown, errors: string[]): void {
   }
   if (visual.coverName !== undefined && typeof visual.coverName !== 'string') {
     errors.push('"visual.coverName" doit être une chaîne quand présent');
+  }
+  if (visual.mapping !== undefined && !isRecord(visual.mapping)) {
+    errors.push('"visual.mapping" doit être un objet quand présent');
+  }
+  if (visual.layers !== undefined && !isRecord(visual.layers)) {
+    errors.push('"visual.layers" doit être un objet quand présent');
   }
 }
 

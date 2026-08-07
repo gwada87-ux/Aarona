@@ -5123,3 +5123,191 @@ du preset (`#7b4cff`), aucune pochette. Aucune erreur.
   genre que ceux traités en §5.6.
 - **Aucun plafond sur le magasin `projects`.** Voir ci-dessus.
 - Aucune capture d'écran : mêmes limites d'environnement.
+
+---
+
+## Phase 2 — Chantier 10, lot C : éditeur de réaction, compositeur, « Looks »
+
+§7.11 et §7.7. Trois pièces liées : §7.7 décrit le Look comme « le prolongement
+naturel du compositeur de couches », et le compositeur n'a de sens qu'une fois
+le câblage éditable.
+
+### Éditeur de réaction (§7.11)
+
+« Le bloc `mapping` est la chose la plus puissante du format de preset, et il
+n'est éditable qu'en JSON brut. » Il l'était encore : le seul accès passait par
+un `<textarea>` de JSON validé par schéma. Autant dire par personne.
+
+**Une ligne par SIGNAL, pas par instrument.** La maquette de §7.11 met
+l'instrument à gauche (« Caisse claire → révélation »). Le modèle de PULSAR est
+l'inverse : la clé est le signal, l'instrument n'est qu'une de ses propriétés
+(`impact: { from: ['KICK'] }`). Suivre la maquette littéralement aurait demandé
+d'inverser la table à l'affichage puis de la réinverser à l'écriture, avec une
+question sans réponse chaque fois qu'un instrument alimente deux signaux — ou
+aucun. La ligne est donc le signal et l'instrument un menu SUR la ligne : la
+lecture « le kick pilote la frappe, à telle force, avec tel retour » y est la
+même, et l'écriture ne peut pas produire d'état impossible.
+
+**Quatre familles, quatre jeux de contrôles**, déduits de la forme de `from`
+comme le fait `MappingSchema` — impulsion, continu, anticipation, LFO.
+**L'éditeur ne change pas de famille** : on recâble `impact` du kick vers le
+snare, on ne le transforme pas en LFO. La famille est une propriété du MOTEUR
+(`BehaviourEngine` construit un `Impulse` ou une `Continuous` selon elle), et la
+permuter donnerait un signal syntaxiquement valide et visuellement absurde.
+
+**Un menu de combinaisons plutôt que sept cases par ligne** : à cinq lignes
+d'impulsion, les cases feraient trente-cinq contrôles dans une colonne de 340 px.
+La liste couvre tous les câblages des onze presets du chantier 9, et une valeur
+du preset absente de la liste y est AJOUTÉE plutôt qu'écrasée en silence.
+
+**`userMappingOverrides` existait et n'était utilisé par personne.**
+`resolvePreset` lui réserve depuis docs/08 la place du dernier étage —
+« surcharges utilisateur, stockées comme un diff ». C'est exactement ce que
+l'éditeur produit.
+
+**Les quatre LFO n'étaient typés nulle part.** Les onze presets du chantier 9
+les déclarent tous, et `PresetMapping` valait `Partial<Record<SignalName, …>>`
+sans `lfoA`..`lfoD`. Ça passait parce qu'un JSON importé n'affronte le type que
+par le `as` de `validatePreset`. `LFO_NAMES` les nomme enfin — séparés de
+`SIGNAL_NAMES`, un LFO n'ayant ni instrument ni gain.
+
+### Compositeur de couches (§7.7)
+
+« Activer, désactiver et réordonner les couches d'un style. » Trois verbes dont
+un est un piège, et §7.7 le dit :
+
+> **l'ordre des couches n'est pas cosmétique** : `ScreenShake` doit être dessinée
+> en premier parce que son décalage n'affecte que ce qui vient après, et
+> `drawFeedback` aussi. L'éditeur doit empêcher les ordres invalides, ou au
+> minimum les signaler.
+
+Il les EMPÊCHE, par un drapeau `mustDrawFirst` sur la couche — pas par une liste
+d'identifiants recopiée dans le compositeur, qui aurait silencieusement raté la
+prochaine couche de ce genre. Deux couches le portent aujourd'hui.
+
+Une composition qui descend une couche verrouillée n'est pas refusée, elle est
+**corrigée** : refuser obligerait l'utilisateur à comprendre une contrainte de
+pipeline pour déplacer un curseur. Et l'interface le dit **avant** : la ligne
+porte un cadenas, ses flèches sont désactivées, et — détail trouvé en cliquant —
+**la flèche « monter » de la première couche libre l'est aussi**. Sans ça, le
+clic échangeait les deux et `composeLayers` remettait aussitôt la verrouillée en
+tête : le bouton ne faisait rien, ce qui se lit comme un bouton cassé.
+
+Deux autres décisions :
+
+- **`usesFeedback` suit la couche de traînée.** Désactiver `frameFeedback` sans
+  ça laisserait `Scene.draw` capturer le composite à chaque image — un
+  `drawImage` plein écran pour un buffer que plus personne ne lit.
+- **Composition D'ABORD, habillages ENSUITE.** La pochette et le texte ne sont
+  pas des couches du style ; les faire passer par le compositeur permettrait de
+  les désactiver depuis deux endroits ou, pire, de les glisser sous le décor.
+
+### « Looks » (§7.7)
+
+Style + macros + palette + texte + câblage (assignations de LFO comprises : ce
+sont quatre lignes du `mapping`) + composition des couches. La liste de §7.7 est
+couverte à deux exceptions près, toutes deux délibérées :
+
+- **La variante de cadrage et les modes de fusion n'y sont pas**, parce qu'ils ne
+  sont pas des réglages : `variantFor(styleId, projectSeed)` les DÉRIVE de la
+  graine (§7.10). Les figer reviendrait à figer la graine, donc à casser
+  « Nouvelle variante » — le bouton le moins cher et le plus rentable du projet
+  (§7.9). Appliquer un Look garde la graine courante et laisse la variante
+  suivre.
+- **La pochette n'y est pas** : c'est l'image d'un morceau, pas une identité
+  réutilisable.
+
+Rangés dans le magasin `settings`, dont la signature est déjà
+`[key: string]: unknown` — donc **aucune montée de `DB_VERSION`**, pour la raison
+écrite au lot B. Un Look est une préférence d'APPLICATION : il survit au projet
+et s'applique à n'importe quel autre, ce qui est tout son intérêt.
+
+Une entrée abîmée est ignorée sans faire disparaître la liste, un nom déjà pris
+écrase, et le plus ancien saute à 24.
+
+### Vérification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 116 fichiers, 1080 tests (1060 -> 1080, +20)
+npm run test:arch   -> 1 test
+npm run build       -> 520,78 kB (gzip 148,56 kB), 2,22 s
+```
+
+Navigateur, onglet neuf, **aucune erreur console**.
+
+**Éditeur de réaction — le câblage atteint l'image.** Pic de pixels clairs sur
+deux secondes de lecture, style `pulse` :
+
+| gain de la frappe | pixels clairs (pic) |
+|---|---|
+| 0,8 (preset + macros) | 21 885 |
+| **0** | **4 064** |
+| après « Revenir au câblage du preset » | gain revenu à 0,8, marque effacée |
+
+**Compositeur.** Style `pulse`, cinq couches, `screenShake` verrouillée :
+
+| | pixels clairs |
+|---|---|
+| halo central actif | 9 619 |
+| halo désactivé | **2 891** |
+
+La couche retirée reste dans la liste, grisée et décochée, donc rallumable. Les
+flèches de la ligne verrouillée sont désactivées, et celle de la première ligne
+libre aussi (`[true, false]`).
+
+**« Looks », aller-retour complet.** Composé : style `aurore`, palette `glacier`,
+texte « LOOK TEST », couche `auroraRibbons` retirée. Enregistré sous « nuit
+froide ». Tout remis à zéro — style `monolith`, aucune palette, aucun texte,
+toutes les couches. Réappliqué : **les quatre reviennent**, couche retirée
+comprise. Et après un **rechargement complet de la page**, le look est toujours
+dans la liste et s'applique de la même façon.
+
+### Un creux qui n'est PAS de ce lot
+
+En vérifiant le compositeur, j'ai constaté que rallumer une couche ne ramenait
+pas l'image : 2 828 pixels clairs au lieu de 9 619. Test de contrôle, sans
+toucher au compositeur — changer de style **en pause** :
+
+| | pixels clairs |
+|---|---|
+| départ | 2 828 |
+| après changement de style | **0** |
+| retour au style d'origine | 2 828 |
+| après deux secondes de lecture | 10 858 |
+
+**Toute reconstruction de scène en pause laisse les couches à leur état initial
+jusqu'à la reprise de la lecture** — les signaux ne se recalculent que dans
+`update()`. C'est antérieur à ce lot et vaut déjà pour le sélecteur de style ;
+le compositeur ne fait que le rendre plus visible, puisqu'on y touche plus
+souvent. Non corrigé ici : amorcer la scène demanderait un `update` de plus hors
+de la boucle, donc d'avancer les enveloppes du `BehaviourEngine` sans que le
+temps avance — un accroc à la Loi 1 que je ne veux pas poser en fin de lot.
+
+### À valider par Aaron
+
+- **Le vocabulaire de l'éditeur de réaction.** « Frappe », « Grave », « Accent »,
+  « Scintillement », « Poids », « Brillance »... c'est une traduction des noms de
+  signaux, pas une nomenclature établie. Si un nom ne parle pas, il se change en
+  une ligne.
+- **« Retour » est en SECONDES**, pas en temps. La maquette de §7.11 écrit
+  « 0,35 temps », mais `Impulse` travaille en demi-vie de secondes, sans jamais
+  voir le tempo — et c'est ce qui rend le câblage indépendant du morceau.
+  Afficher des temps demanderait une conversion que le moteur ne fait pas.
+- **Les noms de couches** du compositeur : « Masse », « Éclats », « Rubans »,
+  « Maille isométrique ». Même remarque.
+- **Ce qu'un Look devrait contenir.** J'en ai exclu la graine et la pochette avec
+  des raisons, mais c'est un choix de produit.
+
+### Limites connues
+
+- **Le compositeur ne propose pas d'AJOUTER une couche** d'un autre style. §7.7
+  dit « activer, désactiver et réordonner » ; mélanger les couches de deux
+  styles demanderait que chaque couche sache s'initialiser hors de sa fabrique,
+  ce qu'aucune ne garantit aujourd'hui.
+- **Aucun aperçu au survol d'un Look** : il faut l'appliquer pour le voir.
+- **Le nom d'un Look passe par `window.prompt`.** §10.1 interdit toute
+  dépendance, et une boîte de dialogue maison pour saisir une ligne serait trois
+  fois plus de code que ce qu'elle remplace.
+- **La reconstruction de scène en pause** — voir ci-dessus, antérieur au lot.
+- Aucune capture d'écran : mêmes limites d'environnement.

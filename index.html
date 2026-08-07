@@ -95,12 +95,34 @@
     <details class="groupe" id="groupe-visuel" open>
       <summary>Visuel</summary>
 
+      <!-- « Looks » (docs/17 §7.7) : style + macros + palette + texte + câblage
+           + composition, en un clic. Peuplés par App.ts depuis IndexedDB. -->
+      <p class="sous-titre">Look</p>
+      <label>
+        <select id="look-select"></select>
+      </label>
+      <div class="bouton-rangee">
+        <button id="btn-look-apply" type="button">Appliquer</button>
+        <button id="btn-look-save" type="button">Enregistrer…</button>
+        <button id="btn-look-delete" type="button">Supprimer</button>
+      </div>
+      <p id="look-status" class="macro-note"></p>
+
       <p class="sous-titre">Style</p>
       <!-- Vignettes peuplées par AdvancedPanel depuis STYLE_IDS/STYLE_LABELS
            (presets/schema.ts) et rendues par le moteur lui-même. Les écrire ici
            obligerait à modifier trois fichiers pour ajouter un style, sans
            qu'aucun test ne signale l'oubli du troisième. -->
       <div id="style-grid" role="group" aria-label="Style visuel"></div>
+
+      <!-- Compositeur de couches (docs/17 §7.7) : peuplé par `LayerComposer`
+           depuis les couches réellement composées. -->
+      <p class="sous-titre" data-mode="avance">Couches</p>
+      <div data-mode="avance">
+        <div id="layer-composer"></div>
+        <p id="layer-composer-note" class="macro-note"></p>
+        <button id="btn-layers-reset" type="button">Rétablir toutes les couches</button>
+      </div>
 
       <p class="sous-titre">Preset de genre</p>
       <label>
@@ -202,6 +224,15 @@
       <div data-mode="avance">
         <p class="macro-note">Chaque curseur agit différemment selon le style choisi. Une macro sans effet dans le style courant est marquée ⚠.</p>
         <div id="macro-grid-advanced"></div>
+      </div>
+
+      <!-- Éditeur de réaction (docs/17 §7.11) : une ligne par signal, peuplée
+           par `ReactionEditor` depuis le câblage résolu. -->
+      <p class="sous-titre" data-mode="avance">Qui fait quoi</p>
+      <div data-mode="avance">
+        <p class="macro-note">Chaque ligne relie un instrument à un effet. « Retour » est une demi-vie en secondes, indépendante du tempo — c'est ce que lit le moteur.</p>
+        <div id="reaction-editor"></div>
+        <button id="btn-reaction-reset" type="button">Revenir au câblage du preset</button>
       </div>
 
       <p class="sous-titre">Sécurité</p>

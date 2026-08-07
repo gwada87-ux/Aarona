@@ -33,6 +33,8 @@ const IMPACT_SCALE_PUNCH = 0.006;
  */
 export class FrameFeedback implements Layer {
   readonly id = 'frameFeedback';
+  /** Son effet ne porte que sur ce qui est dessine APRES elle : elle reste en tete (docs/17 SS7.7). */
+  readonly mustDrawFirst = true;
   readonly kind: LayerKind = 'postfx';
   readonly needsDrawPriming = true;
   params: LayerParams = {};

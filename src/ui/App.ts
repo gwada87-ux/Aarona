@@ -40,6 +40,7 @@ import { createAuroreStyle } from '../visual/styles/aurore/createAuroreStyle';
 import type { Scene } from '../visual/scene/Scene';
 import { withCover } from '../visual/scene/withCover';
 import { withText } from '../visual/scene/withText';
+import { composeLayers, type ComposeResult, type LayerComposition } from '../visual/scene/composeLayers';
 import {
   TEXT_ANIMATION_LABELS,
   TEXT_LAYOUT_LABELS,
@@ -59,11 +60,14 @@ import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
-import { STYLE_IDS, type MacroName, type PresetBloomConfig } from '../presets/schema';
+import { STYLE_IDS, type MacroName, type PresetBloomConfig, type PresetMapping } from '../presets/schema';
 import type { PresetPaletteConfig } from '../presets/schema';
 import { DEFAULT_PRESET_BLOOM, resolveBloom } from '../presets/bloom';
 import { PALETTE_CATALOGUE, cataloguePaletteById } from '../presets/paletteCatalogue';
 import { renderStyleThumbnail } from './styleThumbnails';
+import { ReactionEditor } from './panels/ReactionEditor';
+import { LayerComposer } from './panels/LayerComposer';
+import { readLooks, removeLook, writeLook, type Look } from './looks';
 import { buildPalette } from '../presets/palette';
 import { MIN_CONTRAST, contrastRatio } from '../visual/palette/contrast';
 import { rgbToHex } from '../core/color/oklch';
@@ -90,6 +94,8 @@ import {
   cacheAnalysis,
   getCachedAnalysis,
   requestPersistentStorage,
+  getSettings,
+  saveSettings,
 } from '../project/storage/db';
 import { CURRENT_PROJECT_VERSION, ProjectError, type Project } from '../project/Project';
 import { computePresetDiff, applyPresetDiff } from '../project/diff';
@@ -209,6 +215,14 @@ let cataloguePaletteId: string | null = null;
  * sans une seconde compression.
  */
 let coverSource: { readonly blob: Blob; readonly name: string } | null = null;
+/** Diff de câblage posé par l'éditeur de réaction (§7.11). `null` = celui du preset. */
+let mappingOverride: PresetMapping | null = null;
+/** Couches désactivées par le compositeur (§7.7). Absente = active. */
+let layerEnabled: LayerComposition = {};
+/** Ordre voulu des couches. Vide = celui de la fabrique du style. */
+let layerOrder: readonly string[] = [];
+/** Dernière composition appliquée — sert à peupler le panneau avec ce qui est RÉELLEMENT dessiné. */
+let lastComposition: ComposeResult | null = null;
 /** Palette du preset actif, en hexadecimal : point de depart de l'editeur. */
 let presetPaletteConfig: PresetPaletteConfig | null = null;
 let reducedFlashing = false;
@@ -295,7 +309,11 @@ function activePresetObject(): Preset {
  */
 function applyActiveConfiguration(): void {
   const preset = activePresetObject();
-  const resolved = resolvePreset(preset);
+  // Le diff de l'éditeur de réaction est le DERNIER étage du pipeline de
+  // résolution (docs/08 : « surcharges utilisateur, stockées comme un diff »),
+  // donc appliqué après le preset ET après les macros. C'est déjà la place que
+  // `resolvePreset` lui réservait ; personne ne s'en servait (§7.11, lot C).
+  const resolved = resolvePreset(preset, { userMappingOverrides: mappingOverride ?? undefined });
 
   currentMapping = resolved.mapping;
   // La palette EXTRAITE d'une pochette l'emporte sur celle du preset (§7.5) :
@@ -323,16 +341,19 @@ function applyActiveConfiguration(): void {
     // La pochette puis le texte sont AJOUTÉS après coup, en dernières couches :
     // ils n'appartiennent à aucun style, ils se posent par-dessus celui qu'on a
     // choisi. Le texte EN DERNIER : il porte de l'information, une pochette non.
-    scene = withText(
-      withCover(
-        STYLE_FACTORIES[currentStyleId](
-          QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
-          QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
-        ),
-        coverImage !== null,
+    // Composition D'ABORD, habillages ENSUITE : la pochette et le texte ne sont
+    // pas des couches du style, les faire passer par le compositeur permettrait
+    // de les glisser sous le décor (§7.7, lot C).
+    const composed = composeLayers(
+      STYLE_FACTORIES[currentStyleId](
+        QUALITY_LEVEL_CONFIGS[currentQualityLevel].maxParticles,
+        QUALITY_LEVEL_CONFIGS[currentQualityLevel].feedback,
       ),
-      textConfig,
+      layerEnabled,
+      layerOrder,
     );
+    lastComposition = composed;
+    scene = withText(withCover(composed.scene, coverImage !== null), textConfig);
     sceneStyleId = currentStyleId;
     sceneHasCover = coverImage !== null;
     sceneTextKey = textStructureKey(textConfig);
@@ -368,6 +389,16 @@ function applyActiveConfiguration(): void {
 
   refreshPaletteEditor();
   refreshStyleThumbnails();
+  // L'éditeur montre le câblage RÉSOLU : une ligne jamais touchée affiche ce
+  // que le preset lui donne, et changer de preset rafraîchit visiblement les
+  // treize lignes.
+  reactionEditor.render(currentMapping);
+  if (lastComposition) {
+    layerComposer.render(lastComposition.scene.layers, layerEnabled, lastComposition.disabled);
+    layerComposerNote.textContent = lastComposition.reordered
+      ? 'Ordre corrigé : une couche marquée 🔒 doit rester en tête.'
+      : '';
+  }
   simplePanel.setPalette(currentPalette);
   simplePanel.setMacros(currentMacros);
   advancedPanel.setMacros(currentMacros);
@@ -627,12 +658,19 @@ const exportDialog = new ExportDialog({
   // avaient été branchées d'un seul côté. Un test lit ce fichier pour le
   // vérifier, sur les deux habillages.
   getStyleFactory: () => () => {
+    // `composeLayers` ICI AUSSI : sans lui, l'export rendrait toutes les couches
+    // du style, y compris celles que l'utilisateur a désactivées. Même piège de
+    // l'Étape 25 que pour la pochette et le texte, et un test le vérifie.
     const built = withText(
       withCover(
-        STYLE_FACTORIES[currentStyleId](
-          QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
-          QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
-        ),
+        composeLayers(
+          STYLE_FACTORIES[currentStyleId](
+            QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].maxParticles,
+            QUALITY_LEVEL_CONFIGS[EXPORT_QUALITY_LEVEL].feedback,
+          ),
+          layerEnabled,
+          layerOrder,
+        ).scene,
         coverImage !== null,
       ),
       textConfig,
@@ -970,6 +1008,12 @@ function buildCurrentProject(): Project | null {
       ...(cataloguePaletteId ? { palette: cataloguePaletteId } : paletteOverride ? { palette: paletteOverride } : {}),
       ...(textConfig.text.length > 0 ? { text: { ...textConfig, size: textSize } } : {}),
       ...(coverSource ? { coverName: coverSource.name } : {}),
+      ...(mappingOverride && Object.keys(mappingOverride).length > 0
+        ? { mapping: mappingOverride as Readonly<Record<string, unknown>> }
+        : {}),
+      ...(Object.keys(layerEnabled).length > 0 || layerOrder.length > 0
+        ? { layers: { enabled: layerEnabled, order: layerOrder } }
+        : {}),
     },
     export: { format: '16:9', resolution: [1920, 1080], fps: 30, bitrateMbps: 12, codec: 'h264' },
     // `prefs.quality` (type déjà anticipé en P13, câblé au vrai `QualityGovernor` en P14/Étape 16) :
@@ -1099,6 +1143,22 @@ async function restoreVisualExtras(project: Project, coverBlob: Blob | null): Pr
     };
   }
   paletteSelect.value = cataloguePaletteId ?? '';
+
+  // --- Câblage (§7.11, lot C) ----------------------------------------------
+  // Aucune validation de forme au-delà de « c'est un objet » : `resolvePreset`
+  // remplace l'entrée ENTIÈRE du signal touché, et `BehaviourEngine` déduit la
+  // famille de `from`. Une entrée abîmée dégrade donc un signal, pas la
+  // restauration - et c'est la règle du lot B.
+  mappingOverride = (project.visual.mapping as PresetMapping | undefined) ?? null;
+  reactionEditor.setMapping(mappingOverride);
+
+  // --- Composition des couches (SS7.7, lot C) ------------------------------
+  layerEnabled = project.visual.layers?.enabled ?? {};
+  layerOrder = project.visual.layers?.order ?? [];
+  // Invalide la scène pour que le chemin normal la reconstruise avec la
+  // composition restaurée : `applyDocCore`, appelé juste après, ne regarde que
+  // le style, et une couche désactivée n'en change pas.
+  sceneStyleId = null;
 
   // --- Texte ---------------------------------------------------------------
   const savedText = project.visual.text;
@@ -1386,6 +1446,175 @@ document.querySelector<HTMLButtonElement>('#btn-cover-clear')!.addEventListener(
 // Le groupe « Visuel » ne rend ses vignettes qu'une fois ouvert : les huit
 // scènes simulées ne se paient donc que si quelqu'un les regarde.
 document.querySelector<HTMLDetailsElement>('#groupe-visuel')?.addEventListener('toggle', () => refreshStyleThumbnails());
+
+// --- « Looks » (docs/17 §7.7) ----------------------------------------------
+
+const lookSelect = document.querySelector<HTMLSelectElement>('#look-select')!;
+const lookStatus = document.querySelector<HTMLElement>('#look-status')!;
+let looks: Look[] = [];
+
+function refreshLookList(): void {
+  lookSelect.replaceChildren(
+    ...[{ name: '', label: looks.length > 0 ? 'Choisir un look…' : 'Aucun look enregistré' }, ...looks.map((l) => ({ name: l.name, label: l.name }))].map(
+      ({ name, label }) => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = label;
+        return option;
+      },
+    ),
+  );
+}
+
+async function loadLooks(): Promise<void> {
+  if (!db) return;
+  looks = readLooks(await getSettings(db));
+  refreshLookList();
+}
+
+/**
+ * Capture l'identité visuelle courante.
+ *
+ * Ni la graine ni la variante de cadrage : elles se DÉRIVENT l'une de l'autre
+ * (§7.10), et les figer casserait « Nouvelle variante ». Ni la pochette : c'est
+ * l'image d'un morceau, pas une identité réutilisable.
+ */
+function currentLook(name: string): Look {
+  return {
+    name,
+    styleId: currentStyleId,
+    macros: currentMacros,
+    palette: cataloguePaletteId ?? paletteOverride ?? null,
+    text: textConfig.text.length > 0 ? textConfig : null,
+    textSize,
+    mapping: mappingOverride,
+    layers: { enabled: layerEnabled, order: layerOrder },
+  };
+}
+
+function applyLook(look: Look): void {
+  currentStyleId = look.styleId;
+  currentMacros = look.macros;
+  if (typeof look.palette === 'string') {
+    const entry = cataloguePaletteById(look.palette);
+    paletteOverride = entry?.config ?? null;
+    cataloguePaletteId = entry?.id ?? null;
+  } else {
+    paletteOverride = look.palette;
+    cataloguePaletteId = null;
+  }
+  paletteSelect.value = cataloguePaletteId ?? '';
+  textConfig = normaliseTextConfig(look.text ?? { text: '' });
+  textSize = look.textSize;
+  writeTextControls();
+  mappingOverride = look.mapping;
+  reactionEditor.setMapping(look.mapping);
+  layerEnabled = look.layers.enabled;
+  layerOrder = look.layers.order;
+  // Le style ET la composition changent : la scène est invalidée pour que le
+  // chemin normal la reconstruise entièrement.
+  sceneStyleId = null;
+  applyActiveConfiguration();
+  scheduleAutosave();
+}
+
+document.querySelector<HTMLButtonElement>('#btn-look-apply')!.addEventListener('click', () => {
+  const look = looks.find((l) => l.name === lookSelect.value);
+  if (!look) {
+    lookStatus.textContent = 'Choisis un look dans la liste.';
+    return;
+  }
+  applyLook(look);
+  lookStatus.textContent = `« ${look.name} » appliqué.`;
+});
+
+document.querySelector<HTMLButtonElement>('#btn-look-save')!.addEventListener('click', () => {
+  // `prompt` natif : §10.1 interdit toute dépendance, et une boîte de dialogue
+  // maison pour saisir une ligne de texte serait trois fois plus de code que ce
+  // qu'elle remplace.
+  const name = window.prompt('Nom du look', lookSelect.value || currentStyleId)?.trim();
+  if (!name) return;
+  void (async () => {
+    if (!db) return;
+    const settings = writeLook(await getSettings(db), currentLook(name));
+    await saveSettings(db, settings);
+    looks = readLooks(settings);
+    refreshLookList();
+    lookSelect.value = name;
+    lookStatus.textContent = `« ${name} » enregistré.`;
+  })();
+});
+
+document.querySelector<HTMLButtonElement>('#btn-look-delete')!.addEventListener('click', () => {
+  const name = lookSelect.value;
+  if (!name) return;
+  void (async () => {
+    if (!db) return;
+    const settings = removeLook(await getSettings(db), name);
+    await saveSettings(db, settings);
+    looks = readLooks(settings);
+    refreshLookList();
+    lookStatus.textContent = `« ${name} » supprimé.`;
+  })();
+});
+
+// --- Compositeur de couches (docs/17 §7.7) ---------------------------------
+
+const layerComposerNote = document.querySelector<HTMLElement>('#layer-composer-note')!;
+const layerComposer = new LayerComposer(document.querySelector<HTMLElement>('#layer-composer')!, {
+  onToggle: (id, enabled) => {
+    layerEnabled = { ...layerEnabled, [id]: enabled };
+    rebuildSceneForComposition();
+  },
+  onMove: (id, delta) => {
+    // L'ordre courant sert de base : la première flèche cliquée part de l'ordre
+    // de la fabrique, pas d'une liste vide qui remettrait tout à plat.
+    const current = layerOrder.length > 0 ? [...layerOrder] : (lastComposition?.scene.layers.map((l) => l.id) ?? []);
+    const from = current.indexOf(id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= current.length) return;
+    [current[from], current[to]] = [current[to]!, current[from]!];
+    layerOrder = current;
+    rebuildSceneForComposition();
+  },
+});
+
+document.querySelector<HTMLButtonElement>('#btn-layers-reset')!.addEventListener('click', () => {
+  layerEnabled = {};
+  layerOrder = [];
+  rebuildSceneForComposition();
+});
+
+/**
+ * Force la reconstruction de la scène après un changement de composition.
+ *
+ * `applyActiveConfiguration` ne reconstruit que si le STYLE, la pochette ou le
+ * texte ont changé — une couche activée ou déplacée ne coche aucune de ces
+ * cases. Plutôt que d'ajouter une quatrième empreinte à comparer, on invalide
+ * `sceneStyleId` : la scène est alors rebâtie par le chemin normal, avec ses
+ * macros, ses modes de fusion et ses habillages, et il n'y a pas deux endroits
+ * qui savent construire une scène.
+ */
+function rebuildSceneForComposition(): void {
+  sceneStyleId = null;
+  applyActiveConfiguration();
+  scheduleAutosave();
+}
+
+// --- Éditeur de réaction (docs/17 §7.11) -----------------------------------
+
+const reactionEditor = new ReactionEditor(document.querySelector<HTMLElement>('#reaction-editor')!, {
+  onChange: (mapping) => {
+    mappingOverride = mapping;
+    applyActiveConfiguration();
+  },
+});
+
+document.querySelector<HTMLButtonElement>('#btn-reaction-reset')!.addEventListener('click', () => {
+  mappingOverride = null;
+  reactionEditor.setMapping(null);
+  applyActiveConfiguration();
+});
 
 // --- Couleurs (docs/17 §9.2) -----------------------------------------------
 
@@ -1877,6 +2106,9 @@ void (async () => {
   try {
     db = await openDatabase();
     void requestPersistentStorage();
+    // Les Looks sont une préférence d'APPLICATION, pas de projet : ils sont
+    // chargés dès l'ouverture de la base, avant tout morceau.
+    await loadLooks();
   } catch (err) {
     console.error('IndexedDB indisponible — la persistance de projet restera désactivée cette session :', err);
   }

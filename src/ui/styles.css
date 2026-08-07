@@ -315,6 +315,49 @@ button:disabled { opacity: 0.45; cursor: default; }
 #preset-suggestion { font-size: 0.78rem; opacity: 0.75; margin: 0.3rem 0 0; }
 #cover-status { font-size: var(--texte-s); opacity: 0.75; margin: 0.3rem 0 0; }
 
+.bouton-rangee { display: flex; gap: 0.3rem; margin: 0.3rem 0; }
+.bouton-rangee button { flex: 1; font-size: var(--texte-s); padding: 0.3rem 0.2rem; }
+#look-status { min-height: 1em; }
+
+/* --------------------------------------------------------------------------
+ * Compositeur de couches (SS7.7)
+ * ----------------------------------------------------------------------- */
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0;
+  font-size: var(--texte-s);
+}
+.layer-row .layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-row.retiree .layer-name { color: var(--texte-faible); text-decoration: line-through; }
+.layer-row.verrouille .layer-name { color: var(--texte-attenue); }
+.layer-arrow { padding: 0 0.3rem; font-size: 0.6rem; line-height: 1.4; }
+#layer-composer-note { color: var(--avertissement); min-height: 1em; }
+
+/* --------------------------------------------------------------------------
+ * Editeur de reaction (SS7.11)
+ * ----------------------------------------------------------------------- */
+
+.reaction-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem 0.4rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--trait);
+}
+.reaction-row:first-child { border-top: none; }
+.reaction-name { grid-column: 1 / -1; font-size: var(--texte-s); color: var(--texte-attenue); }
+/* Une ligne touchee par l'utilisateur se distingue de celle que le preset
+   impose : sans ca, rien ne dit d'ou vient une valeur. */
+.reaction-name.modifie { color: var(--accent); font-weight: 600; }
+.reaction-name.modifie::after { content: ' •'; }
+.reaction-source { grid-column: 1 / -1; font-size: var(--texte-s); padding: 0.2rem; }
+.reaction-field { display: flex; flex-direction: column; gap: 0; margin: 0; font-size: 0.68rem; color: var(--texte-faible); }
+.reaction-field b { color: var(--texte-attenue); font-weight: 600; }
+.reaction-field input[type='range'] { margin: 0; }
+
 /* --------------------------------------------------------------------------
  * Boites de dialogue
  * ----------------------------------------------------------------------- */
