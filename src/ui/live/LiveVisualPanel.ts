@@ -3,7 +3,7 @@ import type { LiveAudioSource } from '../../audio/LiveAudioSource';
 import { LiveAnalysisEngine } from './audio/LiveAnalysisEngine';
 import { DebugHud } from './DebugHud';
 import { LivePipeline } from './render/LivePipeline';
-import { WitnessScene } from './scenes/WitnessScene';
+import { playableScenes, sceneById } from './scenes';
 import { mergeLiveConfig, type LiveConfig, type LiveConfigPatch } from './LiveConfig';
 
 /**
@@ -85,13 +85,19 @@ export class LiveVisualPanel {
     }
     this.engine = new LiveAnalysisEngine(this.config, sampleRate, source.fftSizeOnset, source.fftSizeBands);
     this.pipeline = new LivePipeline(this.config);
-    this.pipeline.setScene(new WitnessScene());
     this.hud = new DebugHud(this.config);
 
     this.canvas.style.display = 'block';
     this.measure();
     this.applyPendingSize();
     this.watchReducedMotion();
+
+    // Une seule scene, fixe. Le CHOIX et la ROTATION des scenes sont le
+    // travail de `LiveDirector` (§4.3), qui n'existe pas encore : arbitrage
+    // des coupes, anti-repetition, ponderation par l'intensite, frontieres de
+    // phrase. Un minuteur de rotation ici serait exactement ce que §4.3
+    // interdit - un changement de scene qui ne tombe sur aucune frontiere.
+    this.selectScene(this.config.content.forcedScene);
 
     // `getBoundingClientRect()` par trame force un reflow a chaque image
     // (interdit §6.6). Le ResizeObserver ne fait que STOCKER la taille ; la
@@ -159,9 +165,26 @@ export class LiveVisualPanel {
     this.audioContext = ctx;
   }
 
+  /**
+   * Choisit une scene par identifiant. `''` prend la premiere scene jouable
+   * dans le mode de mouvement courant.
+   */
+  selectScene(id: string): void {
+    if (!this.pipeline) return;
+    const playable = playableScenes(this.reducedMotion);
+    const wanted = id ? sceneById(id) : null;
+    const entry = wanted && playable.includes(wanted) ? wanted : playable[0];
+    if (!entry) return;
+    this.pipeline.setScene(entry.create());
+  }
+
   /** Etat courant du moteur - expose pour la verification Playwright. */
   get engineState(): string {
     return this.engine?.state ?? 'STOPPED';
+  }
+
+  get sceneId(): string {
+    return this.pipeline?.currentScene?.id ?? '-';
   }
 
   get bpm(): number {

@@ -1252,5 +1252,12 @@ if (import.meta.env.DEV) {
     get bpm() {
       return liveVisualPanel?.bpm ?? 0;
     },
+    /** Étape 3 de la refonte live : scène courante et sélection manuelle pour la vérification. */
+    get sceneId() {
+      return liveVisualPanel?.sceneId ?? '-';
+    },
+    selectScene(id: string) {
+      liveVisualPanel?.selectScene(id);
+    },
   };
 }

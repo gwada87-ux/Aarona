@@ -3,7 +3,7 @@
 Refonte du visualiseur live (PROMPT-live-visual-upgrade v2). Ce fichier est le
 journal impose par le prompt (§0, fin de chaque etape de §9).
 
-**Avancement : etapes 1 et 2 de §9 livrees. Etapes 3 a 6 non commencees.**
+**Avancement : etapes 1, 2 et 3 de §9 livrees. Etapes 4 a 6 non commencees.**
 
 ---
 
@@ -449,9 +449,128 @@ dominant (95 a 96 % du cadre sous 8 % de luminance).
 
 ### Ce qui n'est PAS dans l'etape 2
 
-Les 6 scenes de §4.2 (etape 3), `LiveDirector` et `IntensityDirector` avec le
-budget d'effets simultanes, le plancher de vide, la retenue avant impact et le
+Les scenes (etape 3), `LiveDirector` et `IntensityDirector` avec le budget
+d'effets simultanes, le plancher de vide, la retenue avant impact et le
 garde-fou de non-saturation (§2.8, etape 4), les overlays expressifs et leurs
 exclusions (§4.4), les transitions de scene (§4.3), les controles clavier
 (§4.5). La sonde de luminance de §2.8 EXISTE et est affichee au HUD ; ce qui
 manque est le director qui s'en sert pour retirer un cran d'effets.
+
+---
+
+## Etape 3 - Interface LiveScene et trois scenes
+
+§9.3 demande « interface `LiveScene` + 3 scenes (une par famille) », pas les six
+de §4.2 - celles-ci sont reparties entre l'etape 3 (trois) et l'etape 5 (les
+trois restantes). L'interface avait ete ecrite a l'etape 2 (§4.1 : « types a
+ecrire en premier ») ; cette etape livre les trois scenes et le registre.
+
+### Ce qui est livre
+
+- `util/noise.ts` - simplex 2D et champ curl ECRITS A LA MAIN (§1 : aucune
+  dependance npm ajoutee), deterministes et seedes.
+- `scenes/index.ts` - registre. Ajouter une scene = ajouter une entree ; ni le
+  pipeline, ni le panneau, ni le futur director n'ont a etre touches (§4.2).
+- `scenes/GridHorizonScene.ts` - famille geometrique / neon.
+- `scenes/CurlFlowScene.ts` - famille organique.
+- `scenes/SliceDisplaceScene.ts` - famille glitch.
+
+Chaque scene : 3 variantes internes, deux decentrees et une centree (§3.6), un
+plan large et un gros plan, un accent principal declare (§2.7.6), et un canal
+visuel par instrument sans jamais additionner deux enveloppes d'onset (§2.7.7).
+
+| scene | accent principal | kick | snare | charley |
+|---|---|---|---|---|
+| `grid-horizon` | defilement du sol | echelle, soulevement de l'horizon | revelation du soleil | scintillement des fuyantes |
+| `curl-flow` | noyau emetteur | rayon et bouffee d'emission | decalage lateral du noyau | dispersion fine |
+| `slice-displace` | barre VHS | position et epaisseur de la barre | amplitude du decoupage | rayures fines |
+
+### Pourquoi du bruit CURL et pas du bruit brut
+
+Un champ de vitesse pris directement dans un bruit a de la divergence : les
+particules s'accumulent dans les puits et se vident des sources, et au bout de
+quelques secondes tout le monde est agglutine au meme endroit. Le curl d'un
+potentiel scalaire est incompressible par construction (`div(curl(psi)) = 0`),
+donc la densite reste homogene indefiniment. La propriete est verifiee par test
+- divergence relative mesuree sous 5 %, le residu venant uniquement des
+differences finies.
+
+### Ecart assume n°7 - `slice-displace` privee de matiere par §3.3
+
+§3.3 impose de vider SECHEMENT le feedback a chaque coupe de scene. §4.2 decrit
+`slice-displace` comme « le buffer feedback redecoupe en bandes ». Mises bout a
+bout, ces deux regles font demarrer la scene sur du noir : le decoupage n'a
+rien a decouper, et la scene ne se remplit jamais - mesure de 0,006 de
+luminance moyenne, contre 0,064 pour `grid-horizon`.
+
+Le vidage est une regle explicite qu'on ne contourne pas. La scene injecte donc
+sa PROPRE matiere - cinq bandes lumineuses dont la position est quantifiee sur
+la mesure - qui sera decoupee aux trames suivantes. Ce ne sont pas des barres
+de spectre au sens de l'interdit §6.1 : leur position vient de la grille
+metrique et non d'un index de bande, et retirer l'audio ne rend pas la scene
+identique a un analyseur, elle continue de defiler sur la mesure.
+
+### Garde de taille sur la frame precedente
+
+Le feedback n'est redimensionne qu'APRES le rendu de la scene. Juste apres un
+resize, le buffer lisible est encore a l'ancienne taille, et une scene qui y
+decoupe des bandes aux nouvelles coordonnees lit hors du bitmap. `LivePipeline`
+n'expose donc `previousFrame` que lorsque les dimensions concordent : une trame
+sans image precedente vaut mieux qu'une trame fausse.
+
+### Mesures - 60 s par scene (livrable §9.3)
+
+Chrome, canvas 960x540, click track 128 BPM, cadence ~20 Hz simulee (le volet
+de previsualisation etait masque une partie du temps, voir plus bas).
+
+| scene | trames | exceptions | croissance du tas JS | memoire canvas | passes (pic) |
+|---|---|---|---|---|---|
+| `grid-horizon` | 1650 | 0 | +0,22 Mo | 8,56 Mo | 9,36 / 10 |
+| `curl-flow` | 1203 | 0 | **-0,06 Mo** | 6,58 Mo | 9,36 / 10 |
+| `slice-displace` | 1202 | 0 | +0,80 Mo | 6,58 Mo | 9,36 / 10 |
+
+Critere §8.9 : croissance sous 5 Mo entre deux GC forces. Le maximum mesure est
+0,80 Mo, et `curl-flow` - la scene la plus allouante en apparence, avec ses
+6000 particules - est celle qui croit le MOINS, ce qui confirme que les pools
+pre-alloues font leur travail.
+
+**Limite de la mesure, a lire :** sans `--expose-gc` on ne peut pas forcer de
+collecte, donc l'ecart mesure INCLUT les ordures pas encore ramassees. Une
+croissance nulle ou negative est concluante ; +0,80 Mo ne prouve pas une fuite,
+seulement qu'il n'y en a pas de grosse.
+
+Tempo verrouille pendant tout le soak sur les trois scenes (127,8 a 128,3 BPM,
+0 a 4 kicks rejetes sur 130, aucune resynchronisation dure), ce qui verifie au
+passage que le rendu ne perturbe pas l'analyse.
+
+### Le volet de previsualisation et `requestAnimationFrame`
+
+Quand le volet Navigateur n'est pas affiche, `document.hidden` vaut `true` et
+`requestAnimationFrame` ne se declenche JAMAIS - la page ne compose pas de
+trames. Aucune mesure de rendu n'est alors possible.
+
+Le banc expose donc `window.__liveBench` : `start`, `stop`, `step(n, dtMs)`,
+`setScene`, `stats`, `probe()`, `capture()` et `soak(scene, secondes)`. Le
+`step` force une trame avec un horodatage injecte, ce qui suffit a verifier que
+la chaine rasterise et a mesurer memoire et passes. Ce qu'il ne remplace PAS :
+le temps de trame, qui n'a de sens que sur des trames reellement cadencees par
+le compositeur.
+
+### A valider par un humain
+
+- **Le tempo est-il lisible son coupe ?** Sur `grid-horizon` le sol avance
+  d'exactement une cellule par temps - c'est le test le plus direct des trois.
+- Le rendu de `slice-displace` en situation reelle : elle est concue pour
+  passer APRES une autre scene, et le vidage du feedback la prive de cet
+  heritage. A revoir a l'etape 4, quand le director enchainera les scenes.
+- L'equilibre entre les trois scenes : `grid-horizon` mesure 0,064 de luminance
+  moyenne contre 0,007 pour les deux autres. C'est coherent avec §3.6 (espace
+  negatif >= 40 % en `calm`), mais l'ecart de 9x se verra en enchainement.
+
+### Ce qui n'est PAS dans l'etape 3
+
+`LiveDirector` (§4.3) : le choix de scene, la rotation, l'arbitrage des coupes,
+l'anti-repetition et les transitions. Le panneau affiche UNE scene fixe, prise
+dans le registre - deliberement pas de minuteur de rotation, qui serait
+exactement ce que §4.3 interdit, un changement de scene ne tombant sur aucune
+frontiere. Les trois scenes restantes de §4.2 sont l'etape 5.

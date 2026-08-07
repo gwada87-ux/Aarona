@@ -12,7 +12,7 @@
 
 import { LiveAnalysisEngine } from '../audio/LiveAnalysisEngine';
 import { LivePipeline } from '../render/LivePipeline';
-import { WitnessScene } from '../scenes/WitnessScene';
+import { SCENE_REGISTRY, WitnessScene } from '../scenes';
 import { PALETTES } from '../render/Palette';
 import type { QualityLevel } from '../render/FrameBudget';
 import { mergeLiveConfig } from '../LiveConfig';
@@ -26,6 +26,7 @@ const ui = {
   audible: document.getElementById('audible') as HTMLInputElement,
   quality: document.getElementById('quality') as HTMLSelectElement,
   palette: document.getElementById('palette') as HTMLSelectElement,
+  scene: document.getElementById('scene') as HTMLSelectElement,
   readout: document.getElementById('readout') as HTMLPreElement,
   canvas: document.getElementById('view') as HTMLCanvasElement,
 };
@@ -40,9 +41,33 @@ for (let i = 0; i < PALETTES.length; i++) {
   ui.palette.appendChild(option);
 }
 
+for (const entry of SCENE_REGISTRY) {
+  const option = document.createElement('option');
+  option.value = entry.id;
+  option.textContent = `${entry.id} (${entry.variants} variantes)`;
+  ui.scene.appendChild(option);
+}
+{
+  const option = document.createElement('option');
+  option.value = 'witness-pulse';
+  option.textContent = 'witness-pulse (temoin etape 2)';
+  ui.scene.appendChild(option);
+}
+
 let pipeline: LivePipeline | null = null;
 /** Historique des temps de trame depuis le dernier changement de qualite, pour la mediane. */
 let frameSamples: number[] = [];
+let currentSceneId = '';
+
+/** Instancie la scene selectionnee. Le registre est la seule source de verite. */
+function applyScene(): void {
+  if (!pipeline) return;
+  const id = ui.scene.value;
+  if (id === currentSceneId) return;
+  currentSceneId = id;
+  const entry = SCENE_REGISTRY.find((e) => e.id === id);
+  pipeline.setScene(entry ? entry.create() : new WitnessScene());
+}
 
 let audio: AudioContext | null = null;
 let engine: LiveAnalysisEngine | null = null;
@@ -162,7 +187,8 @@ function start(): void {
   timeDomain = new Float32Array(onset.fftSize);
   engine = new LiveAnalysisEngine(config, ac.sampleRate, onset.fftSize, bands.fftSize);
   pipeline = new LivePipeline(config);
-  pipeline.setScene(new WitnessScene());
+  currentSceneId = '';
+  applyScene();
   frameSamples = [];
 
   scheduledUpTo = ac.currentTime + 0.2;
@@ -254,6 +280,7 @@ function render(stamp: number): void {
       frameSamples = [];
     }
   }
+  applyScene();
   const paletteIndex = Number(ui.palette.value);
   if (Number.isFinite(paletteIndex) && pipeline.palette.currentIndex !== paletteIndex) {
     pipeline.palette.crossfadeTo(paletteIndex, config.content.paletteCrossfadeSec);
@@ -285,6 +312,7 @@ function render(stamp: number): void {
     `qualite     ${pipeline.budget.level}/3 (${forced === 'auto' ? 'auto' : 'forcee'})   passes ${stats.passes}/${stats.budget}   bitmap ${stats.postW}x${stats.postH}   ${stats.memoryMb.toFixed(1)} Mo`,
     `trame       mediane ${median(frameSamples).toFixed(2)} ms sur ${frameSamples.length} trames   ref ${pipeline.budget.referencePeriodMs.toFixed(2)} ms`,
     `image       luminance ${stats.luminance.toFixed(3)}   palette ${pipeline.palette.current.id}   section ${engine.section.arc}   intensite ${engine.section.intensity.toFixed(2)}`,
+    `scene       ${pipeline.currentScene?.id ?? '-'}   accent ${pipeline.currentScene?.primaryAccent ?? '-'}`,
   ].join('\n');
 }
 
@@ -324,6 +352,54 @@ ui.stop.addEventListener('click', stop);
   /** Capture PNG du canvas. Fonctionne meme sans compositeur. */
   capture(): string {
     return ui.canvas.toDataURL('image/png');
+  },
+  /** Force une scene par identifiant. */
+  setScene(id: string): void {
+    ui.scene.value = id;
+    applyScene();
+  },
+  /**
+   * Livrable de §9.3 : 60 s par scene, sans exception et sans croissance
+   * memoire. Retourne le tas JS avant et apres, quand le navigateur l'expose
+   * (`performance.memory`, Chrome uniquement).
+   *
+   * Attention a la lecture : sans `--expose-gc`, on ne peut pas forcer de
+   * collecte, donc l'ecart mesure INCLUT les ordures pas encore ramassees.
+   * Une croissance nulle est concluante ; une croissance de quelques Mo ne
+   * prouve pas une fuite.
+   */
+  async soak(sceneId: string, seconds = 60): Promise<unknown> {
+    ui.scene.value = sceneId;
+    applyScene();
+    const frame = (): Promise<number> => new Promise((r) => requestAnimationFrame(r));
+    for (let i = 0; i < 60; i++) await frame();
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    const before = mem?.usedJSHeapSize ?? 0;
+    const t0 = performance.now();
+    let frames = 0;
+    let errors = 0;
+    let peakPasses = 0;
+    while (performance.now() - t0 < seconds * 1000) {
+      try {
+        await frame();
+        frames++;
+        peakPasses = Math.max(peakPasses, pipeline?.stats.passes ?? 0);
+      } catch {
+        errors++;
+      }
+    }
+    const after = mem?.usedJSHeapSize ?? 0;
+    return {
+      scene: sceneId,
+      secondes: +((performance.now() - t0) / 1000).toFixed(1),
+      trames: frames,
+      erreurs: errors,
+      passesPic: +peakPasses.toFixed(2),
+      tasAvantMo: +(before / 1048576).toFixed(2),
+      tasApresMo: +(after / 1048576).toFixed(2),
+      croissanceMo: +((after - before) / 1048576).toFixed(2),
+      memoireCanvasMo: +(pipeline?.stats.memoryMb ?? 0).toFixed(2),
+    };
   },
   /** Luminance moyenne echantillonnee directement sur le canvas visible. */
   probe(): { mean: number; nonBackground: number } {

@@ -79,6 +79,16 @@ export interface LiveFrame {
   readonly palette: PaletteBook;
   /** `prefers-reduced-motion` actif : amplitudes divisees, aucun stroboscope. */
   readonly reducedMotion: boolean;
+  /**
+   * Buffer de FEEDBACK de la trame precedente, ou `null` si le feedback est
+   * desactive par `FrameBudget`.
+   *
+   * MUST §3.1 : toute scene qui parle de « la frame precedente » lit CECI,
+   * jamais l'ecran. Lire l'ecran melangerait le post, le bloom et le HUD dans
+   * la source, et un `drawImage` du canvas sur lui-meme est indefini des que
+   * les regions se recouvrent - ce que fait justement `slice-displace`.
+   */
+  readonly previousFrame: CanvasImageSource | null;
 }
 
 export interface LiveScene {

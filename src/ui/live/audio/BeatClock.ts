@@ -47,6 +47,7 @@ import type { LiveBeatConfig, LiveSyncConfig } from '../LiveConfig';
 export interface BeatClockState {
   readonly bpm: number;
   readonly periodSec: number;
+  /** Phase BRUTE de l'horloge. C'est elle que corrige le PLL. */
   readonly beatPhase: number;
   readonly barPhase: number;
   readonly phrasePhase: number;
@@ -55,6 +56,15 @@ export interface BeatClockState {
   readonly phraseIndex: number;
   readonly confidence: number;
   readonly downbeatConfidence: number;
+  /**
+   * Phase de temps decalee de `syncOffsetMs` : c'est CELLE-CI que doit lire le
+   * rendu (§2.5). Lire `beatPhase` ferait tomber le visuel a l'instant ou
+   * l'analyse voit le son, pas a l'instant ou l'auditeur l'entend.
+   */
+  readonly visualBeatPhase: number;
+  readonly visualBarPhase: number;
+  /** La phrase existe-t-elle ? Faux tant que le downbeat n'est pas fiable (§2.5). */
+  readonly phraseValid: boolean;
 }
 
 /** Decomposition de `syncOffsetMs`, affichee au HUD pour que le calcul soit verifiable. */

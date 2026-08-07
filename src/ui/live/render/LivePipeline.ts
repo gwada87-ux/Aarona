@@ -125,7 +125,7 @@ export class LivePipeline {
     screenW: number,
     screenH: number,
     dpr: number,
-    frame: Omit<LiveFrame, 'view' | 'quality' | 'palette'>,
+    frame: Omit<LiveFrame, 'view' | 'quality' | 'palette' | 'previousFrame'>,
   ): void {
     this.passes = 0;
     const quality = this.budget.profile;
@@ -153,7 +153,25 @@ export class LivePipeline {
     this.camera.update(frame.dt);
     this.assets.ensureStatic(sceneLayer.ctx);
 
-    const full: LiveFrame = { ...frame, view, quality: quality.level, palette: this.palette };
+    // La frame precedente est le buffer de FEEDBACK tel qu'il est AVANT
+    // l'avance de cette trame : c'est bien l'image d'avant que voit la scene,
+    // et c'est un canvas different de sa surface de dessin - jamais un
+    // `drawImage` sur soi-meme (§3.1).
+    // Garde de TAILLE : le feedback n'est redimensionne qu'apres le rendu de
+    // la scene. Juste apres un resize, `readable` pointe encore sur un buffer
+    // de l'ancienne taille, et une scene qui y decoupe des bandes aux nouvelles
+    // coordonnees lirait hors du bitmap. Une trame sans image precedente vaut
+    // mieux qu'une trame fausse.
+    const feedbackUsable =
+      quality.feedback && this.feedback.width === w && this.feedback.height === h ? this.feedback.readable : null;
+    const previousFrame = feedbackUsable?.canvas as CanvasImageSource | undefined;
+    const full: LiveFrame = {
+      ...frame,
+      view,
+      quality: quality.level,
+      palette: this.palette,
+      previousFrame: previousFrame ?? null,
+    };
 
     // 1. SCENE. Fond teinte de la palette - jamais `#000` pur (§3.5).
     const sctx = sceneLayer.ctx;

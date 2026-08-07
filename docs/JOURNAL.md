@@ -2862,3 +2862,58 @@ Dette introduite : aucune connue.
 Bloque la suite : étape 3 du prompt externe (les 6 scènes + transitions) et étape 4 (director avec
 budget d'effets simultanés, garde-fou de non-saturation) restent à faire pour la version complète.
 Redéploiement Netlify fait immédiatement après cette étape.
+
+## Étape 56 — hors roadmap : trois scènes du mode EN DIRECT (étape 3/6 du prompt externe)
+
+**Hors de docs/00a.** Suite de l'Étape 55 : le pipeline de rendu existait mais une seule scène témoin
+tournait dessus. Cette étape livre l'interface `LiveScene` définitive et trois scènes réelles, une par
+famille visuelle — le prompt externe (§9.3) demande explicitement trois scènes à cette étape, pas les
+six de §4.2 : les trois restantes sont reportées à l'étape 5, la sélection/rotation entre scènes
+(`LiveDirector`, §4.3) à l'étape 4.
+
+Nouveau sous `src/ui/live/` : `util/noise.ts` (simplex 2D et champ de bruit curl écrits à la main,
+aucune dépendance npm ajoutée, déterministes et seedés — divergence du champ mesurée sous 5 %,
+propriété testée), `scenes/index.ts` (registre : ajouter une scène = une entrée, ni le pipeline ni le
+panneau n'ont besoin d'être touchés), et les trois scènes : `GridHorizonScene.ts` (géométrique/néon —
+sol qui défile, horizon qui se soulève sur le kick, soleil qui se révèle sur la snare), `CurlFlowScene.ts`
+(organique — noyau émetteur, particules portées par le champ curl), `SliceDisplaceScene.ts` (glitch —
+barre façon VHS dont la position/épaisseur suit le kick). Chacune : 3 variantes internes (deux
+décentrées, une centrée), un accent principal déclaré, un canal visuel dédié par instrument (kick/
+snare/charley) sans jamais additionner deux enveloppes d'attaque — contrainte du prompt externe
+respectée partout.
+
+Écart assumé documenté avec dérivation dans `NOTES.md` : `slice-displace` est décrite par le prompt
+externe comme « le buffer de feedback redécoupé en bandes », mais une autre règle du même prompt
+(§3.3) impose de vider ce buffer à chaque coupe de scène — les deux mises bout à bout font démarrer la
+scène sur du noir (luminance mesurée à 0,006 contre 0,064 pour `grid-horizon`). La règle de vidage
+n'est pas contournée : la scène injecte sa propre matière (cinq bandes lumineuses quantifiées sur la
+mesure musicale, pas un simple analyseur de spectre), qui sera redécoupée aux trames suivantes.
+
+Mesuré (soak de 60 s par scène, Chrome, canvas 960×540, click track 128 BPM) : croissance du tas JS
+sous 0,80 Mo pour les trois scènes (critère du prompt externe : sous 5 Mo), `curl-flow` — la plus
+allouante en apparence avec 6000 particules — étant celle qui croît le moins, ce qui confirme que les
+pools préalloués fonctionnent ; aucune exception ; tempo verrouillé pendant tout le soak sur les trois
+scènes (127,8 à 128,3 BPM), ce qui vérifie au passage que le rendu ne perturbe pas l'analyse.
+
+Vérifié en conditions réelles (Playwright + `file://` contre Beat Studio) : connexion établie, scène
+par défaut `grid-horizon` confirmée active, puis les trois scènes sélectionnées explicitement une par
+une et capturées — **trois rendus visuellement distincts et cohérents avec leur famille annoncée**
+(horizon néon avec soleil, noyau organique à traînées, bandes VHS), aucune erreur console côté PULSAR.
+Ajout mineur pour permettre cette vérification : `sceneId`/`selectScene` étaient déjà exposés sur
+`LiveVisualPanel` (commentés « exposé pour la vérification Playwright », même intention que
+`engineState`/`bpm` de l'Étape 54) mais pas encore branchés sur le hook `window.__pulsarLiveDebug`
+dans `src/ui/App.ts` — branchement ajouté ici, DEV uniquement, même style que l'existant.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 744/744 verts (95/95 fichiers, +23 par rapport à
+l'Étape 55). `npm run test:arch` : 1/1. `npm run build` : succès, 193 modules, `index-CCskCqsX.js`
+411,79 ko (gzip 115,03 ko).
+Limites connues : `slice-displace` est conçue pour hériter du feedback d'une scène précédente — son
+rendu isolé (sans enchaînement) reste plus vide qu'en usage réel, à réévaluer à l'étape 4 quand le
+director existera ; l'équilibre de luminance entre scènes est très inégal (0,064 pour `grid-horizon`
+contre 0,007 pour les deux autres, un facteur 9) et se verra en enchaînement ; le tempo est-il lisible
+son coupé reste à valider par Aaron à l'œil (le sol de `grid-horizon`, qui avance d'une cellule par
+temps, est le test le plus direct des trois).
+Dette introduite : aucune connue.
+Bloque la suite : étape 4 du prompt externe (`LiveDirector`/`IntensityDirector` — choix de scène,
+rotation, budget d'effets simultanés, garde-fou de non-saturation) et étape 5 (trois scènes restantes)
+pour la version complète. Redéploiement Netlify fait immédiatement après cette étape.

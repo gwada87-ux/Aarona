@@ -401,6 +401,8 @@ export interface LiveContentConfig {
   readonly forcedPalette: number;
   /** Duree du fondu de palette sur frontiere de phrase, en secondes. 0 = coupe franche. */
   readonly paletteCrossfadeSec: number;
+  /** Identifiant de scene impose. `''` = premiere scene jouable du registre. */
+  readonly forcedScene: string;
 }
 
 export interface LiveConfig {
@@ -590,6 +592,7 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     debugHudOnStart: false,
     forcedPalette: -1,
     paletteCrossfadeSec: 0.3,
+    forcedScene: '',
   }),
 });
 
