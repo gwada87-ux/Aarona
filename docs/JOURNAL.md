@@ -7099,3 +7099,100 @@ npm run build       -> 536,51 kB (gzip 154,03 kB), 2,33 s
   par les tests unitaires de `AudioEngine`, pas a l'ecran.
 - Le rapport vit dans le panneau « Etat (debug) », qui est repliable et ferme
   par defaut. L'avertissement, lui, s'affiche hors du panneau.
+
+## Panneau Style/Preset/Palette/Texte/Macros reellement fonctionnel en direct
+
+### Le probleme
+
+Un test reel (Playwright, `__pulsarLiveDebug.sceneId` lu avant/apres chaque
+clic — un hash d'image ne suffit pas, il change tout seul avec l'animation)
+a confirme le signalement d'Aaron : aucun controle du panneau n'avait d'effet
+en mode direct. Cause : deux moteurs de rendu separes, empiles sur deux
+canvas differents (`#canvas`/`Scene`/`StepContext` pour le fichier,
+`#live-canvas`/`LiveDirector`/`LivePipeline` pour le direct), jamais relies.
+
+Deux tentatives precedentes dans cette session (masquer le panneau, puis le
+remplacer par un panneau minimal scene/palette) ont ete rejetees par Aaron —
+decidees et livrees sans lui demander avant. Toutes les deux annulees
+(`git revert`) avant ce chantier.
+
+### L'approche retenue
+
+Plutot qu'etendre le systeme a 6 scenes, le VRAI moteur fichier (`Scene`/
+`Layer`/8 styles/presets/macros/texte) tourne desormais en direct, alimente
+par un nouveau pont causal :
+
+- **`src/ui/live/bridge/LiveEventBridge.ts`** — traduit les signaux temps reel
+  deja calcules par `LiveAnalysisEngine` en `MusicEvent[]` (KICK/SNARE/HAT
+  passthrough, DOWNBEAT sur front de `barIndex`, DROP/BUILDUP/BREAK/SILENCE
+  approximes depuis `SectionEnergy`).
+- **`src/ui/live/bridge/LiveStepContextBridge.ts`** — construit un
+  `StepContext` par image (pas de sous-pas fixe a 120 Hz — le direct n'a rien
+  a rattraper). Sur les 12 champs du contrat, un seul — `section` — reste
+  `null` : aucun equivalent causal a la matrice d'auto-similarite du mode
+  fichier (a besoin du futur, voir `analysis/structure.ts`). Inclut un shim
+  `MusicTimeline` complet (`LiveMusicTimeline`) pour les couches qui y
+  accedent directement.
+- **`src/ui/live/LiveManualOverride.ts`** — bascule automatique/manuel :
+  le systeme a 6 scenes reste le comportement par defaut, inchange, tant que
+  le panneau n'est pas touche. Un seul point d'accroche (`applyActiveConfiguration()`,
+  ~20 appelants, tout changement de controle y passe) active le mode manuel.
+- **`src/ui/App.ts`** — `loop()` bascule la source de `StepContext` quand le
+  mode manuel est actif ; `#canvas` repasse au premier plan (`#live-canvas`
+  MIS EN PAUSE, pas arrete — le tempo reste chaud, retour instantane sans
+  reacquisition) ; bouton « Revenir a l'automatique » ; `#groupe-automation`/
+  `#groupe-analyse` grises pendant tout le direct (reposent sur un fichier/
+  une duree connus, absents en direct).
+
+### Bug trouve et corrige pendant la verification
+
+Premiere passe Playwright : les 8 styles changeaient bien l'etat interne
+(`currentStyleId`, confirme par le hook de debug) mais **le canvas affichait
+toujours l'ecran d'accueil** (« Glisse un fichier audio ici ») par-dessus le
+rendu reel. Cause : `#dropzone` ne connait que le mode fichier — sans lui, il
+restait affiche des lors qu'aucun fichier n'est charge dans PULSAR, ce qui
+est TOUJOURS le cas en direct. Corrige : masque tant que le mode manuel est
+actif, remis SEULEMENT si aucun fichier n'a par ailleurs ete charge.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test             -> 125 fichiers, 1199 tests, tous verts
+npm run build        -> succes
+```
+
+Playwright, navigateur reel, WebRTC reel, contre le serveur de dev PUIS contre
+la production apres deploiement :
+
+- **8 styles** : etat reel avant/apres (`currentStyleId`), pas un hash
+  d'image — 7/8 confirmes changer immediatement ; le 8e (Pulse) est le style
+  par defaut deja actif, la garde anti-double-clic d'`AdvancedPanel` l'empeche
+  a raison de se re-appliquer. Captures d'ecran : Aurore rend des rubans
+  fluides magenta/violet, radicalement different de la grille par defaut —
+  confirme en production, memes pixels que le serveur de dev.
+- **Preset de genre** (« Trap Dark ») : change le STYLE (`field`) ET la
+  palette d'un coup, comme en mode fichier (`Preset.style` prime).
+- **Retour a l'automatique** : le systeme a 6 scenes reprend a une scene
+  DIFFERENTE de celle laissee (`mandala-32` apres `grid-horizon`) — preuve
+  que la mise en pause garde le moteur vivant en arriere-plan, pas fige.
+- **Non-regression** : `liveManualActive` reste faux tant que rien n'est
+  touche ; une session direct fraiche (fermeture/reouverture) redemarre
+  proprement en mode automatique, aucun etat manuel qui fuit d'une session a
+  l'autre.
+- **Cycle complet** : regenerer un beat overlay ouvert ne casse pas la
+  connexion WebRTC ; fermer/rouvrir fonctionne sans erreur console.
+- **Session prolongee** : 9 changements de style consecutifs (~54 s, le pire
+  cas pour l'allocation — chaque changement reconstruit toute la `Scene`) —
+  tas JS entre 11 et 21 Mo, aucune tendance a la hausse, zero erreur console.
+- **Production** : bundle reellement servi verifie (pas juste « deploiement
+  reussi ») ; bouton, masquage de `#dropzone`, desactivation d'Automatisation/
+  Analyse et rendu du style confirmes sur `pulsar-visualizer-aaron.netlify.app`.
+
+### Hors perimetre, assume
+
+`step.section` toujours `null` en direct. DROP/BUILDUP/BREAK/SILENCE sont une
+approximation (depuis `SectionEnergy.arc`/`dropFired`), pas une reproduction
+image-pour-image d'`analysis/macro.ts`. Automatisation et corrections d'Analyse
+desactivees en direct — aucun des deux n'a de sens sans fichier de duree
+connue.
