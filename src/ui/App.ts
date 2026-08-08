@@ -83,6 +83,7 @@ import { LiveVisualPanel } from './live/LiveVisualPanel';
 import { LiveManualOverride } from './live/LiveManualOverride';
 import { LiveStepContextBridge } from './live/bridge/LiveStepContextBridge';
 import { SCENE_REGISTRY } from './live/scenes';
+import { drawSceneIcon } from './live/sceneIcons';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
 import { computeWaveformPeaks } from '../analysis/waveformPeaks';
@@ -2912,8 +2913,19 @@ function ensureLiveSceneGrid(): void {
     tile.className = 'style-tile';
     tile.disabled = reducedMotionQuery.matches && !entry.reducedMotionSafe;
     if (tile.disabled) tile.title = 'Désactivée : mouvement réduit actif sur ce système.';
+
+    const label = LIVE_SCENE_LABELS[entry.id] ?? entry.id;
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 90;
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', label);
+    const iconCtx = canvas.getContext('2d');
+    if (iconCtx) drawSceneIcon(iconCtx, entry.id, canvas.width, canvas.height);
+    tile.appendChild(canvas);
+
     const span = document.createElement('span');
-    span.textContent = LIVE_SCENE_LABELS[entry.id] ?? entry.id;
+    span.textContent = label;
     tile.appendChild(span);
     tile.setAttribute('aria-pressed', 'false');
     tile.addEventListener('click', () => {

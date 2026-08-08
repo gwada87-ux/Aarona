@@ -7245,3 +7245,29 @@ erreur console sur l'ensemble du parcours.
 
 Deploye sur `pulsar-visualizer-aaron.netlify.app`, bundle reellement servi
 verifie.
+
+### Suite : icones sur les vignettes de scene
+
+Retour d'Aaron : « ça a l'air de marcher mais il faut mettre des icônes comme
+pour les autres » — les vignettes de style ont un aperçu rendu par le vrai
+moteur (`styleThumbnails.ts`), celles de la grille « Scène automatique »
+n'avaient qu'un texte.
+
+**Pas un rendu réel du moteur direct**, contrairement aux styles : les
+utilitaires capables de chauffer un `LiveAnalysisEngine` sur un signal
+synthétique (`ui/live/testing/AnalyserModel.ts`, `SyntheticAudio.ts`,
+`runEngine.ts`) portent une garantie explicite dans leur propre en-tête —
+« jamais importé par le code d'application, donc absent du bundle de
+production ». Les importer depuis `App.ts` aurait casse cette garantie.
+
+**`src/ui/live/sceneIcons.ts`** (nouveau) — un dessin Canvas 2D statique,
+simple, par scène (grille en perspective pour Horizon, courbes fluides pour
+Flux, bandes decalees pour Tranches, anneaux concentriques pour Tunnel laser,
+rayons radiaux pour Mandala, glyphe « Aa » pour Texte), dans le meme habillage
+que les vignettes de style (canvas 160×90, fond sombre, accent violet).
+`ensureLiveSceneGrid()` (App.ts) l'appelle une fois par vignette a la
+construction.
+
+Verifie : `npm run typecheck`/`npm test` verts, `npm run build` sans nouvel
+import de `ui/live/testing/` (grep), capture d'ecran des 6 icones — toutes
+distinctes et reconnaissables a la taille d'une vignette.
