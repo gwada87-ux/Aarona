@@ -14,6 +14,12 @@ import { captureSink } from './tools/captureSink';
 const BUILD_ID = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
 export default defineConfig({
+  // GitHub Pages sert ce dépôt sous un sous-chemin (`/Aarona/`), jamais la
+  // racine -- `GITHUB_ACTIONS` n'est vrai QUE dans le workflow de déploiement
+  // (`.github/workflows/deploy-pages.yml`), jamais en local ni sur Netlify.
+  // Sans ce chemin, les assets référencés en absolu (`/assets/...`) pointeraient
+  // sous la racine du domaine et 404 en production.
+  base: process.env.GITHUB_ACTIONS ? '/Aarona/' : '/',
   // `captureSink` est un greffon de DÉVELOPPEMENT (`apply: 'serve'`) : il sert
   // à déposer les captures du critère 12 dans `docs/captures/` et n'existe pas
   // dans le bundle de production. Voir tools/captureSink.ts.
