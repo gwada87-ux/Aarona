@@ -53,6 +53,8 @@ export class LiveVisualPanel {
   private reducedMotion = false;
   /** Textes de `type-slam` poses par l'interface, survivant a `stop()`/`start()`. */
   private pendingSlamText: readonly string[] | null = null;
+  /** Voir `setPaused()`. */
+  private paused = false;
 
   private rafId: number | null = null;
   /**
@@ -191,6 +193,31 @@ export class LiveVisualPanel {
 
   get active(): boolean {
     return this.rafId !== null;
+  }
+
+  /**
+   * Accès au moteur d'analyse — pour `LiveStepContextBridge` (chantier
+   * « panneau réellement fonctionnel en direct »), qui a besoin de lire
+   * `features`/`beat`/`onsetSet`/`section`/`state`/`tSec` chaque frame pour
+   * construire un `StepContext`. Le panneau reste seul propriétaire du cycle
+   * de vie du moteur (`start()`/`stop()`/`reArm()`) ; ceci n'expose qu'une
+   * référence de lecture.
+   */
+  get analysisEngine(): LiveAnalysisEngine | null {
+    return this.engine;
+  }
+
+  /**
+   * Suspend/reprend le rendu du système à 6 scènes SANS arrêter `engine`
+   * (`stop()` le ferait, perdant le verrouillage de tempo — un retour à
+   * l'automatique redémarrerait alors en `BOOT`, plusieurs secondes de
+   * réacquisition). En pause, `tick()` continue d'appeler `engine.step()`
+   * (le tempo reste chaud) mais saute director/overlays/palette/rendu — le
+   * canvas est masqué, ce travail serait perdu de toute façon.
+   */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.canvas.style.display = paused ? 'none' : 'block';
   }
 
   /**
@@ -425,6 +452,10 @@ export class LiveVisualPanel {
         frameIntervalSec: this.frameMs / 1000,
       });
     }
+
+    // Voir `setPaused()` : le tempo doit rester chaud (analyse ci-dessus),
+    // mais tout le travail de rendu est inutile canvas masqué.
+    if (this.paused) return;
 
     const director = this.director;
     const intensityDirector = this.intensity;

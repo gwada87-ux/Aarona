@@ -80,6 +80,8 @@ import { applyLayerMacrosToScene } from '../presets/layerMacros';
 import { importTrack, type ImportedTrack } from './pipeline';
 import { LiveAudioSource } from '../audio/LiveAudioSource';
 import { LiveVisualPanel } from './live/LiveVisualPanel';
+import { LiveManualOverride } from './live/LiveManualOverride';
+import { LiveStepContextBridge } from './live/bridge/LiveStepContextBridge';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
 import { computeWaveformPeaks } from '../analysis/waveformPeaks';
@@ -167,6 +169,27 @@ let stepper: StepContextBuilder | null = null;
 let behaviourEngine: BehaviourEngine | null = null;
 let visualDirector: VisualDirector | null = null;
 let visualDirectorTimeline: MusicTimeline | null = null;
+/**
+ * Panneau/pont/moteurs du mode direct — déclarés ICI (zone morte temporelle,
+ * même raison que `seedOutput` plus bas) : lus depuis `applyActiveConfiguration()`,
+ * appelée dès l'initialisation du module, bien avant leur affectation réelle
+ * plus bas (Étape 53 / chantier « panneau réellement fonctionnel en direct »).
+ * `liveVisualPanel` porte le système à 6 scènes automatique (inchangé) ;
+ * `liveStepContextBridge`/`liveBehaviourEngine`/`liveVisualDirector` portent
+ * le VRAI moteur fichier, réutilisé en direct dès que `liveManualOverride`
+ * est actif — distincts de `behaviourEngine`/`visualDirector` du mode fichier
+ * pour ne jamais mélanger un fichier chargé et une session en direct.
+ */
+let liveVisualPanel: LiveVisualPanel | null = null;
+const liveManualOverride = new LiveManualOverride();
+let liveStepContextBridge: LiveStepContextBridge | null = null;
+let liveBehaviourEngine: BehaviourEngine | null = null;
+let liveVisualDirector: VisualDirector | null = null;
+/** Suivi SÉPARÉ de `behaviourEngineTimeline`/`visualDirectorTimeline` (mode fichier) — les mélanger ferait reconstruire l'un des deux moteurs sans raison dès que l'autre change de timeline, perdant des enveloppes en cours pour rien. */
+let liveBehaviourEngineTimeline: MusicTimeline | null = null;
+let liveVisualDirectorTimeline: MusicTimeline | null = null;
+/** Rôle de `simT`, mais pour le moteur fichier réutilisé en direct — jamais bornée par une durée de fichier (`liveStepContextBridge.timeline.duration === Infinity`). */
+let liveSimT = 0;
 let currentVariant: StyleVariant | undefined;
 /** Pochette décodée (§7.5). `null` = aucune ; la couche `CoverArt` est alors absente. */
 let coverImage: ImageBitmap | null = null;
@@ -409,6 +432,21 @@ function activePresetObject(): Preset {
  * `new BehaviourEngine(...)`.
  */
 function applyActiveConfiguration(): void {
+  // Chantier « panneau réellement fonctionnel en direct » : cette fonction est
+  // l'UNIQUE point d'entrée de tout changement Style/Preset/Palette/Texte/macro
+  // (~20 appelants). Si une session en direct est connectée, un appel ici
+  // signifie qu'un contrôle du panneau vient de changer — bascule sur le vrai
+  // moteur fichier, jusqu'à « Revenir à l'automatique ». Sans effet en mode
+  // fichier (`liveVisualPanel` reste `null` tant qu'aucune session directe
+  // n'est connectée), et sans effet si déjà actif.
+  if (liveVisualPanel?.active && !liveManualOverride.active) {
+    liveManualOverride.activate();
+    // Suspend le système à 6 scènes (tempo gardé au chaud, voir `setPaused`) —
+    // les deux moteurs ne doivent jamais dessiner sur `#canvas` en même temps.
+    liveVisualPanel.setPaused(true);
+    updateLiveModeUi();
+  }
+
   const preset = activePresetObject();
   // Le diff de l'éditeur de réaction est le DERNIER étage du pipeline de
   // résolution (docs/08 : « surcharges utilisateur, stockées comme un diff »),
@@ -460,6 +498,7 @@ function applyActiveConfiguration(): void {
     sceneTextKey = textStructureKey(textConfig);
     scene.init({ renderer, palette: currentPalette, cover: coverImage });
     if (currentTimeline) scene.reset(simT);
+    else if (liveManualOverride.active) scene.reset(liveSimT);
     sceneNeedsPriming = true;
   } else if (scene) {
     scene.init({ renderer, palette: currentPalette, cover: coverImage });
@@ -486,6 +525,28 @@ function applyActiveConfiguration(): void {
     if (visualDirectorTimeline !== currentTimeline) {
       visualDirector = new VisualDirector(currentTimeline);
       visualDirectorTimeline = currentTimeline;
+    }
+  }
+
+  // Même construction que ci-dessus, mais liée à `liveStepContextBridge.timeline`
+  // plutôt qu'à `currentTimeline` — c'est ce qui permet au VRAI moteur fichier de
+  // tourner en direct (chantier « panneau réellement fonctionnel en direct »).
+  // `liveStepContextBridge` est non-nul dès qu'une session en direct est
+  // connectée (voir le listener `pulsar:live-offer` plus bas) ; ce bloc ne
+  // construit quoi que ce soit tant que le panneau n'a pas été touché
+  // (`liveManualOverride.active` ne devient vrai que depuis le hook en tête de
+  // cette fonction).
+  if (liveManualOverride.active && liveStepContextBridge) {
+    const liveTimeline = liveStepContextBridge.timeline;
+    if (liveBehaviourEngine && liveBehaviourEngineTimeline === liveTimeline) {
+      liveBehaviourEngine.setMapping(currentMapping);
+    } else {
+      liveBehaviourEngine = new BehaviourEngine(liveTimeline, currentMapping);
+      liveBehaviourEngineTimeline = liveTimeline;
+    }
+    if (liveVisualDirectorTimeline !== liveTimeline) {
+      liveVisualDirector = new VisualDirector(liveTimeline);
+      liveVisualDirectorTimeline = liveTimeline;
     }
   }
 
@@ -2565,13 +2626,35 @@ function loop(nowMs: number): void {
     if (steps > 0) refreshAutomatedMacros(simT);
     timelineComponent.setPlayhead(simT);
   }
+
+  // Chantier « panneau réellement fonctionnel en direct » : MÊME moteur
+  // (`stepSceneWithDrama`/`scene`), alimenté par `liveStepContextBridge` au
+  // lieu de `stepper`/`currentTimeline`. Un `StepContext` par IMAGE (pas de
+  // sous-pas fixe à 120 Hz — le direct n'a pas de position à rattraper comme
+  // un `seek`, voir le plan). N'agit que si le panneau a été touché pendant
+  // une session en direct connectée (`liveManualOverride.active`) ; sans
+  // effet en mode fichier.
+  if (liveManualOverride.active && liveStepContextBridge && liveBehaviourEngine && liveVisualDirector && scene) {
+    const engine = liveVisualPanel?.analysisEngine;
+    if (engine) {
+      const dt = Math.min(engine.dt || 1 / 60, 0.25);
+      liveSimT = engine.tSec;
+      const step = liveStepContextBridge.build(dt);
+      stepSceneWithDrama(scene, liveBehaviourEngine, liveVisualDirector, step, automationAt(liveSimT));
+    }
+  }
   const updateMs = performance.now() - updateStartMs;
 
   const renderStartMs = performance.now();
   if (scene && currentPalette) {
     // Sans director (aucun morceau chargé), la caméra est simplement neutre :
-    // on ouvre l'image comme avant.
-    if (visualDirector) {
+    // on ouvre l'image comme avant. Direct manuel : MÊME appel, littéralement
+    // (docs/JOURNAL, tests/unit/automation.test.ts vérifie que l'aperçu et
+    // l'export appliquent l'automatisation au même endroit) — seule la source
+    // du director/de l'horloge change.
+    if (liveManualOverride.active && liveVisualDirector) {
+      openFrameWithCamera(renderer, viewport, currentPalette.bg[1], liveVisualDirector, framingFor(scene, currentVariant), automationAt(liveSimT));
+    } else if (visualDirector) {
       openFrameWithCamera(renderer, viewport, currentPalette.bg[1], visualDirector, framingFor(scene, currentVariant), automationAt(simT));
     } else {
       renderer.beginFrame(viewport);
@@ -2579,7 +2662,7 @@ function loop(nowMs: number): void {
     }
     scene.draw(renderer, viewport);
     renderer.endFrame();
-    flashLimiter.apply(simT);
+    flashLimiter.apply(liveManualOverride.active ? liveSimT : simT);
   }
   const renderMs = performance.now() - renderStartMs;
 
@@ -2742,7 +2825,67 @@ if (import.meta.env.DEV) {
  */
 let liveAudioSource: LiveAudioSource | null = null;
 let liveCtx: AudioContext | null = null;
-let liveVisualPanel: LiveVisualPanel | null = null;
+// `liveVisualPanel` est déclaré plus haut (zone morte temporelle) — voir le commentaire à sa déclaration.
+let liveReturnButton: HTMLButtonElement | null = null;
+
+/** Crée (une fois) le bouton « Revenir à l'automatique », caché tant que le mode manuel n'est pas actif. */
+function ensureLiveReturnButton(wrap: HTMLElement): HTMLButtonElement {
+  if (liveReturnButton) return liveReturnButton;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'live-return-auto';
+  btn.textContent = "Revenir à l'automatique";
+  btn.style.cssText =
+    'position:absolute;top:8px;left:8px;z-index:5;display:none;' +
+    'padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.3);' +
+    'background:rgba(0,0,0,.6);color:#fff;font:13px system-ui,sans-serif;cursor:pointer;';
+  btn.addEventListener('click', () => {
+    liveManualOverride.deactivate();
+    liveVisualPanel?.setPaused(false);
+    updateLiveModeUi();
+  });
+  wrap.appendChild(btn);
+  liveReturnButton = btn;
+  return btn;
+}
+
+/**
+ * Automatisation/Analyse (docs/17 §7.3/§7.8) reposent sur une durée de morceau
+ * connue à l'avance (piste de keyframes, corrections d'un document déjà
+ * analysé) — sans fin de flux, aucun des deux n'a de sens en direct. Grisés
+ * pendant TOUTE la session en direct (pas seulement en mode manuel) : ce
+ * n'est pas un effet du panneau réel, c'est une contrainte technique qui
+ * existe dès la connexion.
+ */
+function setGroupDisabled(id: string, disabled: boolean): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  for (const ctrl of el.querySelectorAll('input, select, textarea, button')) {
+    (ctrl as HTMLInputElement | HTMLSelectElement | HTMLButtonElement).disabled = disabled;
+  }
+  el.style.opacity = disabled ? '0.45' : '';
+  el.style.pointerEvents = disabled ? 'none' : '';
+  if (disabled) el.title = 'Indisponible en direct : nécessite un fichier chargé et analysé.';
+  else el.removeAttribute('title');
+}
+
+function updateLiveModeUi(): void {
+  const liveActive = liveVisualPanel?.active ?? false;
+  setGroupDisabled('groupe-automation', liveActive);
+  setGroupDisabled('groupe-analyse', liveActive);
+  if (liveReturnButton) liveReturnButton.style.display = liveManualOverride.active ? 'block' : 'none';
+  // `#dropzone` (« Glisse un fichier audio ici ») ne connaît que le mode
+  // fichier — sans lui, il resterait affiché PAR-DESSUS le vrai rendu de
+  // `#canvas` en mode manuel, puisqu'aucun fichier n'est jamais chargé dans
+  // PULSAR lui-même en direct. Masqué tant que le mode manuel est actif ;
+  // remis tel quel au retour à l'automatique, SEULEMENT si aucun fichier
+  // n'a par ailleurs été chargé (sinon on masquerait un morceau réel).
+  if (liveManualOverride.active) {
+    dropzone.classList.add('hidden');
+  } else if (!currentTimeline) {
+    dropzone.classList.remove('hidden');
+  }
+}
 
 if (window !== window.top) {
   window.addEventListener('message', (event) => {
@@ -2767,6 +2910,15 @@ if (window !== window.top) {
           onConnectionStateChange: (state) => {
             if (state === 'closed' || state === 'failed' || state === 'disconnected') {
               liveVisualPanel?.stop();
+              // Chantier « panneau réellement fonctionnel en direct » : la session
+              // se ferme, plus rien à quoi rattacher le moteur live-manuel.
+              liveManualOverride.deactivate();
+              liveStepContextBridge = null;
+              liveBehaviourEngine = null;
+              liveVisualDirector = null;
+              liveBehaviourEngineTimeline = null;
+              liveVisualDirectorTimeline = null;
+              updateLiveModeUi();
             }
           },
           onTrack: (stream) => {
@@ -2778,6 +2930,12 @@ if (window !== window.top) {
             // APRÈS `start()` : celui-ci commence par `stop()`, qui relâche la
             // référence au contexte audio (il appartient à App, pas au panneau).
             liveVisualPanel?.attachAudioContext(liveCtx);
+            // `start()` construit `engine` de façon synchrone (voir LiveVisualPanel.ts) —
+            // disponible immédiatement pour le pont StepContext.
+            const engine = liveVisualPanel?.analysisEngine;
+            if (engine) liveStepContextBridge = new LiveStepContextBridge(engine);
+            ensureLiveReturnButton(wrap);
+            updateLiveModeUi();
           },
         });
         liveAudioSource = source;
@@ -2814,6 +2972,21 @@ if (import.meta.env.DEV) {
     },
     selectScene(id: string) {
       liveVisualPanel?.selectScene(id);
+    },
+    /**
+     * Chantier « panneau réellement fonctionnel en direct » — accès direct
+     * pour la vérification Playwright, même patron que `sceneId` ci-dessus :
+     * lire l'état RÉEL (pas un hash d'image, qui bouge tout seul avec
+     * l'animation, voir le plan).
+     */
+    get liveManualActive() {
+      return liveManualOverride.active;
+    },
+    get currentStyleId() {
+      return currentStyleId;
+    },
+    get currentPresetId() {
+      return selectedPresetId;
     },
   };
 }
