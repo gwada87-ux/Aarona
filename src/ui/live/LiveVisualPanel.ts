@@ -244,6 +244,27 @@ export class LiveVisualPanel {
   }
 
   /**
+   * Choisit une scène ET la verrouille (chantier « choisir une scène
+   * automatique au même titre qu'un style ») — sans le verrou, le director
+   * la remplacerait à la prochaine frontière de phrase/mesure, contredisant
+   * le choix qui vient d'être fait.
+   */
+  selectSceneLocked(id: string): void {
+    this.selectScene(id);
+    if (this.director) this.director.sceneLocked = true;
+  }
+
+  /** Une scène a-t-elle été choisie à la main (verrouillée) ? Pour la synchronisation de l'UI. */
+  get sceneLocked(): boolean {
+    return this.director?.sceneLocked ?? false;
+  }
+
+  /** Retour au director automatique — voir le bouton « Revenir à l'automatique ». */
+  unlockScene(): void {
+    if (this.director) this.director.sceneLocked = false;
+  }
+
+  /**
    * Textes de `type-slam` (docs/17 §9.3, chantier 8).
    *
    * §9.3 : « `LiveConfig.content.slamText` existe [...] mais aucune interface ne

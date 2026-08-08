@@ -7196,3 +7196,52 @@ approximation (depuis `SectionEnergy.arc`/`dropFired`), pas une reproduction
 image-pour-image d'`analysis/macro.ts`. Automatisation et corrections d'Analyse
 desactivees en direct — aucun des deux n'a de sens sans fichier de duree
 connue.
+
+## Grille « Scène automatique » — choisir une scène procédurale au même titre qu'un style
+
+### La demande
+
+Apres le chantier ci-dessus, Aaron : « il faudrait remettre aussi les visuels
+dans la premiere version et les rajouter au style actuel ». Clarifie par deux
+questions (AskUserQuestion) : il parle des 6 scenes procedurales d'origine
+(grid-horizon, curl-flow, slice-displace, laser-tunnel, mandala-32, type-slam),
+et il veut pouvoir CHOISIR l'une d'elles explicitement, au meme titre qu'un
+Style — l'un OU l'autre, pas les deux en meme temps.
+
+### Ce qui est ajoute
+
+- **`LiveVisualPanel.selectSceneLocked(id)`** — choisit une scene ET la
+  verrouille (`director.sceneLocked = true`) ; sans le verrou, le director
+  automatique la remplacerait a la prochaine frontiere de phrase/mesure,
+  contredisant le choix qui vient d'etre fait. `get sceneLocked`/`unlockScene()`
+  pour la synchronisation UI et le retour a l'automatique.
+- **Grille « Scene automatique »** (`ui/App.ts::ensureLiveSceneGrid`) —
+  inseree juste apres `#style-grid`, meme classe `.style-tile` que le mode
+  fichier pour la coherence visuelle. Une vignette par scene, desactivee sous
+  `prefers-reduced-motion` si la scene n'est pas `reducedMotionSafe` (WCAG
+  2.3.1, meme discipline que `INERT_MACROS`/`FlashLimiter` ailleurs dans ce
+  fichier) — au lieu d'une redirection silencieuse vers une autre scene.
+- **Trois etats, un seul a la fois** : AUTO (6 scenes auto-cyclees, defaut),
+  SCENE-LOCKED (une scene choisie a la main, immobile), FILE-STYLE (le vrai
+  moteur fichier, chantier precedent). Choisir un Style deverouille
+  automatiquement une scene deja choisie (et vice-versa implicitement, la
+  grille de scenes ne s'affiche que si aucun Style manuel n'est actif) — les
+  deux grilles n'affichent donc jamais une selection en meme temps.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test             -> 125 fichiers, 1199 tests, tous verts
+```
+
+Playwright, navigateur reel : clic sur « Tunnel laser » -> `sceneId` devient
+`laser-tunnel` et RESTE `laser-tunnel` 5 s plus tard (verrouille, ne derive
+plus tout seul) ; vignette correctement surlignee (`aria-pressed`) ; bouton
+« Revenir a l'automatique » apparait. Clic sur un Style ensuite -> repasse en
+FILE-STYLE, la vignette de scene se desurligne toute seule. Clic sur
+« Revenir a l'automatique » -> tout se reinitialise, bouton disparait. Zero
+erreur console sur l'ensemble du parcours.
+
+Deploye sur `pulsar-visualizer-aaron.netlify.app`, bundle reellement servi
+verifie.

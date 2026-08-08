@@ -82,6 +82,7 @@ import { LiveAudioSource } from '../audio/LiveAudioSource';
 import { LiveVisualPanel } from './live/LiveVisualPanel';
 import { LiveManualOverride } from './live/LiveManualOverride';
 import { LiveStepContextBridge } from './live/bridge/LiveStepContextBridge';
+import { SCENE_REGISTRY } from './live/scenes';
 import { buildDemoAudioFile, buildDemoDoc } from './demoDoc';
 import { downmixToMono } from '../audio/downmix';
 import { computeWaveformPeaks } from '../analysis/waveformPeaks';
@@ -444,6 +445,11 @@ function applyActiveConfiguration(): void {
     // Suspend le système à 6 scènes (tempo gardé au chaud, voir `setPaused`) —
     // les deux moteurs ne doivent jamais dessiner sur `#canvas` en même temps.
     liveVisualPanel.setPaused(true);
+    // Une scène automatique pouvait être verrouillée (choisie à la main) —
+    // la dévérouiller : Style et Scène automatique sont l'un OU l'autre,
+    // jamais les deux « choisis » en même temps (sinon les deux grilles
+    // afficheraient une sélection à la fois, trompeur).
+    liveVisualPanel.unlockScene();
     updateLiveModeUi();
   }
 
@@ -2842,11 +2848,85 @@ function ensureLiveReturnButton(wrap: HTMLElement): HTMLButtonElement {
   btn.addEventListener('click', () => {
     liveManualOverride.deactivate();
     liveVisualPanel?.setPaused(false);
+    liveVisualPanel?.unlockScene();
     updateLiveModeUi();
   });
   wrap.appendChild(btn);
   liveReturnButton = btn;
   return btn;
+}
+
+/** Labels FR des 6 scènes procédurales (`SCENE_REGISTRY` n'a que des identifiants techniques). */
+const LIVE_SCENE_LABELS: Readonly<Record<string, string>> = {
+  'grid-horizon': 'Horizon',
+  'curl-flow': 'Flux',
+  'slice-displace': 'Tranches',
+  'laser-tunnel': 'Tunnel laser',
+  'mandala-32': 'Mandala',
+  'type-slam': 'Texte',
+};
+
+let liveSceneSection: HTMLElement | null = null;
+let liveSceneTiles: Map<string, HTMLButtonElement> | null = null;
+
+/**
+ * Grille « Scène automatique » — les 6 scènes procédurales du direct, au même
+ * titre que les 8 Style du mode fichier (chantier demandé par Aaron après
+ * coup : pouvoir choisir explicitement l'une ou l'autre, pas seulement
+ * laisser le director automatique décider). Insérée juste après `#style-grid`
+ * pour rester visuellement adjacente. Cliquer une vignette ici quitte le mode
+ * manuel fichier (si actif) et VERROUILLE cette scène précise — sans le
+ * verrou, le director la remplacerait à la prochaine frontière, contredisant
+ * le choix qui vient d'être fait.
+ */
+function ensureLiveSceneGrid(): void {
+  if (liveSceneSection) return;
+  const styleGrid = document.getElementById('style-grid');
+  const parent = styleGrid?.parentElement;
+  if (!styleGrid || !parent) return;
+
+  const section = document.createElement('div');
+  section.id = 'live-scene-section';
+  section.style.display = 'none';
+  const heading = document.createElement('p');
+  heading.className = 'sous-titre';
+  heading.textContent = 'Scène automatique (direct)';
+  const grid = document.createElement('div');
+  grid.id = 'live-scene-grid';
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', 'Scène automatique');
+  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;';
+  section.appendChild(heading);
+  section.appendChild(grid);
+  parent.insertBefore(section, styleGrid.nextSibling);
+
+  // WCAG 2.3.1 (même discipline que `INERT_MACROS`/`FlashLimiter` ailleurs
+  // dans ce fichier) : les scènes non `reducedMotionSafe` (glitch/stroboscope)
+  // sont désactivées sous `prefers-reduced-motion`, pas juste redirigées en
+  // silence vers une autre scène — `selectScene()` le ferait sans prévenir.
+  const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const tiles = new Map<string, HTMLButtonElement>();
+  for (const entry of SCENE_REGISTRY) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'style-tile';
+    tile.disabled = reducedMotionQuery.matches && !entry.reducedMotionSafe;
+    if (tile.disabled) tile.title = 'Désactivée : mouvement réduit actif sur ce système.';
+    const span = document.createElement('span');
+    span.textContent = LIVE_SCENE_LABELS[entry.id] ?? entry.id;
+    tile.appendChild(span);
+    tile.setAttribute('aria-pressed', 'false');
+    tile.addEventListener('click', () => {
+      liveManualOverride.deactivate();
+      liveVisualPanel?.setPaused(false);
+      liveVisualPanel?.selectSceneLocked(entry.id);
+      updateLiveModeUi();
+    });
+    grid.appendChild(tile);
+    tiles.set(entry.id, tile);
+  }
+  liveSceneSection = section;
+  liveSceneTiles = tiles;
 }
 
 /**
@@ -2873,7 +2953,13 @@ function updateLiveModeUi(): void {
   const liveActive = liveVisualPanel?.active ?? false;
   setGroupDisabled('groupe-automation', liveActive);
   setGroupDisabled('groupe-analyse', liveActive);
-  if (liveReturnButton) liveReturnButton.style.display = liveManualOverride.active ? 'block' : 'none';
+  const sceneLocked = liveVisualPanel?.sceneLocked ?? false;
+  if (liveReturnButton) liveReturnButton.style.display = liveManualOverride.active || sceneLocked ? 'block' : 'none';
+  if (liveSceneSection) liveSceneSection.style.display = liveActive ? 'block' : 'none';
+  if (liveSceneTiles) {
+    const lockedSceneId = sceneLocked ? (liveVisualPanel?.sceneId ?? '') : '';
+    for (const [id, tile] of liveSceneTiles) tile.setAttribute('aria-pressed', String(id === lockedSceneId));
+  }
   // `#dropzone` (« Glisse un fichier audio ici ») ne connaît que le mode
   // fichier — sans lui, il resterait affiché PAR-DESSUS le vrai rendu de
   // `#canvas` en mode manuel, puisqu'aucun fichier n'est jamais chargé dans
@@ -2935,6 +3021,7 @@ if (window !== window.top) {
             const engine = liveVisualPanel?.analysisEngine;
             if (engine) liveStepContextBridge = new LiveStepContextBridge(engine);
             ensureLiveReturnButton(wrap);
+            ensureLiveSceneGrid();
             updateLiveModeUi();
           },
         });
