@@ -6917,3 +6917,113 @@ npm run build       -> 535,10 kB (gzip 153,44 kB), 2,18 s
   exception d'emporter l'application ; il ne dit pas ce qui echoue chez lui.
 - Le filet lui-meme n'est verifie que par lecture de structure — six tests sur
   la forme de `raf`, faute de pouvoir executer rAF ici.
+
+---
+
+## LA CAUSE — le transport epingle a zero par la correction de derive
+
+Diagnostic d'Aaron, bien meilleur que mes suppositions :
+
+> apres avoir clique lecture, le compteur de temps reste bloque a 0:00 / 1:00
+> indefiniment, alors que la boucle de rendu tourne activement
+> (requestAnimationFrame declenche plus de 4000 fois) et que le canvas reste
+> pixel-identique tout du long. Aucune erreur console.
+
+Il avait aussi verifie que changer de preset REDESSINE bien (somme des pixels
+977187 -> 538902). Le rendu n'etait donc pas en cause : **la lecture ne
+demarrait jamais.**
+
+### Ce que mes suppositions valaient
+
+Trois hypotheses successives, trois erreurs :
+
+1. Zone morte temporelle sous `prefers-reduced-motion` — vraie panne, corrigee,
+   mais **pas celle-la**.
+2. Boucle de rendu morte — refutee par sa console : rAF tournait.
+3. Un `dist/` local fige — refutee par lui : la surcouche pointe vers l'URL
+   Netlify de production, redeployee a chaque build.
+
+**Aucune de mes trois hypotheses n'etait la bonne, et c'est son releve qui a
+tranche a chaque fois.**
+
+### Le mecanisme, exact
+
+Le contexte audio ne tourne pas — politique d'autoplay, ou iframe sans
+`allow="autoplay"`, PULSAR etant embarque en surcouche. Donc :
+
+- `ctx.currentTime` est GELE, donc `currentRawT()` reste a ~0 ;
+- `predictedT` avance, lui, sur l'horloge murale (+16,7 ms par image) ;
+- au bout de HUIT images l'ecart franchit `HARD_RESYNC_THRESHOLD_SECONDS`
+  (0,12 s) ;
+- `correctDrift` fait alors exactement ce pour quoi il est ecrit : une
+  resynchronisation DURE vers la valeur mesuree, c'est-a-dire **zero** ;
+- et cela se repete a chaque image.
+
+**Le transport etait epingle a zero par un correcteur qui fonctionnait
+parfaitement.** Nourri d'une horloge a l'arret, il ne pouvait rien faire
+d'autre.
+
+Mesure, sur le code d'avant, avec un contexte factice a horloge gelee :
+
+```
+apres 2 s d'horloge murale : t = 0,029 s   (attendu > 1,5)
+image 9 : t retombe de 0,117 a 0           (le seuil de 0,12 s, franchi)
+motif du refus de resume() : undefined     (avale)
+```
+
+0,117 s a l'image 9 : le seuil et le compte d'images predits par la lecture du
+code, retrouves au chiffre pres par la mesure.
+
+### Correctif, en deux temps
+
+**1. Ne pas se caler sur une horloge a l'arret.** `tick()` ne consulte
+`correctDrift` que si `ctx.state === 'running'`. Sinon la position avance sur
+l'horloge murale : le visuel joue, silencieusement, au lieu de se figer sans
+explication. La correction reprend d'elle-meme des que le contexte demarre.
+
+**2. Ne plus avaler le refus.** `void this.ctx.resume()` jetait la promesse
+rejetee. Dans une iframe sans `allow="autoplay"`, `resume()` REJETTE, et rien
+nulle part ne le disait : ni son, ni avancee du temps, ni message. Le motif est
+desormais conserve dans `contextBlockedReason` et journalise. `contextState`
+expose l'etat reel.
+
+**Une panne muette est une panne qu'on cherche pendant des heures** — celle-ci
+a coute trois hypotheses fausses.
+
+### Ce qui n'a PAS ete touche
+
+`correctDrift` est inchange. Un test l'etablit explicitement comme non coupable :
+nourri de (0,5 predit ; 0 mesure), il resynchronise dur, et c'est correct. Un
+autre verifie qu'un contexte QUI TOURNE garde la correction intacte — payer une
+panne par une regression de synchronisation aurait ete un mauvais echange.
+
+### Une erreur de test, la mienne
+
+Mon dernier test attendait qu'une horloge decrochant en cours de route fasse
+REVENIR la position sous la mesure. Faux : elle OSCILLE — elle grimpe de
+~14,7 ms par image jusqu'a franchir le seuil, resynchronise, et repart. Elle ne
+repasse jamais dessous. Attente corrigee sur ce que le mecanisme fait vraiment.
+
+### Verification
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 125 fichiers, 1199 tests (1193 -> 1199, +6)
+npm run test:arch   -> 1 test
+npm run build       -> 535,45 kB (gzip 153,60 kB), 2,25 s
+```
+
+Trois des six tests neufs ECHOUENT sur le code d'avant, verifie en le remettant
+sous les tests neufs. Ce sont de vrais garde-fous.
+
+### Limites connues
+
+- **Non verifie en conditions reelles.** Je ne peux toujours pas executer la
+  boucle de rendu ici ; la preuve est un contexte audio factice a horloge gelee,
+  pas la surcouche d'Aaron.
+- **Le son ne reviendra pas pour autant.** Si le navigateur refuse le contexte,
+  le visuel jouera desormais, mais muet. La vraie correction cote hote est
+  d'ajouter `allow="autoplay"` a l'iframe qui embarque PULSAR — a verifier de
+  ce cote-la.
+- **`contextBlockedReason` n'est pas affiche dans l'interface**, seulement en
+  console. A faire si le cas se reproduit.

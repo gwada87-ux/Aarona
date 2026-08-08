@@ -34,6 +34,17 @@ export class AudioEngine implements Transport {
   dt = 0;
   playing = false;
 
+  /** Motif du refus de `resume()`, `null` si le contexte n'a jamais été bloqué. */
+  contextBlockedReason: string | null = null;
+
+  /**
+   * État réel du contexte audio. `'running'` est le seul état où `ctx.currentTime`
+   * avance, donc le seul où l'horloge audio fait autorité (voir `tick`).
+   */
+  get contextState(): AudioContextState {
+    return this.ctx.state;
+  }
+
   constructor(options: AudioEngineOptions = {}) {
     this.ctx = options.context ?? new AudioContext();
     this.gainNode = this.ctx.createGain();
@@ -88,7 +99,20 @@ export class AudioEngine implements Transport {
     // le bon endroit — sans ce resume(), currentTime reste figé et startSource
     // ne produit ni son ni avancée de t.
     if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
+      // Le refus était AVALÉ (`void this.ctx.resume()`). Dans une iframe sans
+      // `allow="autoplay"` — le cas d'Aaron, PULSAR étant embarqué en
+      // surcouche — `resume()` rejette, et rien nulle part ne le disait : ni
+      // son, ni avancée du temps, ni message. Une panne muette est une panne
+      // qu'on cherche pendant des heures.
+      this.ctx
+        .resume()
+        .then(() => {
+          this.contextBlockedReason = null;
+        })
+        .catch((err: unknown) => {
+          this.contextBlockedReason = err instanceof Error ? err.message : String(err);
+          console.error("PULSAR — le contexte audio a refusé de démarrer ; la lecture avancera sans son :", err);
+        });
     }
     this.startSource(this.offsetSeek);
     this.playing = true;
@@ -137,8 +161,32 @@ export class AudioEngine implements Transport {
     this.lastTickMs = nowMs;
 
     const predicted = this.predictedT + frameDt;
-    const measured = this.currentRawT();
-    const result = correctDrift(predicted, measured);
+    // L'horloge audio ne fait autorité QUE si le contexte tourne réellement.
+    //
+    // ## La panne que ceci corrige
+    //
+    // Signalée par Aaron : après un clic sur ▶, le compteur restait bloqué à
+    // 0:00 indéfiniment, la boucle de rendu tournant pourtant (plus de 4000
+    // images), le canevas pixel pour pixel identique, et AUCUNE erreur console.
+    //
+    // Mécanisme exact. Contexte suspendu — politique d'autoplay, ou iframe sans
+    // `allow="autoplay"` — donc `ctx.currentTime` gelé, donc `currentRawT()`
+    // constant à ~0. `predicted`, lui, avance sur l'horloge murale. Au bout de
+    // huit images l'écart franchit `HARD_RESYNC_THRESHOLD_SECONDS` (0,12 s) et
+    // `correctDrift` fait ce pour quoi il est écrit : une resynchronisation
+    // dure vers la valeur mesurée, c'est-à-dire ZÉRO. À chaque image.
+    // **Le transport était épinglé à zéro par un correcteur qui fonctionnait
+    // parfaitement.**
+    //
+    // Se caler sur une horloge à l'arrêt n'a aucun sens. Quand le contexte ne
+    // tourne pas, la position avance sur l'horloge murale : le visuel joue,
+    // silencieusement, au lieu de se figer sans explication. La correction
+    // reprend d'elle-même dès que le contexte démarre — un simple écart de plus
+    // de 0,12 s déclenchera alors la resynchronisation dure prévue pour ça.
+    const horlogeAudioValide = this.ctx.state === 'running';
+    const result = horlogeAudioValide
+      ? correctDrift(predicted, this.currentRawT())
+      : { t: predicted, resynced: false };
 
     this.predictedT = result.t;
     this.dt = frameDt;
