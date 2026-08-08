@@ -2744,6 +2744,141 @@ let liveAudioSource: LiveAudioSource | null = null;
 let liveCtx: AudioContext | null = null;
 let liveVisualPanel: LiveVisualPanel | null = null;
 
+/**
+ * Etape 53ter (hors roadmap) : le panneau Style/Palette/Preset du mode
+ * fichier ne pilote pas #live-canvas (calque distinct au-dessus de #canvas,
+ * voir plus bas) -- le masquer sans rien a la place (Etape 53bis) rendait le
+ * direct MOINS controlable qu'avant, pas plus clair : plus aucune option
+ * visible du tout. Ce panneau REMPLACE l'affichage pendant le direct par des
+ * controles qui font reellement quelque chose -- memes actions que le
+ * clavier (§4.5 : fleches, L, P, Maj+P), exposees ici en boutons pour Aaron,
+ * qui n'a pas de clavier facilement accessible dans l'iframe de Beat Studio.
+ */
+let liveModeControlsEl: HTMLElement | null = null;
+
+function buildLiveModeControls(): HTMLElement {
+  const el = document.createElement('div');
+  el.id = 'live-mode-controls';
+
+  const titre = document.createElement('p');
+  titre.className = 'sous-titre';
+  titre.textContent = 'Scène (mode direct)';
+  el.appendChild(titre);
+
+  const sceneValeur = document.createElement('p');
+  sceneValeur.className = 'valeur-actuelle';
+  el.appendChild(sceneValeur);
+
+  const sceneRow = document.createElement('div');
+  sceneRow.className = 'bouton-rangee';
+  const btnScenePrev = document.createElement('button');
+  btnScenePrev.type = 'button';
+  btnScenePrev.textContent = '◀ Précédente';
+  btnScenePrev.addEventListener('click', () => {
+    liveVisualPanel?.previousScene();
+    refreshLiveModeControls();
+  });
+  const btnSceneNext = document.createElement('button');
+  btnSceneNext.type = 'button';
+  btnSceneNext.textContent = 'Suivante ▶';
+  btnSceneNext.addEventListener('click', () => {
+    liveVisualPanel?.nextScene();
+    refreshLiveModeControls();
+  });
+  sceneRow.append(btnScenePrev, btnSceneNext);
+  el.appendChild(sceneRow);
+
+  const btnSceneLock = document.createElement('button');
+  btnSceneLock.type = 'button';
+  btnSceneLock.addEventListener('click', () => {
+    liveVisualPanel?.toggleSceneLock();
+    refreshLiveModeControls();
+  });
+  el.appendChild(btnSceneLock);
+
+  const titrePalette = document.createElement('p');
+  titrePalette.className = 'sous-titre';
+  titrePalette.textContent = 'Palette';
+  el.appendChild(titrePalette);
+
+  const paletteValeur = document.createElement('p');
+  paletteValeur.className = 'valeur-actuelle';
+  el.appendChild(paletteValeur);
+
+  const btnPaletteNext = document.createElement('button');
+  btnPaletteNext.type = 'button';
+  btnPaletteNext.textContent = 'Palette suivante';
+  btnPaletteNext.addEventListener('click', () => {
+    liveVisualPanel?.nextPalette();
+    refreshLiveModeControls();
+  });
+  el.appendChild(btnPaletteNext);
+
+  const btnPaletteLock = document.createElement('button');
+  btnPaletteLock.type = 'button';
+  btnPaletteLock.addEventListener('click', () => {
+    liveVisualPanel?.togglePaletteLock();
+    refreshLiveModeControls();
+  });
+  el.appendChild(btnPaletteLock);
+
+  (el as HTMLElement & { _refs?: unknown })._refs = {
+    sceneValeur,
+    btnSceneLock,
+    paletteValeur,
+    btnPaletteLock,
+  };
+  return el;
+}
+
+/** Relit l'etat reel du panneau live (scene/palette/verrous) sur les boutons. */
+function refreshLiveModeControls(): void {
+  if (!liveModeControlsEl || !liveVisualPanel) return;
+  const refs = (
+    liveModeControlsEl as HTMLElement & {
+      _refs: {
+        sceneValeur: HTMLElement;
+        btnSceneLock: HTMLButtonElement;
+        paletteValeur: HTMLElement;
+        btnPaletteLock: HTMLButtonElement;
+      };
+    }
+  )._refs;
+  refs.sceneValeur.textContent = liveVisualPanel.sceneId;
+  refs.btnSceneLock.textContent = liveVisualPanel.sceneLocked ? '🔒 Scène verrouillée' : '🔓 Scène libre (rotation auto)';
+  refs.paletteValeur.textContent = liveVisualPanel.paletteId;
+  refs.btnPaletteLock.textContent = liveVisualPanel.paletteLockedState
+    ? '🔒 Palette verrouillée'
+    : '🔓 Palette libre (rotation auto)';
+}
+
+let liveModeRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+function setLiveModeActive(active: boolean): void {
+  const aside = document.querySelector<HTMLElement>('aside');
+  if (!aside) return;
+  if (active) {
+    if (!liveModeControlsEl) {
+      liveModeControlsEl = buildLiveModeControls();
+      aside.prepend(liveModeControlsEl);
+    }
+    aside.classList.add('live-mode');
+    refreshLiveModeControls();
+    // La scene/palette tournent seules (LiveDirector, PaletteBook) : les
+    // boutons doivent refleter la rotation automatique, pas seulement les
+    // clics d'Aaron.
+    if (liveModeRefreshTimer === null) {
+      liveModeRefreshTimer = setInterval(refreshLiveModeControls, 1000);
+    }
+  } else {
+    aside.classList.remove('live-mode');
+    if (liveModeRefreshTimer !== null) {
+      clearInterval(liveModeRefreshTimer);
+      liveModeRefreshTimer = null;
+    }
+  }
+}
+
 if (window !== window.top) {
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;
@@ -2767,11 +2902,7 @@ if (window !== window.top) {
           onConnectionStateChange: (state) => {
             if (state === 'closed' || state === 'failed' || state === 'disconnected') {
               liveVisualPanel?.stop();
-              // Panneau Style/Palette/Preset (mode fichier) redonné : il ne
-              // pilotait plus rien pendant le direct (voir plus bas), un
-              // canvas caché sous `#live-canvas` — le rendre visible sans
-              // effet aurait ete trompeur pour Aaron.
-              document.querySelector<HTMLElement>('aside')?.style.removeProperty('display');
+              setLiveModeActive(false);
             }
           },
           onTrack: (stream) => {
@@ -2783,14 +2914,7 @@ if (window !== window.top) {
             // APRÈS `start()` : celui-ci commence par `stop()`, qui relâche la
             // référence au contexte audio (il appartient à App, pas au panneau).
             liveVisualPanel?.attachAudioContext(liveCtx);
-            // Étape 53bis (hors roadmap) : le panneau Style/Palette/Preset du
-            // mode fichier reste affiche par-dessus le direct sans jamais agir
-            // dessus (`#live-canvas` est un calque distinct au-dessus de
-            // `#canvas`, seul celui-ci ecoute ce panneau) -- confirme a
-            // l'execution : cliquer un style pendant le direct ne change RIEN
-            // a la scene live. Le masquer evite un controle qui a l'air actif
-            // et ne fait rien.
-            document.querySelector<HTMLElement>('aside')?.style.setProperty('display', 'none');
+            setLiveModeActive(true);
           },
         });
         liveAudioSource = source;

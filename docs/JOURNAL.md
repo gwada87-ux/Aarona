@@ -7148,3 +7148,57 @@ cliquables en direct — hors perimetre de ce correctif, qui ne visait que le
 panneau explicitement signale par Aaron.
 Dette introduite : aucune connue.
 Bloque la suite : redeploiement Netlify fait immediatement apres ce correctif.
+
+---
+
+## Panneau live REEL (scene + palette) — masquer sans rien remettre etait pire
+
+**Hors de docs/00a.** Correctif precedent trop court : masquer `<aside>` sans
+rien a la place a fait dire a Aaron, capture d'ecran a l'appui, que c'etait
+« pire qu'avant... il n'y a plus aucune option ». Vrai : j'avais traite le
+symptome (un controle trompeur) sans redonner ce qu'il voulait vraiment (un
+controle qui MARCHE).
+
+`LiveDirector`/`PaletteBook` avaient deja tout le necessaire cote logique
+(§4.5 : fleches, `L`, `P`, `Maj+P`), au clavier seulement — inutilisable pour
+Aaron, sans clavier facilement accessible dans l'iframe de Beat Studio.
+
+**Correctif** : `LiveVisualPanel` expose desormais `nextScene()`/
+`previousScene()`/`toggleSceneLock()`/`sceneLocked`/`nextPalette()`/
+`togglePaletteLock()`/`paletteLockedState`/`paletteId` — MEME chemin interne
+que les raccourcis clavier (`director.requestManual()`, `director.sceneLocked`,
+`pipeline.palette.next()`, `this.paletteLocked`), pas une logique dupliquee.
+`App.ts` construit un petit panneau (`#live-mode-controls`, 5 boutons) insere
+dans `<aside>`, affiche a la place du panneau fichier (CSS : les enfants
+normaux de `<aside>` s'effacent, `#live-mode-controls` seul reste visible —
+`display:none` sur les enfants, jamais un retrait du DOM, pour ne pas casser
+les references d'elements que `SimplePanel`/`AdvancedPanel` gardent depuis
+leur construction). Rafraichi chaque seconde en plus des clics, pour refleter
+la rotation AUTOMATIQUE (LiveDirector/PaletteBook tournent seuls quand rien
+n'est verrouille), pas seulement les actions d'Aaron.
+
+Ecart trouve et compris pendant la verification, pas un bug : `requestManual()`
+ne change pas la scene immediatement, il pose un DRAPEAU EN ATTENTE que
+`LiveDirector.update()` honore a la prochaine frontiere de mesure/phrase
+(exactement comme la fleche clavier). Mon premier test (attente d'1s) voyait
+donc `sceneId` inchange et l'aurait signale a tort comme casse ; sondage
+etendu a 10s : la scene passe bien de `grid-horizon` a `curl-flow`. La palette,
+elle, change au clic suivant (pas de quantification metrique dans
+`PaletteBook.next()`).
+
+Verifie en conditions reelles (Playwright + `file://` contre Beat Studio) :
+panneau present (5 boutons), scene confirmee changee (`grid-horizon` ->
+`curl-flow`) apres clic + attente de la frontiere, palette confirmee changee
+(`nocturne` -> `glacier`) au clic, deux captures d'ecran a l'appui montrant un
+rendu et des libelles differents.
+
+`npx tsc --noEmit` : 0 erreur. `npx vitest run` : 1199/1199 verts (125/125
+fichiers). `npm run build` : succes, 246 modules, `index-BSX6GiFl.js`
+539,17 ko (gzip 154,70 ko).
+Limites connues : pas de selection DIRECTE d'une scene/palette par nom (menu
+deroulant) — seulement suivant/precedent, meme limite que le clavier
+(`PaletteBook` n'expose qu'un cycle, pas un choix par id) ; les boutons
+d'en-tete (Charger une demo, etc.) restent hors perimetre, comme note dans le
+correctif precedent.
+Dette introduite : aucune connue.
+Bloque la suite : redeploiement Netlify fait immediatement apres ce correctif.

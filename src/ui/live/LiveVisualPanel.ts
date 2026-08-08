@@ -247,6 +247,51 @@ export class LiveVisualPanel {
   }
 
   /**
+   * Controles de scene/palette exposes pour une UI cliquable (boutons dans
+   * `<aside>` en mode direct), en plus du clavier (§4.5). MEME chemin que
+   * les raccourcis - `requestManual`/`sceneLocked`/`palette.next` - pour ne
+   * pas dupliquer une logique deja testee. Sans effet si le panneau n'est
+   * pas demarre (`this.director`/`this.pipeline` nuls).
+   */
+  nextScene(): void {
+    this.director?.requestManual(1);
+  }
+
+  previousScene(): void {
+    this.director?.requestManual(-1);
+  }
+
+  /** Meme touche `L` : verrou de scene. Retourne le nouvel etat. */
+  toggleSceneLock(): boolean {
+    if (!this.director) return false;
+    this.director.sceneLocked = !this.director.sceneLocked;
+    return this.director.sceneLocked;
+  }
+
+  get sceneLocked(): boolean {
+    return this.director?.sceneLocked ?? false;
+  }
+
+  /** Meme touche Maj+P : palette suivante, avec le fondu configure. */
+  nextPalette(): void {
+    this.pipeline?.palette.next(this.config.content.paletteCrossfadeSec);
+  }
+
+  /** Meme touche `P` : verrou de palette. Retourne le nouvel etat. */
+  togglePaletteLock(): boolean {
+    this.paletteLocked = !this.paletteLocked;
+    return this.paletteLocked;
+  }
+
+  get paletteLockedState(): boolean {
+    return this.paletteLocked;
+  }
+
+  get paletteId(): string {
+    return this.pipeline?.palette.current.id ?? '-';
+  }
+
+  /**
    * Controles utilisateur (§4.5). Le panneau traduit une intention en effet ;
    * `Controls.ts` ne connait ni le rendu ni l'analyse.
    */
