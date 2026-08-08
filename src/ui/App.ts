@@ -2767,11 +2767,6 @@ if (window !== window.top) {
           onConnectionStateChange: (state) => {
             if (state === 'closed' || state === 'failed' || state === 'disconnected') {
               liveVisualPanel?.stop();
-              // Panneau Style/Palette/Preset (mode fichier) redonné : il ne
-              // pilotait plus rien pendant le direct (voir plus bas), un
-              // canvas caché sous `#live-canvas` — le rendre visible sans
-              // effet aurait ete trompeur pour Aaron.
-              document.querySelector<HTMLElement>('aside')?.style.removeProperty('display');
             }
           },
           onTrack: (stream) => {
@@ -2783,14 +2778,6 @@ if (window !== window.top) {
             // APRÈS `start()` : celui-ci commence par `stop()`, qui relâche la
             // référence au contexte audio (il appartient à App, pas au panneau).
             liveVisualPanel?.attachAudioContext(liveCtx);
-            // Étape 53bis (hors roadmap) : le panneau Style/Palette/Preset du
-            // mode fichier reste affiche par-dessus le direct sans jamais agir
-            // dessus (`#live-canvas` est un calque distinct au-dessus de
-            // `#canvas`, seul celui-ci ecoute ce panneau) -- confirme a
-            // l'execution : cliquer un style pendant le direct ne change RIEN
-            // a la scene live. Le masquer evite un controle qui a l'air actif
-            // et ne fait rien.
-            document.querySelector<HTMLElement>('aside')?.style.setProperty('display', 'none');
           },
         });
         liveAudioSource = source;
