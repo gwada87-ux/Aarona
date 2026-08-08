@@ -7027,3 +7027,75 @@ sous les tests neufs. Ce sont de vrais garde-fous.
   ce cote-la.
 - **`contextBlockedReason` n'est pas affiche dans l'interface**, seulement en
   console. A faire si le cas se reproduit.
+
+---
+
+## Rendre la panne visible : rapport de transport et horodatage de build
+
+Aaron, apres quatre allers-retours : « c'est toujours pareil pffff ». Legitime.
+
+### Ce que ces quatre rondes ont coute
+
+Chacune lui a demande un copier-coller de console, et trois de mes hypotheses
+etaient fausses. Pendant tout ce temps, **l'application savait parfaitement ce
+qui n'allait pas et ne le disait nulle part.** C'est le vrai defaut de
+conception ici, plus grave que chacun des bugs pris separement.
+
+Deux ambiguites ont brouille le diagnostic :
+
+1. **Quelle version teste-t-il ?** Sa console montrait `index-xz3DyyNa.js`
+   alors que deux correctifs plus recents existaient deja. Impossible de savoir,
+   sans le lui demander, si un correctif etait present dans ce qu'il regardait.
+2. **Qu'est-ce qui bloque le transport ?** `loop()` avance `simT` sous une
+   condition a six termes ; n'importe lequel absent fige tout, en silence.
+
+### Ce qui est ajoute
+
+**Un horodatage de build**, injecte par Vite (`__PULSAR_BUILD__`) et affiche
+dans le panneau « Etat (debug) ». La question « la version testee contient-elle
+le correctif ? » se tranche desormais a l'oeil, en une seconde.
+
+**Une ligne « transport »**, mise a jour a chaque image :
+
+```
+lecture=oui ctx=running audio=8.20s sim=6.64s timeline=oui stepper=oui
+```
+
+Six valeurs, exactement les termes de la condition de `loop()`.
+
+**Un avertissement visible**, declenche sur le SYMPTOME constate — lecture
+active et `simT` immobile depuis plus d'une seconde et demie — qui nomme la
+cause la plus probable :
+
+> La lecture ne demarre pas : le navigateur bloque le son (contexte
+> « suspended »). Si PULSAR est affiche dans une autre application, son
+> `<iframe>` doit porter `allow="autoplay"`.
+
+### Verification
+
+Demo chargee, lecture lancee, boucle forcee :
+
+```
+build      = 2026-08-08 00:22:08
+transport  = lecture=oui ctx=running audio=8.20s sim=6.64s timeline=oui stepper=oui
+horloge    = 0:06 / 1:00
+avertissement visible = false
+```
+
+**Le transport avance ICI** — `ctx=running`, horloge a 0:06. Mon environnement
+n'a jamais reproduit sa panne, et c'est precisement pour cela que j'ai tourne en
+rond quatre fois. Le rapport le montre desormais sans ambiguite, des deux cotes.
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 125 fichiers, 1199 tests
+npm run build       -> 536,51 kB (gzip 154,03 kB), 2,33 s
+```
+
+### Limites connues
+
+- **La branche d'avertissement n'est pas verifiee en conditions reelles** : mon
+  contexte audio tourne, donc le cas `ctx !== 'running'` n'est atteint ici que
+  par les tests unitaires de `AudioEngine`, pas a l'ecran.
+- Le rapport vit dans le panneau « Etat (debug) », qui est repliable et ferme
+  par defaut. L'avertissement, lui, s'affiche hors du panneau.

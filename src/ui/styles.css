@@ -443,3 +443,16 @@ dialog .note { opacity: 0.75; font-size: var(--texte-m); }
   aside { border-left: none; border-top: 1px solid var(--trait-fort); }
   #style-grid { grid-template-columns: 1fr 1fr 1fr; }
 }
+
+/* Avertissement de transport (§ boucle de rendu) — visible seulement quand la
+ * lecture est declaree active alors que la position n'avance pas. Une panne
+ * muette a coute quatre allers-retours de diagnostic ; celle-ci se nomme. */
+#transport-warning {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--avertissement);
+  color: var(--avertissement);
+  font-size: var(--texte-s);
+  line-height: 1.4;
+}

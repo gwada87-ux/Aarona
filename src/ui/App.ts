@@ -2462,6 +2462,74 @@ resizeTimelineCanvas();
 // Boucle de rendu — docs/03_DATA_FLOW.md FLUX 2, Transport RÉEL (AudioEngine)
 // ---------------------------------------------------------------------------
 
+declare const __PULSAR_BUILD__: string;
+
+const outTransport = document.querySelector<HTMLElement>('#out-transport')!;
+const outBuild = document.querySelector<HTMLElement>('#out-build')!;
+const transportWarning = document.querySelector<HTMLElement>('#transport-warning')!;
+outBuild.textContent = typeof __PULSAR_BUILD__ === 'string' ? __PULSAR_BUILD__ : 'inconnu';
+
+/** Dernier `simT` observé, et depuis quand il n'a pas bougé alors que la lecture est déclarée active. */
+let simTPrecedent = -1;
+let bloqueDepuisMs: number | null = null;
+const SEUIL_BLOCAGE_MS = 1500;
+
+/**
+ * Rapporte l'état RÉEL du transport, à l'écran.
+ *
+ * ## Pourquoi ceci existe
+ *
+ * Quatre allers-retours de diagnostic sur une seule panne : « le compteur reste
+ * bloqué à 0:00 alors que la boucle tourne ». Chacun d'eux a coûté à Aaron un
+ * copier-coller de console, et trois de mes hypothèses étaient fausses. Rien
+ * dans l'interface ne disait ce que le transport faisait, alors que
+ * l'application, elle, le savait parfaitement.
+ *
+ * Six valeurs suffisaient : lecture déclarée, état du contexte audio, position
+ * audio, position de simulation, et la présence de la timeline et du stepper —
+ * les deux conditions silencieuses de `loop()` qui, absentes, figent tout sans
+ * un mot.
+ *
+ * L'avertissement visible, lui, ne se déclenche que sur le SYMPTÔME constaté :
+ * lecture active et `simT` immobile depuis plus d'une seconde et demie. Il
+ * nomme la cause la plus probable plutôt que de laisser chercher.
+ */
+function rapporterTransport(): void {
+  const etatCtx = audioEngine.contextState;
+  outTransport.textContent =
+    `lecture=${audioEngine.playing ? 'oui' : 'non'} ctx=${etatCtx}` +
+    ` audio=${audioEngine.t.toFixed(2)}s sim=${simT.toFixed(2)}s` +
+    ` timeline=${currentTimeline ? 'oui' : 'NON'} stepper=${stepper ? 'oui' : 'NON'}`;
+
+  if (!audioEngine.playing) {
+    bloqueDepuisMs = null;
+    simTPrecedent = simT;
+    transportWarning.hidden = true;
+    return;
+  }
+  if (simT !== simTPrecedent) {
+    simTPrecedent = simT;
+    bloqueDepuisMs = null;
+    transportWarning.hidden = true;
+    return;
+  }
+  const maintenant = performance.now();
+  bloqueDepuisMs ??= maintenant;
+  if (maintenant - bloqueDepuisMs < SEUIL_BLOCAGE_MS) return;
+
+  transportWarning.hidden = false;
+  transportWarning.textContent =
+    etatCtx !== 'running'
+      ? `La lecture ne démarre pas : le navigateur bloque le son (contexte « ${etatCtx} »`
+        + `${audioEngine.contextBlockedReason ? ` — ${audioEngine.contextBlockedReason}` : ''}). `
+        + `Si PULSAR est affiché dans une autre application, son <iframe> doit porter allow="autoplay".`
+      : !currentTimeline
+        ? 'La lecture ne démarre pas : aucun morceau chargé.'
+        : !stepper
+          ? "La lecture ne démarre pas : la timeline n'est pas initialisée."
+          : 'La lecture est active mais la position n\'avance pas. Signale-le, avec la ligne « transport » ci-dessus.';
+}
+
 function loop(nowMs: number): void {
   audioEngine.tick(nowMs);
 
@@ -2541,6 +2609,7 @@ function loop(nowMs: number): void {
   outFps.textContent = fpsSmoothed.toFixed(1);
   outRegime.textContent = lastRegime;
   outClamped.textContent = String(flashLimiter.clampedCount);
+  rapporterTransport();
 
   outQuality.textContent = `${currentQualityLevel.toUpperCase()} (${qualityChangeReason === 'auto' ? 'auto' : 'manuel'})`;
 
