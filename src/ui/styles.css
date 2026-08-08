@@ -444,18 +444,6 @@ dialog .note { opacity: 0.75; font-size: var(--texte-m); }
   #style-grid { grid-template-columns: 1fr 1fr 1fr; }
 }
 
-/* Mode EN DIRECT (Etape 53bis) — le panneau Style/Palette/Preset du mode
- * fichier ne pilote pas #live-canvas (calque distinct, voir App.ts) : plutot
- * que le masquer sans rien a la place (ecran vide, moins bien qu'avant), ses
- * enfants normaux s'effacent au profit de #live-mode-controls, un panneau
- * REELEMENT branche sur LiveDirector/PaletteBook (memes actions que le
- * clavier, §4.5). display:none sur les enfants plutot que retirer le DOM :
- * SimplePanel/AdvancedPanel gardent leurs references d'elements intactes. */
-aside.live-mode > *:not(#live-mode-controls) { display: none; }
-#live-mode-controls { display: none; }
-aside.live-mode #live-mode-controls { display: block; padding: var(--pas); }
-#live-mode-controls .valeur-actuelle { color: var(--texte-attenue); font-size: var(--texte-s); }
-
 /* Avertissement de transport (§ boucle de rendu) — visible seulement quand la
  * lecture est declaree active alors que la position n'avance pas. Une panne
  * muette a coute quatre allers-retours de diagnostic ; celle-ci se nomme. */
