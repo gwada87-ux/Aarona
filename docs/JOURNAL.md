@@ -7271,3 +7271,58 @@ construction.
 Verifie : `npm run typecheck`/`npm test` verts, `npm run build` sans nouvel
 import de `ui/live/testing/` (grep), capture d'ecran des 6 icones — toutes
 distinctes et reconnaissables a la taille d'une vignette.
+
+## Migration Netlify -> GitHub Pages
+
+### Le probleme
+
+Le compte Netlify d'Aaron a atteint la limite de son plan gratuit (compte
+d'equipe `nf_team_dev`, aucun moyen de paiement enregistre) -- consequence du
+volume tres eleve de deploiements effectues pendant cette session. `netlify
+deploy --prod` echouait avec `Forbidden`. Aaron a signale, a raison, que ce
+risque n'avait pas ete anticipe.
+
+### Ce qui est fait
+
+**`.github/workflows/deploy-pages.yml`** (nouveau) -- build + `typecheck` +
+`test` + deploiement automatique sur GitHub Pages a chaque push sur `main`
+(`actions/deploy-pages@v4`, pas de branche `gh-pages`). Gratuit, sans limite
+de bande passante pratique pour ce site.
+
+**`vite.config.ts`** -- `base` conditionne a `process.env.GITHUB_ACTIONS`
+(vrai UNIQUEMENT dans ce workflow) : GitHub Pages sert le depot sous
+`/Aarona/`, jamais la racine. Netlify (si un jour reactive) et le serveur de
+dev local restent inchanges (`base: '/'`).
+
+### Deux echecs successifs avant le run reussi (docs/JOURNAL, discipline
+habituelle : reproduire avant de corriger)
+
+1. **Run #1** : `npm ci` echoue en 13 s (avant meme `typecheck`). Reproduit
+   localement -- `npm ci` reussit sans erreur sur Node 24 (l'environnement de
+   dev). Correctif tente : aligner le workflow sur Node 24 (au lieu de 20).
+2. **Run #2** : `build` reussit cette fois (57 s, typecheck+tests+build), mais
+   `deploy` echoue : `Failed to create deployment (status: 404) ... Ensure
+   GitHub Pages has been enabled`. GitHub Pages n'etait pas encore active sur
+   le depot (`has_pages: false`, confirme via l'API) -- une action que seul
+   Aaron pouvait faire (Settings -> Pages -> Source : GitHub Actions).
+3. **Run #3** : reussi de bout en bout, apres qu'Aaron a active Pages.
+
+### Verification finale
+
+Playwright, navigateur reel, Beat Studio pointe sur
+`https://gwada87-ux.github.io/Aarona` (nouveau `_VIZ_URL`) :
+
+```
+bundle reellement servi verifie -> chemins /Aarona/assets/... corrects
+contenu du bundle verifie -> grille "Scene automatique" et icones presentes
+```
+
+Connexion WebRTC en direct etablie a travers l'iframe charge depuis la
+nouvelle adresse, clic sur un style -> le vrai moteur prend la main (bouton
+« Revenir a l'automatique » apparait, capture d'ecran a l'appui) -- confirme
+que `postMessage(..., _VIZ_URL)` fonctionne correctement meme avec un
+`_VIZ_URL` qui porte un chemin (`/Aarona`) et non plus seulement une origine.
+Zero erreur console sur l'ensemble du parcours.
+
+`_VIZ_URL` dans Beat Studio CDJ (fichier SOURCE, hors depot Git) mis a jour
+directement : `https://gwada87-ux.github.io/Aarona`.
