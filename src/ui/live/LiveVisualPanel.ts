@@ -9,6 +9,7 @@ import { LiveDirector } from './LiveDirector';
 import { OverlayDirector } from './Overlays';
 import { actionForKey, loadControls, saveControls, type PersistedControls } from './Controls';
 import { mergeLiveConfig, type LiveConfig, type LiveConfigPatch } from './LiveConfig';
+import { TruthDirector } from './truth/TruthDirector';
 
 /**
  * Etape 53 (hors roadmap) : rendu du mode "live" - deliberement SEPARE du
@@ -34,6 +35,8 @@ export class LiveVisualPanel {
 
   private config: LiveConfig = mergeLiveConfig();
   private engine: LiveAnalysisEngine | null = null;
+  /** Canal de verite PMDI (ADR-012) - meme cycle de vie que `engine`. */
+  private truth: TruthDirector | null = null;
   private pipeline: LivePipeline | null = null;
   private director: LiveDirector | null = null;
   private intensity: IntensityDirector | null = null;
@@ -103,6 +106,15 @@ export class LiveVisualPanel {
       return;
     }
     this.engine = new LiveAnalysisEngine(this.config, sampleRate, source.fftSizeOnset, source.fftSizeBands);
+    this.truth = new TruthDirector(this.config.truth);
+    // Canal de verite (ADR-012) : l'heure d'arrivee est relevee sur l'horloge
+    // audio LOCALE - la seule base comparable aux onsets detectes. Sans
+    // contexte (avant `attachAudioContext`), le message est perdu ; l'hote
+    // reemet tempo et heartbeat en continu, rien a rattraper.
+    source.onPmdiMessage = (raw) => {
+      const ctx = this.audioContext;
+      if (ctx && this.truth) this.truth.ingest(ctx.currentTime, raw);
+    };
     this.pipeline = new LivePipeline(this.config);
     // Texte pose par l'interface AVANT le demarrage : le mode live ne demarre
     // que sur un pont WebRTC entrant, donc c'est le cas courant, pas l'exception.
@@ -174,6 +186,8 @@ export class LiveVisualPanel {
 
     this.engine?.reset();
     this.engine = null;
+    if (this.source) this.source.onPmdiMessage = null;
+    this.truth = null;
     this.pipeline?.dispose();
     this.pipeline = null;
     this.director?.reset();
@@ -472,6 +486,9 @@ export class LiveVisualPanel {
         audioAheadMs: audioAheadMs(ctx, this.config.sync.fallbackOutputLatencySec),
         frameIntervalSec: this.frameMs / 1000,
       });
+      // ADR-012 : la verite s'evalue apres l'analyse de la trame - elle a
+      // besoin des onsets que `step()` vient de poser.
+      this.truth?.step(ctx.currentTime, engine);
     }
 
     // Voir `setPaused()` : le tempo doit rester chaud (analyse ci-dessus),

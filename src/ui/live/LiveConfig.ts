@@ -466,6 +466,29 @@ export interface LiveIntensityConfig {
   readonly userScaleStep: number;
 }
 
+export interface LiveTruthConfig {
+  /** Silence du canal au-dela duquel la verite est abandonnee (repli PLL), en secondes. */
+  readonly heartbeatTimeoutSec: number;
+  /** Nombre minimal d'ecarts d'arrivee avant toute tentative d'appariement. */
+  readonly arrivalMinSamples: number;
+  /** Taille du ring des ecarts d'arrivee. */
+  readonly arrivalRingSize: number;
+  /** Etendue de la fenetre d'appariement en ACQUISITION, au-dela de la mediane d'arrivee, en secondes (lookahead + jitter buffer + lecture). */
+  readonly maxPipelineDelaySec: number;
+  /** Demi-fenetre d'appariement en SUIVI, autour de l'offset converge, en ms. */
+  readonly trackWindowMs: number;
+  /** Nombre minimal de paires avant que la verite ait autorite (ADR-012). */
+  readonly adoptMinPairs: number;
+  /** Dispersion MAD maximale des paires pour l'adoption, en ms. */
+  readonly adoptMaxMadMs: number;
+  /** Dispersion au-dela de laquelle l'alignement est jete et l'acquisition recommence, en ms. */
+  readonly dropMadMs: number;
+  /** Taille du ring des kicks annonces par l'hote. */
+  readonly announcedRingSize: number;
+  /** Taille du ring des paires appariees. Sa profondeur EST la constante de temps du suivi de derive. */
+  readonly pairRingSize: number;
+}
+
 export interface LiveContentConfig {
   /** Ouvre le HUD de debug des le demarrage. Sinon touche `D`. */
   readonly debugHudOnStart: boolean;
@@ -493,6 +516,7 @@ export interface LiveConfig {
   readonly intensity: LiveIntensityConfig;
   readonly safety: LiveSafetyConfig;
   readonly content: LiveContentConfig;
+  readonly truth: LiveTruthConfig;
 }
 
 /** Plages de macro-bandes en Hz (§2.2), independantes du `sampleRate` - la conversion en bins ne l'est pas. */
@@ -708,6 +732,18 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     forcedScene: '',
     slamText: Object.freeze(['LIVE', '{bpm}', '{palette}']),
   }),
+  truth: Object.freeze({
+    heartbeatTimeoutSec: 2,
+    arrivalMinSamples: 6,
+    arrivalRingSize: 16,
+    maxPipelineDelaySec: 0.35,
+    trackWindowMs: 60,
+    adoptMinPairs: 8,
+    adoptMaxMadMs: 10,
+    dropMadMs: 30,
+    announcedRingSize: 48,
+    pairRingSize: 24,
+  }),
 });
 
 /** Patch accepte par `start()` : profondeur 2 (groupe -> champ). */
@@ -729,5 +765,6 @@ export function mergeLiveConfig(patch?: LiveConfigPatch, base: LiveConfig = DEFA
     intensity: Object.freeze({ ...base.intensity, ...patch.intensity }),
     safety: Object.freeze({ ...base.safety, ...patch.safety }),
     content: Object.freeze({ ...base.content, ...patch.content }),
+    truth: Object.freeze({ ...base.truth, ...patch.truth }),
   });
 }

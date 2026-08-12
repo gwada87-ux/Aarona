@@ -7326,3 +7326,50 @@ Zero erreur console sur l'ensemble du parcours.
 
 `_VIZ_URL` dans Beat Studio CDJ (fichier SOURCE, hors depot Git) mis a jour
 directement : `https://gwada87-ux.github.io/Aarona`.
+
+---
+
+## 13 août 2026 — ADR-012 : canal de vérité PMDI en direct (Mode C)
+
+Reclassement des priorités validé par Aaron le 12 août 2026, dans l'ordre :
+1. canal de vérité Beat Studio → visualizer, 2. rendu GPU, 3. visuels
+mélodie/accords. Le verrou « Mode C = V3 » est levé pour ce seul chantier.
+
+`docs/15_ADR.md`, ADR-012 : événements PMDI sur un `DataChannel` de la
+`RTCPeerConnection` existante, horodatés sur l'horloge audio de Beat Studio,
+alignés par corrélation kicks annoncés ↔ onsets détectés (médiane glissante,
+adoption après convergence, PLL en repli). L'analyse devient aligneur
+d'horloge + repli. Le moteur visuel ne change pas. `AudioContext` partagé (I3)
+reste la cible ; l'aligneur y deviendra l'identité.
+
+Aucune ligne de code dans cette livraison — l'ADR est le préalable exigé.
+
+---
+
+## 13 août 2026 — ADR-012 lot 1 livré : horloge de vérité (canal PMDI live)
+
+Nouveaux : `src/ui/live/truth/{TruthChannel,ClockAligner,TruthDirector}.ts`,
+`tests/unit/live/liveTruth.test.ts` (6 tests, hôte synthétique à offset connu
+12,345 s, lookahead 100 ms). Édités : `LiveConfig` (groupe `truth`),
+`BeatClock` (mode vérité additif : `setTruthGrid`/`truthDownbeatAt`/
+`clearTruth`, gardes `onKick`/`setTempo`/`closeBar`/`reArm`),
+`LiveAnalysisEngine` (confiance 1 ; re-arm par dérive de tempo inhibé sous
+vérité), `LiveAudioSource` (réception DataChannel `pmdi`, ajouts seulement),
+`LiveVisualPanel` (câblage, `truth.step` après `engine.step`).
+
+Portique : typecheck 0 erreur · 126 fichiers / 1205 tests verts (≥ 1199 tenu)
+· test d'architecture vert · build 553,65 kB (gzip 159,33 kB).
+
+Mesure notable, à lire avant de juger le critère « ±3 ms » de l'ADR-012 :
+l'aligneur retrouve l'offset à ±3 ms **par rapport à la convention
+d'horodatage du détecteur d'onsets**, qui porte elle-même un biais constant
+d'environ 6,4 ms face aux instants nominaux du générateur synthétique — la
+même constante que le PLL porte déjà (NOTES.md étape 1 : moyenne 5,3 ms), et
+que la mire + `userTrimMs` calibrent. Gigue résiduelle de l'alignement < 3 ms,
+cohérence absolue ≤ 10 ms, bascule vérité → PLL sans saut d'ancre > 15 ms par
+trame (borné par `resyncMaxJumpMs`, structurel).
+
+Reste ouvert : HUD sans affichage de l'état du canal (lot suivant) ;
+événements exacts + anticipation (lot 2) ; émetteur côté Beat Studio
+(lot 3, observation de `schedulerTick` derrière flag `_XXX_V1`) — sans lui,
+le canal reste inerte en production, comportement identique à avant.

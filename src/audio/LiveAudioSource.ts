@@ -63,6 +63,15 @@ export class LiveAudioSource {
   // pas une erreur de branchement. Sans lien avec ctx.destination : ce lecteur
   // reste muet, sert uniquement à "reveiller" le flux pour l'AnalyserNode.
   private wakeupAudioEl: HTMLAudioElement | null = null;
+  private pmdiChannel: RTCDataChannel | null = null;
+  /**
+   * Canal de verite PMDI (ADR-012) : messages du DataChannel `pmdi` ouvert
+   * par l'hote sur la MEME RTCPeerConnection que l'audio - les evenements
+   * vivent et meurent avec la session qu'ils horodatent. Chaine brute, non
+   * parsee : le parsing et la validation appartiennent a `ui/live`
+   * (`TruthChannel`), cette couche ne connait pas le format.
+   */
+  onPmdiMessage: ((data: string) => void) | null = null;
 
   constructor(callbacks: LiveAudioSourceCallbacks) {
     // Pas de serveur STUN/TURN : les deux pairs sont dans le même onglet/la
@@ -73,6 +82,13 @@ export class LiveAudioSource {
     this.pc.ontrack = (event) => {
       const stream = event.streams[0];
       if (stream) callbacks.onTrack(stream);
+    };
+    this.pc.ondatachannel = (event) => {
+      if (event.channel.label !== 'pmdi') return;
+      this.pmdiChannel = event.channel;
+      event.channel.onmessage = (m) => {
+        if (typeof m.data === 'string') this.onPmdiMessage?.(m.data);
+      };
     };
   }
 
@@ -249,6 +265,11 @@ export class LiveAudioSource {
 
   dispose(): void {
     this.detachAnalysis();
+    if (this.pmdiChannel) {
+      this.pmdiChannel.onmessage = null;
+      this.pmdiChannel = null;
+    }
+    this.onPmdiMessage = null;
     try {
       this.pc.close();
     } catch {

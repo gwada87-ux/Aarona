@@ -119,6 +119,14 @@ export class BeatClock implements BeatClockState {
   private phaseAcquired = false;
   private hardMisses = 0;
   /**
+   * Mode verite (ADR-012) : periode et ancre de phase imposees par le canal
+   * PMDI de l'hote via `setTruthGrid`. Meme famille que `manualTempo` (tap) :
+   * le PLL est suspendu, pas detruit - il continue d'accumuler l'historique
+   * de kicks et reprend sans a-coup au `clearTruth()`. Priorite :
+   * operateur (tap) > verite (hote) > PLL.
+   */
+  private truthMode = false;
+  /**
    * Correction de phase restant a appliquer, en temps. TOUTE correction passe
    * par ce tampon et est etalee sur plusieurs trames, bornee a
    * `resyncMaxJumpMs` par trame.
@@ -304,6 +312,10 @@ export class BeatClock implements BeatClockState {
   onKick(onsetTime: number, strength: number, tempoConfidence: number): void {
     this.beatKick += strength;
     this.noteKickTime(onsetTime);
+    // Mode verite : l'horloge est ancree sur la grille de l'hote, aucun onset
+    // detecte ne la corrige. L'historique de kicks continue de s'accumuler
+    // (ci-dessus) pour que le PLL reprenne arme au `clearTruth()`.
+    if (this.truthMode) return;
     if (this.periodSec <= 0) return;
 
     const elapsedBeats = (this.nowTime - onsetTime) / this.periodSec;
@@ -555,9 +567,73 @@ export class BeatClock implements BeatClockState {
     return this.manualTempo;
   }
 
-  setTempo(bpm: number, nowTime: number): void {
-    // En mode manuel, l'estimateur n'a plus la main : c'est tout l'interet.
+  /** L'horloge est-elle pilotee par le canal de verite (ADR-012) ? */
+  get truthActive(): boolean {
+    return this.truthMode;
+  }
+
+  /**
+   * Grille imposee par le canal de verite (ADR-012). `beatAnchorLocal` est
+   * l'instant LOCAL d'un temps de la grille hote, deja aligne par
+   * `ClockAligner` (`tBeat + offset`).
+   *
+   * Appelee a CHAQUE trame tant que la verite a autorite : la cible de phase
+   * passe par `requestPhase`, donc par le glissement borne a
+   * `resyncMaxJumpMs` par trame - jamais de saut sec, ni a l'activation ni
+   * sur une derive d'offset. Seule exception : la toute premiere adoption
+   * quand l'horloge n'a encore AUCUNE periode (`periodSec <= 0`), ou la phase
+   * est posee directement, exactement comme le tap tempo - il n'y a rien a
+   * preserver.
+   *
+   * Le tap tempo manuel garde la main : operateur > hote.
+   */
+  setTruthGrid(periodSec: number, beatAnchorLocal: number, nowTime: number): void {
     if (this.manualTempo) return;
+    if (!(periodSec > 0) || !Number.isFinite(beatAnchorLocal) || !Number.isFinite(nowTime)) return;
+    const p = clamp(periodSec, this.config.periodMinSec, this.config.periodMaxSec);
+    this.truthMode = true;
+    this.rampEnd = Number.NEGATIVE_INFINITY;
+    this.nowTime = nowTime;
+    if (this.periodSec <= 0) {
+      this.periodSec = p;
+      this.phase = wrap01((nowTime - beatAnchorLocal) / p);
+      this.pendingPhaseShift = 0;
+    } else {
+      this.periodSec = p;
+      this.requestPhase(wrap01((nowTime - beatAnchorLocal) / p));
+    }
+    this.phaseAcquired = true;
+    this.hardMisses = 0;
+  }
+
+  /**
+   * Ancre le downbeat sur un instant LOCAL annonce par l'hote (deja aligne).
+   * Ne fait rien tant que l'instant vise reste sur la position 0 courante -
+   * l'appel est donc idempotent trame apres trame.
+   */
+  truthDownbeatAt(tLocalDownbeat: number): void {
+    if (!this.truthMode || this.periodSec <= 0 || !Number.isFinite(tLocalDownbeat)) return;
+    const beatsAgo = (this.nowTime - tLocalDownbeat) / this.periodSec;
+    const k = Math.round(this.beatIndex + this.phase - beatsAgo);
+    const n = this.config.beatsPerBar;
+    const desired = ((k % n) + n) % n;
+    const delta = (((desired - this.downbeatOffset) % n) + n) % n;
+    if (delta !== 0) this.shiftDownbeat(delta);
+    this.downbeatConfidence = 1;
+  }
+
+  /**
+   * Fin de l'autorite de la verite (canal muet, desalignement, reset). Periode
+   * et phase sont CONSERVEES : le PLL reprend de la ou la verite l'a laisse,
+   * et la bascule reste bornee par le glissement comme toute correction.
+   */
+  clearTruth(): void {
+    this.truthMode = false;
+  }
+
+  setTempo(bpm: number, nowTime: number): void {
+    // En mode manuel ou verite, l'estimateur n'a plus la main : c'est tout l'interet.
+    if (this.manualTempo || this.truthMode) return;
     if (!(bpm > 0)) return;
     const guess = clamp(60 / bpm, this.config.periodMinSec, this.config.periodMaxSec);
     // Affinage immediat sur l'historique de kicks. Sans lui, la periode a
@@ -676,6 +752,15 @@ export class BeatClock implements BeatClockState {
    * bascule aleatoirement toutes les quelques mesures.
    */
   private closeBar(): void {
+    // Mode verite : le downbeat vient de l'hote (`truthDownbeatAt`), le vote
+    // n'a pas voix au chapitre. Ses accumulateurs continuent de se remplir
+    // (`closeBeat`), donc il reprend arme au retour du mode automatique.
+    if (this.truthMode) {
+      this.downbeatConfidence = 1;
+      this.downbeatChallenger = -1;
+      this.downbeatChallengerBars = 0;
+      return;
+    }
     const n = this.config.beatsPerBar;
     const snare = normalizeInto(this.snareAcc, this.normSnare, n);
     const kick = normalizeInto(this.kickAcc, this.normKick, n);
@@ -779,6 +864,10 @@ export class BeatClock implements BeatClockState {
 
   /** Roue libre : on garde le BPM mais on remet la structure a zero (changement de morceau). */
   reArm(): void {
+    // La verite se reaffirme d'elle-meme a la trame suivante si le canal est
+    // toujours vivant (`TruthDirector.step`) ; un re-arm ne doit pas laisser
+    // un mode verite orphelin d'un canal mort.
+    this.truthMode = false;
     this.phase = 0;
     this.pendingPhaseShift = 0;
     this.phaseAcquired = false;

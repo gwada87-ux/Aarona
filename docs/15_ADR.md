@@ -238,3 +238,87 @@ large » est la valeur par défaut (zoom 1) et « plan rapproché » un zoom sup
 - Le `FlashLimiter` reste le dernier étage et n'est pas contourné : la caméra agit avant lui.
 - Les couches ne connaissent pas la caméra. Elles dessinent dans le même repère normalisé
   qu'avant ; seul l'appelant de la trame la pose.
+
+---
+
+## ADR-012 — Mode C par canal d'événements PMDI sur la liaison WebRTC, horloges alignées par corrélation
+
+**Contexte.** Le visualizer sert d'abord Beat Studio CDJ : embarqué en iframe cross-origin
+(GitHub Pages), audio reçu par `RTCPeerConnection`, contrôle UI par `postMessage`. Dans cet usage,
+le mode live ré-estime — PLL, onsets, autocorrélation — ce que le scheduler de Beat Studio sait
+exactement, et ~100 ms à l'avance (doc 12, « Pourquoi le Mode C sera visuellement parfait »).
+Doc 12 spécifie le Mode C mais pose comme « seule contrainte d'intégration réelle » le partage d'un
+même `AudioContext` — condition que l'architecture réelle ne remplit pas : l'audio traverse WebRTC
+et rejoue dans un second contexte, avec un retard de bout en bout inconnu (jitter buffer, tampon de
+lecture) et deux horloges audio qui dérivent l'une par rapport à l'autre.
+
+Le verrou « Mode C = V3 » est levé pour ce seul chantier, sur mandat explicite d'Aaron
+(12 août 2026, reclassement des priorités : 1. canal de vérité, 2. rendu GPU,
+3. visuels mélodie/accords). Les autres verrous de la phase 3 tiennent.
+
+**Options.**
+(a) Statu quo : analyse seule, la vérité attend I3.
+(b) `AudioContext` partagé — l'idéal de doc 12 : le visualizer devient module ESM dans le document
+hôte, offset nul par construction. Exige d'abandonner l'iframe, donc un chantier lourd côté hôte
+monofichier sans build.
+(c) Canal d'événements PMDI sur un `DataChannel` de la `RTCPeerConnection` existante, horodatés sur
+l'horloge audio de Beat Studio, alignés sur l'horloge locale par corrélation avec les onsets
+détectés. L'analyse existante est rétrogradée : aligneur d'horloge + repli.
+(d) Même contenu que (c), transporté par `postMessage`.
+
+**Décision : (c). (b) reste la cible I3 et n'est pas abandonnée.**
+
+**Motifs.**
+
+- Contre (a) : sur le son de Beat Studio, chaque défaut résiduel de l'estimation — verrouillage en
+  4 s, hésitations d'octave, confiance de downbeat basse, anticipation impossible — est un défaut
+  évitable. La donnée exacte existe déjà de l'autre côté du pont.
+- Contre (b) seul : la marche est trop haute pour être un préalable. (c) livre l'essentiel de la
+  valeur — sync exacte et anticipation — sans toucher au mode d'embarquement. Et l'API de doc 12
+  (`PmdiLiveSource`) est la même dans les deux cas : quand I3 partagera l'`AudioContext`,
+  l'aligneur devient l'identité (offset nul) et rien d'autre ne change.
+- Contre (d) : les événements doivent vivre et mourir avec la session audio qu'ils horodatent —
+  une reconnexion audio invalide l'alignement, et porter les deux sur la même `RTCPeerConnection`
+  rend ce couplage structurel. `postMessage` garde son rôle actuel de canal de contrôle UI ;
+  la signalisation existe déjà, le `DataChannel` (reliable, ordered) coûte une ligne à l'offre SDP.
+
+**Le contrat du canal — du PMDI, pas un nouveau format.** Enveloppe
+`{ pmdiLive: "1.0", tHost, payload }` où `tHost` est l'instant où l'événement SONNERA, en secondes
+de l'`audioContext.currentTime` de Beat Studio. Payloads : `event` (le `MusicEvent` de doc 12),
+`tempo`, `meter`, `section`, `note`, `chord`, `heartbeat` (2 Hz), `reset`. Toutes les règles de
+doc 12 s'appliquent telles quelles : confiance obligatoire (1,0 seulement pour ce qui est composé),
+tolérance à l'inconnu, émission au moment où le scheduler PLANIFIE, jamais au moment où ça sonne.
+
+**L'alignement d'horloge — le cœur de la décision.** L'inconnue unique est
+`offset(t) = tLocal - tHost`. Estimation : appariement des KICK annoncés avec les onsets kick de
+l'`OnsetDetector` existant — kicks seulement (le flux le plus net), fenêtre d'appariement bornée,
+réfractaire du tempo réutilisé. `offset` est la médiane glissante des écarts appariés, et **la
+vérité n'a d'autorité qu'alignée** : adoption après convergence (au moins 8 appariements,
+dispersion MAD ≤ 10 ms), puis suivi lent pour la dérive. Avant convergence, et après 2 s de
+heartbeats manqués, le moteur reste ou revient en mode analyse — sans à-coup : le PLL continue de
+tourner en arrière-plan, déjà verrouillé, et la bascule est bornée par `resyncMaxJumpMs` comme
+toute resynchronisation. `userTrimMs` et la mire (touche `C`) restent inchangés en aval : ils
+mesurent la latence d'affichage, qui ne disparaît pas avec la vérité.
+
+**Conséquences.**
+
+- Le moteur d'analyse n'est plus le chemin nominal dans Beat Studio, mais il n'est pas mort : il
+  devient l'aligneur d'horloge, le repli, et le chemin unique pour du son externe. Le banc
+  synthétique s'étend d'un simulateur d'hôte à offset connu. Critères fixés à l'avance : offset
+  retrouvé à ± 3 ms, bascule vérité ↔ analyse sans discontinuité de phase supérieure à 15 ms,
+  les tests live existants inchangés et verts.
+- Le moteur visuel ne change pas (la Loi 2, transposée au live) : les scènes consomment le même
+  `LiveFrame` ; seule la provenance de la phase, du downbeat et des accents change. La confiance
+  passe à 1, donc l'accent de grille (`gridAccent`, pondéré par la confiance) prend automatiquement
+  sa pleine autorité, sans retouche des scènes. L'anticipation (~100 ms) est exposée au dispatcher
+  — retenue avant impact exacte, émissions préparées — sans obliger aucune scène à s'en servir.
+- Le canal est une entrée non fiable comme une autre : validation à la réception (extension de
+  `validatePmdi` au flux), types inconnus ignorés (règle 3 de doc 12), `tHost` hors de la fenêtre
+  `[maintenant, maintenant + lookahead + marge]` rejeté.
+- Côté Beat Studio : l'émission s'OBSERVE depuis `schedulerTick` sans rien replanifier —
+  l'invariant de timing du dépôt hôte n'est pas touché — derrière un flag `_XXX_V1` à `false` par
+  défaut, conformément à ses règles (sortie byte-identique flag éteint).
+- Ce qui est perdu tant que (b) n'existe pas : l'offset est estimé, pas nul. La corrélation le
+  borne à quelques millisecondes — sous `userTrimMs`, et sous les ~6 ms RMS du PLL actuel — mais
+  un passage prolongé sans kick (ambient) retarde la convergence initiale. C'est le prix de (c),
+  assumé et mesuré par le banc.

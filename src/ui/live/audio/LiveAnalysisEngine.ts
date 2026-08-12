@@ -175,7 +175,9 @@ export class LiveAnalysisEngine {
    * director - c'est tout l'interet du filet de securite.
    */
   get effectiveConfidence(): number {
-    return this.beat.manual ? 1 : this.tempo.confidence;
+    // Meme filet pour le canal de verite (ADR-012) : la grille de l'hote est
+    // exacte par construction, la confiance vaut 1 tant qu'elle a autorite.
+    return this.beat.manual || this.beat.truthActive ? 1 : this.tempo.confidence;
   }
 
   /** Audio present et au-dessus du plancher de bruit. */
@@ -375,7 +377,10 @@ export class LiveAnalysisEngine {
     // un re-arm complet avant meme d'avoir pu etre rejete, et le moteur
     // reperd son BPM toutes les 8 s. Reproduit a 174 BPM.
     const octaveRelated = held > 0 && candidate > 0 && isOctaveRelated(candidate, held);
-    if (!octaveRelated && held > 0 && candidate > 0 && Math.abs(candidate - held) / held > s.trackChangeTempoRel) {
+    // En mode verite (ADR-012), le tempo tenu vient de l'hote : un estimateur
+    // qui s'en ecarte n'est pas la preuve d'un changement de morceau, c'est la
+    // grille exacte qui fait foi. Le re-arm par SILENCE reste actif, lui.
+    if (!this.beat.truthActive && !octaveRelated && held > 0 && candidate > 0 && Math.abs(candidate - held) / held > s.trackChangeTempoRel) {
       this.tempoDriftFor += dt;
       if (this.tempoDriftFor >= s.trackChangeTempoSec) this.reArm();
     } else {
