@@ -45,6 +45,11 @@ export class ClockAligner {
   /** Kicks detectes jetes pour cause d'ambiguite d'appariement (diagnostic). */
   ambiguousSkips = 0;
 
+  /** Nombre de paires actuellement retenues (diagnostic, affiche au HUD). */
+  get matchedPairs(): number {
+    return this.pairCount;
+  }
+
   constructor(private readonly config: LiveTruthConfig) {
     this.pairs = new Float64Array(config.pairRingSize);
     this.scratch = new Float64Array(config.pairRingSize);

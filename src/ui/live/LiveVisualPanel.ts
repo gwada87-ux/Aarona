@@ -578,6 +578,7 @@ export class LiveVisualPanel {
       this.hud.director = director;
       this.hud.intensity = intensityDirector;
       this.hud.overlays = overlays;
+      this.hud.truth = this.truth;
       this.hud.draw(this.ctx2d, engine, window.devicePixelRatio || 1);
     }
     if (this.helpVisible) this.hud?.drawHelp(this.ctx2d, this.canvas.width, this.canvas.height, window.devicePixelRatio || 1);

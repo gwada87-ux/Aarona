@@ -16,6 +16,7 @@ import type { LivePipeline } from './render/LivePipeline';
 import type { LiveDirector } from './LiveDirector';
 import type { IntensityDirector } from './IntensityDirector';
 import type { OverlayDirector } from './Overlays';
+import type { TruthDirector } from './truth/TruthDirector';
 import { SHORTCUTS } from './Controls';
 import type { LiveConfig } from './LiveConfig';
 
@@ -36,6 +37,8 @@ export class DebugHud {
   director: LiveDirector | null = null;
   intensity: IntensityDirector | null = null;
   overlays: OverlayDirector | null = null;
+  /** Canal de verite PMDI (ADR-012) - diagnostic complet en une ligne. */
+  truth: TruthDirector | null = null;
 
   private readonly lines: string[] = [];
 
@@ -61,6 +64,26 @@ export class DebugHud {
     this.lines.push(
       `tempo       ${beat.bpm.toFixed(2)} BPM   conf ${engine.tempo.confidence.toFixed(2)}   downbeat ${beat.downbeatConfidence.toFixed(2)}${beat.phraseValid ? '' : '  (phrase invalide)'}`,
     );
+    // Ligne du canal de verite (ADR-012). C'est l'outil de diagnostic du
+    // bout-en-bout : "aucun message" = emetteur absent ou iframe perimee ;
+    // "acquisition paires n" = canal vivant, aligneur en cours ; "ACTIF" =
+    // l'horloge est pilotee par l'hote (conf 1 attendue juste au-dessus).
+    const truth = this.truth;
+    if (truth) {
+      const ch = truth.channel;
+      const al = truth.aligner;
+      const total = ch.accepted + ch.ignored + ch.rejected;
+      const etat = truth.active
+        ? 'ACTIF'
+        : al.converged
+          ? 'converge, en attente'
+          : total === 0
+            ? 'AUCUN MESSAGE'
+            : 'acquisition';
+      this.lines.push(
+        `verite      canal ${total === 0 ? '-' : ch.alive(engine.audioTime) ? 'vivant' : 'MORT'}   msgs ${ch.accepted}/${ch.ignored}/${ch.rejected}   hote ${ch.tempoBpm > 0 ? `${ch.tempoBpm.toFixed(2)} BPM` : '-'}   paires ${al.matchedPairs}${al.ambiguousSkips > 0 ? ` (+${al.ambiguousSkips} amb.)` : ''}   MAD ${Number.isFinite(al.madMs) ? `${al.madMs.toFixed(1)} ms` : '-'}   offset ${Number.isFinite(al.offsetSec) ? `${al.offsetSec.toFixed(3)} s` : '-'}   ${etat}`,
+      );
+    }
     this.lines.push(`octaves     ${engine.tempo.hypotheses.map((h) => `${h.bpm.toFixed(1)}:${h.score.toFixed(2)}`).join('  ') || '-'}`);
     this.lines.push(
       `mesure      temps ${beat.beatIndex}   mesure ${beat.barIndex}   phrase ${beat.phraseIndex}   kicks ${beat.acceptedKicks}/${beat.acceptedKicks + beat.rejectedKicks}   resync ${beat.hardResyncs}`,
