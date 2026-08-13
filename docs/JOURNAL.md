@@ -8945,3 +8945,88 @@ composition d'avant » plutôt que de la documenter.
    présentes ? Un seul réglage les calme (`traceAlpha`, 0,30 par défaut).
 3. Est-ce que les marques restent au SECOND regard, sans jamais concurrencer la
    géométrie vivante ?
+
+## 13/08/2026 (soir) — Les deux chantiers du jour sont ÉTEINTS sur signalement d'Aaron
+
+Aaron, en testant sur son propre morceau : « c'est vraiment pas synchro au beat
+du tout et ça continue à bouger même quand il n'y a plus de son du tout ».
+
+### Ce qui a été fait
+
+`VISUAL_DNA_V1` et `TRACE_FIELD_V1` sont à **`false`**. Le comportement est
+celui d'avant les deux chantiers du jour. Vérifié à l'écran : les 5 couches
+d'origine de `pulse`, aucune trace, aucune modulation de macro.
+
+C'est l'état qu'Aaron a lui-même validé comme meilleur, et il y reste jusqu'à
+nouvel ordre. Le code des deux chantiers demeure dans le dépôt, dormant.
+
+### Discrimination faite, dans l'ordre
+
+| état | verdict d'Aaron |
+|---|---|
+| les deux drapeaux éteints | **mieux** |
+| ADN seul rallumé, traces éteintes | **pas synchro** |
+
+Donc le symptôme suit `VISUAL_DNA_V1`.
+
+### Je n'ai PAS trouvé le mécanisme, et je ne le prétends pas
+
+Mesure directe, même morceau, même graine, en pilotant les huit curseurs de
+macro depuis le DOM : macros du preset contre macros modulées par l'ADN d'un
+morceau lent et clairsemé. Écart-type de la luminance sur un temps complet
+(12 points, 120 BPM), qui sert de mesure de « punch » :
+
+```
+macros du preset            ecart-type 0,883   (min 61,05  max 64,04)
+macros modulees par l'ADN   ecart-type 0,851   (min 61,25  max 63,97)
+macros du preset, repete    ecart-type 0,882   -> mesure reproductible
+```
+
+**4 % d'écart.** Les deltas de macro ne peuvent pas produire « pas synchro du
+tout ». La table des temps de réaction le confirmait déjà : `impact.decay`
+passe de 0,065 s à 0,081 s au pire, soit ×1,24.
+
+### Ce que la mesure soutient, en revanche
+
+La GRAINE, que l'ADN remplaçait par une valeur dérivée du morceau, pèse
+beaucoup plus lourd que les macros :
+
+```
+graine 1              ecart-type 0,644
+graine 777            ecart-type 0,687
+graine calculee (ADN) ecart-type 0,882
+```
+
+**37 % d'écart, neuf fois l'effet des macros.** La graine choisit la VARIANTE
+de cadrage (`variantFor`) — décentrage, zoom jusqu'à 1,22, et pour l'une des
+trois un mode de fusion `screen` sur la forme d'onde. Certains cadrages tapent
+visiblement moins que d'autres.
+
+Le chantier remplaçait un tirage aléatoire par une valeur fixe par morceau : il
+VERROUILLAIT donc Aaron sur un cadrage donné au lieu d'en tirer un nouveau à
+chaque import. Sur un morceau tombant sur une variante molle, le défaut devient
+permanent au lieu d'être un tirage malheureux.
+
+C'est une piste soutenue par la mesure, pas une preuve. Elle n'explique pas
+« ça bouge même sans son ».
+
+### Défaut de conception de test, corrigé
+
+Deux tests de `visualDna.test.ts` cassaient dès que le drapeau passait à
+`false` : ils vérifiaient la DÉRIVATION (« trois morceaux, trois mondes ») mais
+passaient par `applyVisualDna`, qui est derrière l'interrupteur. Ils
+signalaient donc l'interrupteur ouvert, pas un défaut de dérivation. Réécrits
+pour appliquer les deltas directement ; le respect du drapeau reste testé à
+part. La promesse « drapeau éteint = comportement d'avant » est désormais
+vérifiée par la suite entière, dans les deux positions.
+
+Portique, drapeaux éteints : typecheck 0, **1310 tests verts**, zéro erreur
+console.
+
+### Reste ouvert
+
+- La « confiance grille » du morceau d'Aaron n'a pas encore été relevée. Sous
+  0,60, le moteur passe en régime continu et ne se cale plus sur la grille —
+  ce serait l'explication exacte des DEUX symptômes, et elle serait antérieure
+  aux chantiers du jour.
+- Savoir si, tout éteint, la synchro est BONNE ou seulement MOINS MAUVAISE.

@@ -200,6 +200,21 @@ describe('visualDna — trois morceaux, trois mondes', () => {
     })],
   ];
 
+  /**
+   * Applique les deltas SANS passer par `applyVisualDna`, donc sans passer par
+   * le drapeau. Ces deux tests portent sur la DERIVATION - « trois morceaux,
+   * trois mondes » - qui ne depend pas de l'interrupteur. Ecrits d'abord avec
+   * `applyVisualDna`, ils cassaient des que le drapeau passait a `false`, et ce
+   * qu'ils signalaient alors n'etait pas un defaut de derivation mais le fait
+   * que l'interrupteur etait ouvert. Le respect du drapeau est teste a part,
+   * plus bas.
+   */
+  function avecAdn(macros: PresetMacros, dna: ReturnType<typeof deriveVisualDna>): PresetMacros {
+    const out = {} as Record<string, number>;
+    for (const n of MACRO_NAMES) out[n] = Math.min(1, Math.max(0, macros[n] + dna.deltas[n]));
+    return out as PresetMacros;
+  }
+
   it('trois graines distinctes', () => {
     const graines = morceaux.map(([, d]) => deriveSeed(d));
     expect(new Set(graines).size, `graines ${graines.join(', ')}`).toBe(3);
@@ -207,7 +222,7 @@ describe('visualDna — trois morceaux, trois mondes', () => {
 
   it('le MÊME preset donne trois jeux de macros distincts', () => {
     const trapDark = PRESET_CATALOG.find((p) => p.id === 'trap-dark')!;
-    const rendus = morceaux.map(([, d]) => JSON.stringify(applyVisualDna(trapDark.macros, deriveVisualDna(d))));
+    const rendus = morceaux.map(([, d]) => JSON.stringify(avecAdn(trapDark.macros, deriveVisualDna(d))));
     expect(new Set(rendus).size, 'deux morceaux produisent la même configuration').toBe(3);
   });
 
@@ -215,8 +230,8 @@ describe('visualDna — trois morceaux, trois mondes', () => {
     const trapDark = PRESET_CATALOG.find((p) => p.id === 'trap-dark')!;
     for (let i = 0; i < morceaux.length; i++) {
       for (let j = i + 1; j < morceaux.length; j++) {
-        const a = applyVisualDna(trapDark.macros, deriveVisualDna(morceaux[i]![1]));
-        const b = applyVisualDna(trapDark.macros, deriveVisualDna(morceaux[j]![1]));
+        const a = avecAdn(trapDark.macros, deriveVisualDna(morceaux[i]![1]));
+        const b = avecAdn(trapDark.macros, deriveVisualDna(morceaux[j]![1]));
         const ecartMax = Math.max(...MACRO_NAMES.map((n) => Math.abs(a[n] - b[n])));
         expect(ecartMax, `${morceaux[i]![0]} contre ${morceaux[j]![0]}`).toBeGreaterThan(0.05);
       }
@@ -235,14 +250,20 @@ describe('visualDna — trois morceaux, trois mondes', () => {
  * Ces documents sont en Mode B et ne portent AUCUNE piste de descripteurs :
  * ils verifient au passage que la derivation tient sur un PMDI sans `features`.
  */
+function avecAdnLocal(macros: PresetMacros, dna: ReturnType<typeof deriveVisualDna>): PresetMacros {
+  const out = {} as Record<string, number>;
+  for (const n of MACRO_NAMES) out[n] = Math.min(1, Math.max(0, macros[n] + dna.deltas[n]));
+  return out as PresetMacros;
+}
+
 describe('visualDna — deux exports du meme beat', () => {
   const rythme = fixture('beat-studio-cdj-v18-melvelbase.pmdi.json');
   const notes = fixture('beat-studio-cdj-v18-melvelbase-notes.pmdi.json');
 
   it('les macros restent voisines : meme musique, meme monde', () => {
     const trapDark = PRESET_CATALOG.find((p) => p.id === 'trap-dark')!;
-    const a = applyVisualDna(trapDark.macros, deriveVisualDna(rythme));
-    const b = applyVisualDna(trapDark.macros, deriveVisualDna(notes));
+    const a = avecAdnLocal(trapDark.macros, deriveVisualDna(rythme));
+    const b = avecAdnLocal(trapDark.macros, deriveVisualDna(notes));
     for (const name of MACRO_NAMES) {
       expect(Math.abs(a[name] - b[name]), `${name}`).toBeLessThan(0.05);
     }

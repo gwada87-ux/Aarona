@@ -73,7 +73,7 @@ import type { StepContext } from '../../music/StepContext';
  * styles (`createPulseStyle`, `createFieldStyle`) : la composition des scènes
  * et l'image produite sont celles d'avant ce chantier, à l'identique.
  */
-export const TRACE_FIELD_V1 = true;
+export const TRACE_FIELD_V1 = false; // ETEINT sur signalement d'Aaron (13/08) - voir JOURNAL
 
 export const TRACE_CRATER = 0;
 export const TRACE_SCAR = 1;
