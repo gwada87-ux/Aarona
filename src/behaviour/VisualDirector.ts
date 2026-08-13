@@ -37,6 +37,7 @@ import { easeInOutSine, easeInQuad } from '../core/math/easing';
 import type { MusicTimeline } from '../music/MusicTimeline';
 import type { StepContext } from '../music/StepContext';
 import type { VisualSignals } from './BehaviourEngine';
+import { SECTION_STAGING_V1, buildSectionScore, type SectionScore } from './SectionScore';
 
 /** Phase dramatique courante. Exposée pour le HUD et pour les tests. */
 export type DramaArc = 'intro' | 'build' | 'drop' | 'fallout' | 'breakdown' | 'void' | 'sustain';
@@ -128,7 +129,22 @@ export class VisualDirector {
     arc: 'sustain',
   };
 
-  constructor(private readonly timeline: MusicTimeline) {}
+  /**
+   * Partition de plans (blueprint SSF3, chantier P0 n3). Construite UNE FOIS ici
+   * plutot qu'a chaque image : elle lit toutes les sections et quantifie chaque
+   * frontiere. `null` quand le drapeau est eteint, et `update()` retombe alors
+   * sur `sectionKey` - le comportement d'avant ce chantier.
+   */
+  private readonly score: SectionScore | null;
+
+  constructor(private readonly timeline: MusicTimeline) {
+    this.score = SECTION_STAGING_V1 ? buildSectionScore(timeline) : null;
+  }
+
+  /** Plan courant, pour le HUD et les tests. `null` drapeau eteint. */
+  shotAt(t: number): ReturnType<SectionScore['shotAt']> | null {
+    return this.score ? this.score.shotAt(t) : null;
+  }
 
   get budget(): DramaBudget {
     return this.budgetValue;
@@ -256,9 +272,17 @@ export class VisualDirector {
     // dans le calcul, si bien que les sections A et B ne sont pas cadrées
     // pareil — c'est ce qui fait qu'un refrain revenu ne se lit pas comme une
     // copie du précédent.
-    const key = section ? sectionKey(section.t, section.letter) : 0;
-    b.cameraX = Math.cos(phase) * driftAmp + Math.cos(key) * REFRAME;
-    b.cameraY = Math.sin(phase * 0.7) * driftAmp * 0.6 + Math.sin(key * 1.7) * REFRAME * 0.6;
+    // PARTITION DE PLANS (blueprint SSF3) : le point de vue vient de l'IDENTITE
+    // de la section, pas de son instant de debut - un refrain qui revient
+    // ramene son plan. Voir `SectionScore.ts` pour le choix que cela renverse.
+    // Meme ordre de grandeur que `REFRAME`, et la coupe est quantifiee sur le
+    // temps fort le plus proche.
+    const shot = this.score ? this.score.shotAt(t) : null;
+    const key = shot ? 0 : section ? sectionKey(section.t, section.letter) : 0;
+    const reframeX = shot ? shot.offsetX : Math.cos(key) * REFRAME;
+    const reframeY = shot ? shot.offsetY : Math.sin(key * 1.7) * REFRAME * 0.6;
+    b.cameraX = Math.cos(phase) * driftAmp + reframeX;
+    b.cameraY = Math.sin(phase * 0.7) * driftAmp * 0.6 + reframeY;
 
     // POUSSÉE (ADR-011). Elle monte pendant la montée et se RELÂCHE d'un coup
     // au drop : c'est le relâchement qui produit la sensation d'ouverture, pas
@@ -267,7 +291,11 @@ export class VisualDirector {
     let push = 0;
     if (arc === 'build') push = PUSH_MAX * (1 - restraint) / (1 - RESTRAINT_FLOOR);
     else if (arc === 'drop') push = PUSH_DROP;
-    b.cameraZoom = 1 + clamp(push, 0, PUSH_MAX);
+    // Le rapprochement du PLAN se multiplie a celui de la dramaturgie : deux
+    // rapprochements successifs sont un produit d'echelles, jamais une somme
+    // (meme regle que `openFrameWithCamera`). Au pire 1,12 x 1,07 = 1,20, tres
+    // en dessous du plafond [1,2] du `Renderer`.
+    b.cameraZoom = (1 + clamp(push, 0, PUSH_MAX)) * (shot ? shot.zoom : 1);
 
     b.amplitude = clamp(amplitude, 0, 1);
     b.level = clamp(Math.max(level, MIN_LEVEL), 0, 1);

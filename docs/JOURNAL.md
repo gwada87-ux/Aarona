@@ -9030,3 +9030,99 @@ console.
   ce serait l'explication exacte des DEUX symptômes, et elle serait antérieure
   aux chantiers du jour.
 - Savoir si, tout éteint, la synchro est BONNE ou seulement MOINS MAUVAISE.
+
+## 14/08/2026 — Blueprint 2026, chantier P0 n°3 : partition de plans
+
+Troisième chantier de `docs/18_BLUEPRINT_VISUELS_2026.md` (§F3, TOP 10 n°3) :
+« le morceau écrit son storyboard ». Lancé APRÈS l'extinction des deux
+chantiers précédents, et conçu autour de cette régression.
+
+### Ce qui a été fait
+
+`src/behaviour/SectionScore.ts`, module pur. Il lit la structure (les sections
+et leurs lettres de répétition) et en dérive une suite de PLANS : un point de
+vue par IDENTITÉ de section, et des coupes quantifiées sur le temps fort le
+plus proche. `VisualDirector` le consulte à la place de `sectionKey`.
+
+### Le choix que ce chantier RENVERSE, et il faut le dire
+
+`sectionKey(startSec, letter)` faisait entrer l'INSTANT DE DÉBUT dans le
+calcul, et son commentaire l'assumait : « c'est ce qui fait qu'un refrain
+revenu ne se lit pas comme une copie du précédent ». §F3 demande l'inverse —
+« répétition A → variante 1 ramenée, la mémoire de mise en scène ».
+
+La mesure tranche en faveur du blueprint. Démo, graine 424242, distance du
+recadrage mesurée au centre de gravité des pixels clairs, EN LECTURE RÉELLE :
+
+| | A vers B | A vers le RETOUR de A |
+|---|---|---|
+| avant (`sectionKey`) | ~9 px | **~15 px** |
+| après (partition) | ~41 px | **~28 px** |
+
+Avant, le refrain qui revenait était cadré PLUS LOIN de A que ne l'était la
+section B : la structure était non seulement invisible, elle était inversée.
+Après, la section différente est la plus éloignée et celle qui revient se
+rapproche. Le contraste entre sections passe au passage de 9 à 41 px — les
+coupes deviennent visibles.
+
+Les deux A ne coïncident pas exactement (28 px et non 0) : la dérive lente de
+caméra (`DRIFT_CALM`, période 6,5 mesures) s'ajoute au plan et n'a pas la même
+phase à 8 s et à 50 s. C'est voulu — le plan revient, pas l'image.
+
+### Ce que ce chantier NE fait PAS, à cause de la régression du 13/08
+
+§F3 cite aussi les variantes de style et le motif de couche alterné. **Les deux
+sont écartés**, pour la raison mesurée hier : commuter une variante déplace de
+37 % l'écart-type de luminance sur un temps — la sensation de punch. Les
+variantes vont jusqu'à 0,17 de décalage, 1,30 de zoom, et l'une impose un mode
+de fusion. Les commuter à chaque frontière ferait varier le punch EN COURS DE
+MORCEAU, c'est-à-dire exactement le défaut qu'Aaron vient de signaler.
+
+Ce chantier reste donc sur le levier déjà en service : décalage de l'ordre de
+`REFRAME` (0,05), zoom au plus 1,07, aucun mode de fusion. Un test borne ces
+valeurs. Et surtout : **il ne touche ni `amplitude`, ni `level`, ni `modulate()`
+— rien de ce qui dose la réponse aux frappes.** La réaction au beat ne peut pas
+changer par construction, pas seulement par mesure.
+
+### Deux défauts trouvés par l'exécution
+
+**1. Ma mesure était fausse avant de l'être moins.** Premier relevé : luminance
+moyenne, identique à la décimale près dans les deux positions du drapeau.
+Explication : translater une image ne change pas la quantité de lumière — la
+luminance moyenne est aveugle à un cadrage. Passé au centre de gravité, avec un
+contrôle (six graines, donc six variantes) qui déplace le centre de 135 px et
+prouve que la mesure voit bien un cadrage.
+
+**2. En PAUSE, la caméra de dramaturgie est gelée.** Le second relevé donnait
+0,3 px d'écart entre sections, là où `REFRAME` = 0,05 devait en donner ~31.
+Cause : `ui/App.ts` ne fait tourner la simulation que si `audioEngine.playing`
+(ligne 2701), et `primeSceneIfPaused()` JETTE le director rendu par
+`primeScene` — alors que la docstring de `primeScene` dit explicitement qu'un
+appelant qui va dessiner en a besoin. Après un saut en pause, la caméra garde
+donc le budget de la position précédente. Défaut ANTÉRIEUR à ce chantier, sans
+effet sur la lecture ni sur l'export. Signalé, non corrigé : il a son propre
+périmètre. Toutes les mesures ci-dessus ont été refaites en lecture réelle.
+
+### Vérification
+
+```
+tsc --noEmit          exit 0
+vitest run            134 fichiers / 1327 tests (17 nouveaux, 1 mis a jour)
+npm run test:arch     arch verte + accords TOUS JUSTES (15)
+navigateur            0 erreur console
+```
+
+`visualDirector.test.ts` mis à jour : il affirmait `cameraZoom === 1` hors
+montée. Le zoom du plan s'y multiplie désormais ; l'assertion compare au plan
+courant plutôt qu'à `1` en dur, ce qui exprime son intention réelle (« la
+poussée de dramaturgie est nulle hors montée ») au lieu de nier la partition.
+
+### Ce qu'Aaron doit regarder
+
+Un morceau à structure claire (couplet / refrain / couplet), style Pulse.
+
+1. Est-ce que le cadre CHANGE franchement quand la section change ?
+2. Quand le refrain revient, est-ce qu'on retrouve le même point de vue ?
+3. Est-ce que la synchro au beat est restée intacte ?
+
+La 3 est la question qui compte, vu hier.

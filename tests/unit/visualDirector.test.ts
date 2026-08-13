@@ -172,7 +172,13 @@ describe('VisualDirector — retenue avant l\'impact (§6.2)', () => {
     const juste = at(24 - 0.1 * BAR).budget.cameraZoom;
     const pendant = at(24 + 0.5 * BAR).budget.cameraZoom;
 
-    expect(loin, 'aucune poussée hors montée').toBe(1);
+    // Hors montee, il ne reste QUE le rapprochement du plan de la partition
+    // (blueprint SSF3) : la poussee de dramaturgie vaut zero. La comparaison
+    // se fait donc contre le plan courant, pas contre 1 en dur - sinon ce test
+    // affirmerait « la partition n'existe pas » au lieu de « la poussee est
+    // nulle hors montee », qui est son intention.
+    const plan = at(24 - 4 * BAR).director.shotAt(24 - 4 * BAR);
+    expect(loin, 'aucune poussée hors montée').toBe(plan ? plan.zoom : 1);
     expect(proche).toBeGreaterThan(loin);
     expect(juste).toBeGreaterThan(proche);
     expect(pendant, 'le drop relâche').toBeLessThan(juste);
