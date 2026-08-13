@@ -1,8 +1,11 @@
 import { Scene } from '../../scene/Scene';
+import type { Layer } from '../../scene/Layer';
 import { DeepVignette } from '../../layers/background/DeepVignette';
 import { PerspectiveGrid } from '../../layers/field/PerspectiveGrid';
 import { ParticleField } from '../../layers/particles/ParticleField';
 import { FrameFeedback } from '../../layers/postfx/FrameFeedback';
+import { TraceMarks } from '../../layers/memory/TraceMarks';
+import { TRACE_FIELD_V1 } from '../../memory/TraceField';
 
 /**
  * Style `Field` (docs/07_VISUAL_ENGINE.md §"Field — champ de particules") :
@@ -32,9 +35,17 @@ import { FrameFeedback } from '../../layers/postfx/FrameFeedback';
  * image — reste un no-op permanent (voir son commentaire). Retirer la
  * couche serait donc redondant, pas nécessaire pour désactiver l'effet.
  */
+/**
+ * `TraceMarks` (blueprint SSF1, chantier P0 n2) inseree apres `DeepVignette`,
+ * donc APRES `FrameFeedback` : les empreintes entrent dans la trainee, ce qui
+ * est voulu - une marque qui s'estompe en trainant est plus juste qu'une marque
+ * posee net sur un fond qui, lui, traine. Drapeau `TRACE_FIELD_V1` eteint : la
+ * liste redevient exactement celle d'avant ce chantier.
+ */
 export function createFieldStyle(maxParticles?: number, feedbackEnabled = true): Scene {
-  return new Scene(
-    [new FrameFeedback(), new DeepVignette(), new PerspectiveGrid(), new ParticleField(maxParticles)],
-    feedbackEnabled,
-  );
+  // Annote `Layer[]` : sans cela TypeScript infere l'union des classes
+  // concretes du litteral, et `splice` refuse d'y inserer autre chose.
+  const layers: Layer[] = [new FrameFeedback(), new DeepVignette(), new PerspectiveGrid(), new ParticleField(maxParticles)];
+  if (TRACE_FIELD_V1) layers.splice(2, 0, new TraceMarks());
+  return new Scene(layers, feedbackEnabled);
 }

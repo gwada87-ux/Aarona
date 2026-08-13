@@ -8833,3 +8833,115 @@ Charger DEUX morceaux réellement différents, choisir le MÊME preset sur les d
 et dire si les deux rendus se distinguent — et si le genre reste reconnaissable
 dans les deux cas. La démo, elle, ne bougera presque pas : c'est un motif
 volontairement ordinaire, il tombe au milieu de toutes les échelles.
+
+## 13/08/2026 — Blueprint 2026, chantier P0 n°2 : mémoire visuelle (TraceField)
+
+Deuxième chantier de `docs/18_BLUEPRINT_VISUELS_2026.md` (§F1, TOP 10 n°2).
+Répond au constat F2 : « un kick est un flash, pas une empreinte ; le monde n'a
+pas d'histoire, et la répétition se voit ».
+
+### Ce qui a été fait
+
+`src/visual/memory/TraceField.ts` : tampon circulaire de tableaux typés,
+capacité 96, zéro allocation après construction. Trois familles d'empreintes,
+et leur durée de vie EN MESURES, pas en secondes — un morceau lent laisse des
+marques aussi longues qu'un morceau rapide.
+
+| famille   | événements    | vit      |
+|-----------|---------------|----------|
+| cratère   | KICK, SUB_HIT | 8 mesures |
+| cicatrice | SNARE, CLAP   | 4 mesures |
+| poussière | HAT, PERC     | 2 mesures |
+
+`src/visual/layers/memory/TraceMarks.ts` : la couche de preuve, insérée dans
+`pulse` (après le fond) et `field` (après la vignette, donc DANS la traînée de
+feedback). Trois primitives choisies par leur coût — toute la poussière part en
+UN SEUL `drawSprite`, les cratères en `strokeCircle`, les cicatrices en
+`strokePath` (`SpriteTransform` n'a pas de rotation, c'est la seule primitive
+orientable du `Renderer`).
+
+### Le vrai problème du chantier : la Loi 1
+
+`primeScene` ne rejoue que 2 secondes, soit environ UNE mesure à 120 BPM. Un
+tampon qui se contenterait d'accumuler serait donc vide aux trois quarts après
+un seek, et l'image à 24 s dépendrait du chemin par lequel on y est arrivé.
+
+D'où la mécanique de §F1 : `reset(t)` ne VIDE pas le champ, il le marque
+périmé, et le prochain `update()` le RECONSTRUIT en relisant
+`timeline.eventsBetween(t - horizon, t)`. Corollaire imposé : la position d'une
+empreinte ne peut pas venir de `step.rng` — reseedé par sous-pas, il placerait
+ailleurs une empreinte reconstruite (toutes au même sous-pas) que la même
+empreinte déposée en lecture. La position est donc une fonction pure de
+l'événement, repliée par `hash()` sur son temps quantifié et sa famille.
+
+Coût assumé : la graine de projet n'entre pas dans la position, donc « Nouvelle
+variante » ne redistribue pas les empreintes. L'alternative demandait d'ajouter
+un champ à `LayerInitContext` et de le passer aux SEPT appelants de
+`scene.init()` ; en oublier un donnait une graine nulle sans que rien ne le
+signale. Sur le fond, une empreinte est le relevé de ce qui a été joué, pas un
+habillage tiré au sort.
+
+Test correspondant : lecture continue de 0 à 24,5 s contre reconstruction
+directe à 24,5 s — instantanés IDENTIQUES, sur plus de 20 empreintes vivantes.
+
+### Le harnais avait tort avant le code
+
+Le test de la Loi 1 a échoué au premier jet avec un écart de 0,0005 sur tous les
+restes de vie, plus un événement de différence. Cause : la boucle de lecture
+continue avançait par `t += 1/120` et s'arrêtait un sous-pas AVANT la cible,
+pendant que la reconstruction tombait SUR la cible — deux instants différents
+comparés. Itération refaite sur l'INDICE de sous-pas. L'écart minuscule disait
+déjà que le mécanisme était juste ; c'est la mesure qui ne l'était pas.
+
+### CONSTAT À PART, non corrigé : la Loi 3 n'est appliquée nulle part
+
+En écrivant `confidenceRamp`, relevé dans `behaviour/BehaviourEngine.ts` :
+`fire(event.intensity * entry.gain)` — `event.confidence` n'est JAMAIS lu. La
+rampe de `docs/06_EVENT_SYSTEM.md` (« effet = intensity × rampe(confidence) »,
+0 sous 0,60) n'est donc appliquée nulle part dans le moteur fichier, alors
+qu'elle est la Loi 3. La corriger changerait le rendu de TOUS les styles
+existants : c'est un lot à part, avec son drapeau et son verdict. Signalé ici,
+pas corrigé. `TraceField`, lui, est neuf : il l'applique dès le départ, et un
+événement sous 0,60 n'y grave rien ni n'y occupe d'emplacement.
+
+### Mesure, protocole identique dans les deux sens
+
+Démo chargée, `seek(24.5)`, 60 `step()` pour laisser la scène se dessiner,
+lecture du canvas, puis 30 pas de chauffe jetés et 120 pas chronométrés.
+
+| drapeau | pulse : pixels clairs / luminance / ms | field : pixels clairs / luminance / ms |
+|---|---|---|
+| OFF | 189 394 / 104,62 / **4,167** | 33 115 / 32,32 / **4,467** |
+| ON  | 209 559 / 108,62 / **4,667** | 50 309 / 36,68 / **4,797** |
+
+Coût : **+0,50 ms** au pire (pulse), sur un budget de 16 ms. Les empreintes
+mettent bien de la lumière à l'écran : +4,0 de luminance moyenne sur `pulse`,
++4,4 sur `field`. `field` en reçoit proportionnellement plus (+13,5 % de
+luminance moyenne contre +3,8 %) parce que les empreintes entrent dans la
+traînée de feedback et s'y accumulent — c'est voulu, et c'est le premier point
+à juger à l'œil.
+
+Première série de mesures ÉCARTÉE : les pixels y étaient lus plusieurs secondes
+après le `seek` d'un côté et immédiatement de l'autre, donc une image pas encore
+redessinée dans le second cas. Elle donnait 8,3 ms contre 4,3 ms, un écart qui
+n'existe pas. Refaite symétriquement.
+
+Portique : typecheck 0, **1310 tests verts** (133 fichiers, 20 nouveaux + 1
+mis à jour), `test:arch` verte, banc d'accords TOUS JUSTES (15), zéro erreur
+console.
+
+### Test mis à jour, pas fait taire
+
+`createFieldStyle.test.ts` affirmait la liste exacte des 4 couches. La
+composition a réellement changé ; la liste attendue est désormais CALCULÉE
+depuis `TRACE_FIELD_V1`, ce qui verrouille la promesse « drapeau éteint,
+composition d'avant » plutôt que de la documenter.
+
+### Ce qu'Aaron doit regarder
+
+1. Sur `pulse` : au moment d'un BREAK, est-ce qu'on VOIT l'histoire du morceau
+   accumulée sur la surface ?
+2. Sur `field` : les empreintes prises dans la traînée sont-elles trop
+   présentes ? Un seul réglage les calme (`traceAlpha`, 0,30 par défaut).
+3. Est-ce que les marques restent au SECOND regard, sans jamais concurrencer la
+   géométrie vivante ?
