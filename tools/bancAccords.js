@@ -129,11 +129,45 @@ function marqueur(r) {
   return r.nomOk ? `»${r.q}` : r.nom;
 }
 
-const fichiers = process.argv.slice(2);
+/**
+ * Sans argument, le banc CHERCHE le fichier canonique : le plus haut numéro de
+ * la lignée `Beat_Studio_CDJ_MOBILE_alpha<N>.html`, dans `BEAT_STUDIO_DIR` ou,
+ * à défaut, le dossier parent du dépôt. C'est ce qui permet de l'appeler
+ * depuis `test:arch` sans y inscrire un chemin absolu — lequel serait faux dès
+ * la version suivante, la lignée avançant d'un fichier à chaque lot.
+ */
+function trouverCanonique() {
+  const base = process.env['BEAT_STUDIO_DIR'] || path.resolve(process.cwd(), '..');
+  let entrees;
+  try {
+    entrees = fs.readdirSync(base);
+  } catch {
+    return { base, fichier: null };
+  }
+  const candidats = entrees
+    .map((f) => ({ f, m: /^Beat_Studio_CDJ_MOBILE_alpha(\d+)\.html$/.exec(f) }))
+    .filter((c) => c.m)
+    .map((c) => ({ fichier: path.join(base, c.f), n: Number(c.m[1]) }))
+    .sort((a, b) => b.n - a.n);
+  return { base, fichier: candidats.length ? candidats[0].fichier : null };
+}
+
+let fichiers = process.argv.slice(2);
 if (!fichiers.length) {
-  console.error('usage : npm run banc:accords -- <fichier.html> [autres.html ...]');
-  console.error('Le fichier canonique de la lignée Beat Studio est indiqué dans docs/20_FEUILLE_DE_ROUTE_SESSIONS.md.');
-  process.exit(2);
+  const { base, fichier } = trouverCanonique();
+  if (!fichier) {
+    /*
+     * Sortie 0, et un message qui ne ment pas. Ce banc mesure un fichier
+     * EXTERNE au dépôt : le faire échouer ici ferait tomber le portique sur
+     * toute machine qui n'a pas la lignée Beat Studio, pour une raison qui
+     * n'est pas une régression. Le contrôle est donc ANNONCÉ comme non
+     * effectué, jamais présenté comme réussi.
+     */
+    console.log(`banc d'accords : AUCUN CONTROLE EFFECTUE — aucun Beat_Studio_CDJ_MOBILE_alpha<N>.html dans ${base}`);
+    console.log("  (definir BEAT_STUDIO_DIR, ou passer le fichier en argument ; voir docs/20 « Maintenance courante »)");
+    process.exit(0);
+  }
+  fichiers = [fichier];
 }
 
 const versions = fichiers.map(chargerChaine);

@@ -8552,3 +8552,33 @@ Pourquoi ce banc appartient à PULSAR et non à Beat Studio : la chaîne
 d'ADR-015 lit `root`, une scène future lira `quality`. Une erreur de nommage
 chez l'hôte devient une erreur de couleur ici, et Beat Studio n'a aucune
 infrastructure de test où la loger.
+
+### Le banc entre dans `test:arch` (même jour)
+
+Demandé après coup. Deux pièges évités, et un troisième trouvé par la
+vérification elle-même.
+
+**Pas de chemin absolu dans `package.json`.** La lignée avance d'un fichier à
+chaque lot (alpha21 → 25 en une journée) : un chemin écrit en dur serait faux
+dès la version suivante. Le banc, appelé sans argument, DÉCOUVRE le fichier
+canonique — le plus haut `Beat_Studio_CDJ_MOBILE_alpha<N>` de
+`BEAT_STUDIO_DIR`, ou du dossier parent du dépôt.
+
+**Fichier absent ⇒ 0, avec un message qui ne ment pas.** Le banc mesure un
+fichier EXTERNE au dépôt ; le faire échouer ferait tomber le portique sur
+toute machine sans la lignée Beat Studio, pour une raison qui n'est pas une
+régression. Il annonce alors `AUCUN CONTROLE EFFECTUE` et ce qu'il a cherché,
+plutôt que de se taire ou de se déclarer vert.
+
+**Le troisième piège est le mien.** Ma première vérification lisait `$?`
+après un `| tail`, donc le code de sortie de `tail` — elle montrait 0 sur une
+version RÉGRESSÉE et aurait laissé passer un portique qui ne protège rien.
+Remesuré sans le tube :
+
+```
+fichier sain (alpha25)      -> code 0, TOUS JUSTES (15 accords)
+fichier absent              -> code 0, AUCUN CONTROLE EFFECTUE + ce qui a ete cherche
+version regressee (alpha21) -> code 1, 12 ACCORD(S) FAUX sur 15   <- le portique tombe
+```
+
+Portique complet inchangé par ailleurs : typecheck 0, 1265 tests.

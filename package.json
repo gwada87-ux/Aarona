@@ -9,7 +9,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:arch": "vitest run tests/unit/architecture.test.ts",
+    "test:arch": "vitest run tests/unit/architecture.test.ts && node tools/bancAccords.js",
     "bench:analysis": "vitest run --config vitest.bench.config.ts tests/bench/analysis.bench.test.ts",
     "banc:accords": "node tools/bancAccords.js"
   },

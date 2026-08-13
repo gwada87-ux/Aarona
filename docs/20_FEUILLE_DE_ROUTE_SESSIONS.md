@@ -186,10 +186,19 @@ Candidat : pré-armement de l'onde de choc de `mandala-32` ou des anneaux de
   ```
 
   `tools/bancAccords.js` extrait ces fonctions du fichier livré et les exécute
-  sur 15 accords de référence. **Outil, pas test** : il mesure un fichier
-  externe au dépôt, donc hors portique (voir son en-tête). Code de sortie = état
-  de la DERNIÈRE version passée. Référence de la lignée : alpha20/21 → 12 faux
-  sur 15, alpha22 → 8, alpha23 → 4, alpha24 → 2, **alpha25 → 0**.
+  sur 15 accords de référence. Code de sortie = état de la DERNIÈRE version
+  passée. Référence de la lignée : alpha20/21 → 12 faux sur 15, alpha22 → 8,
+  alpha23 → 4, alpha24 → 2, **alpha25 → 0**.
+
+  **Il tourne DANS `npm run test:arch`**, sans argument : il découvre alors
+  seul le fichier canonique — le plus haut `Beat_Studio_CDJ_MOBILE_alpha<N>`
+  de `BEAT_STUDIO_DIR`, ou du dossier parent du dépôt. Aucun chemin absolu
+  n'est inscrit dans `package.json` : il serait faux dès la version suivante.
+  Si aucun fichier n'est trouvé, le banc **annonce que le contrôle n'a pas eu
+  lieu et rend 0** — il mesure un fichier extérieur au dépôt, le faire échouer
+  ferait tomber le portique pour une raison qui n'est pas une régression.
+  Vérifié dans les trois cas : fichier sain → 0, fichier absent → 0 + message,
+  version régressée (alpha21) → **1, le portique tombe**.
 - **Déploiement.** Chaque push sur `main` redéploie GitHub Pages (~90 s).
   Vérifier le bundle servi : le nom `assets/index-*.js` change, et le
   contenu se sonde par `curl | grep <marqueur>`. L'iframe de Beat Studio
