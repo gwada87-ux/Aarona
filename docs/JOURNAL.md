@@ -8751,3 +8751,85 @@ documentées avec leurs raisons :
 - le portage GPU du pipeline live, sans objet au vu de la mesure.
 
 Portique : typecheck 0, 1265 tests, arch verte, banc d'accords TOUS JUSTES (15).
+
+## 13/08/2026 — Blueprint 2026, chantier P0 n°1 : ADN visuel
+
+Premier chantier de `docs/18_BLUEPRINT_VISUELS_2026.md` (§G, feuille de route
+§J, TOP 10 n°1). Il répond au constat F1 de l'audit : « un même preset + style
+rend presque la même chose pour deux morceaux différents ».
+
+### Ce qui a été fait
+
+`src/presets/visualDna.ts`, module PUR, ne dessine rien. Il dérive du document
+PMDI seul : huit traits ramenés à 0..1 (tempo, énergie moyenne, variance
+d'énergie, dominance du grave, brillance, platitude, densité d'onsets, nombre de
+sections), huit deltas de macro bornés à ±0,20, et une graine de projet repliée
+sur un condensé du morceau.
+
+Le preset reste un PRIOR : `DNA_MAX_DELTA = 0,20`. Sans cette borne, un morceau
+très dense ferait ressembler `ambient` à `techno` et le catalogue de genres
+perdrait son sens.
+
+Câblage en cinq éditions dans `ui/App.ts` : dérivation dans `applyDocCore`
+(document BRUT, une seule fois par document — une correction de grille ne doit
+pas redistribuer la graine), adoption graine+macros dans `applyImportedDoc`,
+helper `macrosForCatalogPreset` appelé aux DEUX endroits où un preset de
+catalogue devient la configuration active. PAS à la restauration d'un projet ni
+à l'application d'un Look : ces valeurs-là ont été posées une fois et font
+autorité.
+
+`structure` (nombre de sections) est calculé et exposé mais n'alimente AUCUNE
+macro : le nombre de sections décrit un DÉROULÉ, pas une texture. Sa place est
+le chantier « mise en scène par section » (§F3), pas un curseur global qui
+vaudrait pareil à la minute 1 et à la minute 3.
+
+### Ce que la mesure a donné
+
+Preset de référence Trap Dark (`energy 0,75  reactivity 0,85  density 0,60
+movement 0,55  depth 0,80  glow 0,70  chaos 0,35  smoothness 0,40`) :
+
+| morceau | graine | variante | macros résultantes |
+|---|---|---|---|
+| démo 120 BPM, motif ordinaire | 3632722564 | fuite basse | 0,75 / 0,84 / 0,59 / 0,55 / 0,81 / 0,69 / 0,45 / 0,41 |
+| trap 152 BPM, dense et grave | 2577433356 | fuite basse | 0,81 / 0,97 / 0,72 / 0,66 / 0,95 / 0,62 / 0,42 / 0,28 |
+| ambient 76 BPM, clairsemé et brillant | 1859773107 | plan large | 0,69 / 0,70 / 0,45 / 0,40 / 0,67 / 0,80 / 0,21 / 0,55 |
+
+Trois morceaux, trois graines, trois configurations, deux cadrages différents.
+Le livrable P0 n°2 du blueprint est tenu.
+
+### Le test qui a eu raison contre moi
+
+Le test « trois morceaux, trois mondes » utilisait d'abord les deux fixtures
+Beat Studio MELVELBASE comme deux morceaux distincts. Il a échoué en montrant un
+écart de 0,01. Vérification faite : ce sont **deux exports du même beat** (136
+contre 139 BPM, 145 contre 137 événements) — l'écart de 0,01 est exactement ce
+qu'on veut. Le test a été retourné : il vérifie désormais que ces deux documents
+donnent des mondes VOISINS (< 0,05 par macro), et trois profils réellement
+distincts ont été écrits pour le test de divergence. Au passage, ces deux
+fixtures sont en Mode B et ne portent AUCUNE piste de descripteurs : elles
+vérifient que la dérivation tient sur un PMDI sans `features`.
+
+### Drapeau
+
+`VISUAL_DNA_V1 = true` dans `src/presets/visualDna.ts`. À `false`, `App.ts` ne
+dérive aucun ADN, `currentDna` reste `null`, `applyVisualDna` renvoie les macros
+d'entrée PAR LA MÊME RÉFÉRENCE, et la graine reste celle de
+`startNewProjectIdentity` : comportement identique à celui d'avant ce chantier.
+Un test verrouille l'identité par référence.
+
+### Vérification navigateur
+
+Serveur Vite réel (`localhost:5174`), démo chargée : le champ de graine affiche
+**3632722564**, la valeur dérivée de la démo, et non un tirage aléatoire.
+Sélection de Trap Dark : les curseurs affichent **0,75 / 0,59 / 0,69**
+(energy/density/glow), exactement les valeurs du banc. Aucune erreur console.
+
+Portique : typecheck 0, **1289 tests verts** (132 fichiers, 24 nouveaux),
+`test:arch` verte, banc d'accords TOUS JUSTES (15).
+
+### Ce qu'Aaron doit regarder
+
+Charger DEUX morceaux réellement différents, choisir le MÊME preset sur les deux,
+et dire si les deux rendus se distinguent — et si le genre reste reconnaissable
+dans les deux cas. La démo, elle, ne bougera presque pas : c'est un motif
+volontairement ordinaire, il tombe au milieu de toutes les échelles.

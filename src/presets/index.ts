@@ -60,6 +60,7 @@ export * from './schema';
 export * from './resolve';
 export * from './macros';
 export * from './suggest';
+export * from './visualDna';
 export { buildPalette } from './palette';
 export { PALETTE_CATALOGUE, cataloguePaletteById, type CataloguePalette } from './paletteCatalogue';
 export { DEFAULT_PRESET_BLOOM, MAX_BLOOM_PASSES, resolveBloom } from './bloom';

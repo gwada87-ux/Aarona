@@ -57,8 +57,20 @@ export class SimplePanel {
     this.presetSelect.value = presetId ?? '';
   }
 
-  setSuggestion(suggestion: SuggestResult | null): void {
-    this.suggestionEl.textContent = suggestion ? `${suggestion.reason} → ${suggestion.preset.name}` : '';
+  /**
+   * `dnaSummary` (blueprint SSG) : les traits saillants du morceau, quand
+   * l'ADN visuel a deplace les curseurs de macro. Affiche ICI et pas ailleurs
+   * parce que c'est la seule ligne de l'interface qui explique deja pourquoi
+   * la configuration est celle-la - un curseur qui bouge tout seul sans motif
+   * ecrit se lit comme un bug.
+   */
+  setSuggestion(suggestion: SuggestResult | null, dnaSummary = ''): void {
+    if (!suggestion) {
+      this.suggestionEl.textContent = '';
+      return;
+    }
+    const base = `${suggestion.reason} → ${suggestion.preset.name}`;
+    this.suggestionEl.textContent = dnaSummary ? `${base} — réglé sur ce morceau : ${dnaSummary}` : base;
   }
 
   setPalette(palette: Palette): void {

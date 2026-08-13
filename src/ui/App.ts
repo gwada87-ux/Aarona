@@ -64,6 +64,7 @@ import { planText } from '../visual/text/textLayout';
 import { importCover, CoverImportError } from './coverImport';
 import { applyLayerBlends, framingFor, openFrameWithCamera, primeScene, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
+import { VISUAL_DNA_V1, applyVisualDna, deriveVisualDna, type VisualDna } from '../presets/visualDna';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
 import { PRESET_CATALOG, resolvePreset, validatePreset, type Preset, type PresetMacros, type StyleId, MACRO_NAMES } from '../presets/index';
@@ -143,6 +144,22 @@ function neutralMacros(): PresetMacros {
   const macros = {} as Record<MacroName, number>;
   for (const name of MACRO_NAMES) macros[name] = 0.5;
   return macros as PresetMacros;
+}
+
+/**
+ * Macros de depart pour un preset du CATALOGUE, modulees par l'ADN du morceau
+ * charge (blueprint SSG : « le JSON du genre devient un PRIOR, le morceau le
+ * module »). Sans morceau charge, ou drapeau eteint, rend exactement
+ * `preset.macros` - le comportement d'avant ce chantier.
+ *
+ * Appelee aux DEUX endroits ou un preset de catalogue devient la configuration
+ * active : la suggestion a l'import, et le choix manuel dans le selecteur.
+ * PAS a la restauration d'un projet ni a l'application d'un Look : ces
+ * valeurs-la ont ete posees une fois pour toutes et font autorite, les
+ * remoduler effacerait un reglage que l'utilisateur a garde.
+ */
+function macrosForCatalogPreset(preset: Preset | undefined): PresetMacros {
+  return applyVisualDna(preset?.macros ?? neutralMacros(), currentDna);
 }
 
 function buildFallbackPreset(styleId: StyleId, macros: PresetMacros, reducedFlashing: boolean): Preset {
@@ -290,6 +307,20 @@ let automation: Automation = [];
 let corrections: AnalysisCorrections = NO_CORRECTIONS;
 /** Document d'analyse BRUT, avant corrections — pour pouvoir les annuler. */
 let rawDoc: PmdiDocument | null = null;
+/**
+ * ADN visuel du morceau courant (`presets/visualDna.ts`, blueprint SSG).
+ * `null` tant qu'aucun morceau n'est charge, et `null` en permanence si
+ * `VISUAL_DNA_V1` est eteint : c'est ce `null` que `applyVisualDna` traite
+ * comme le chemin « drapeau eteint », en renvoyant les macros telles quelles.
+ */
+let currentDna: VisualDna | null = null;
+/**
+ * Document sur lequel `currentDna` a ete derive. Sert a ne PAS re-deriver a
+ * chaque correction de grille : `reapplyCorrections` repasse par
+ * `applyDocCore` avec le meme `rawDoc`, et deplacer une frontiere de section
+ * ne doit pas changer la graine, donc pas le monde.
+ */
+let dnaSourceDoc: PmdiDocument | null = null;
 /** Dernières crêtes de forme d'onde, réutilisées quand la frise se reconstruit. */
 let lastWaveformPeaks: WaveformPeaks | null = null;
 /** Cible en cours d'édition sur la frise. */
@@ -866,7 +897,7 @@ const simplePanel = new SimplePanel({
     selectedPresetId = id;
     customPreset = null;
     const preset = PRESET_CATALOG.find((p) => p.id === id);
-    currentMacros = preset?.macros ?? neutralMacros();
+    currentMacros = macrosForCatalogPreset(preset);
     currentStyleId = preset?.style ?? currentStyleId;
     applyActiveConfiguration();
   },
@@ -1167,7 +1198,7 @@ async function loadFile(file: File): Promise<void> {
     if (db) void cacheAnalysis(db, analysisCacheKeyValue, imported.doc);
   }
   applyImportedDoc(imported.doc, imported.suggestion?.preset.id ?? null, imported.waveformPeaks);
-  simplePanel.setSuggestion(imported.suggestion);
+  simplePanel.setSuggestion(imported.suggestion, currentDna?.summary ?? '');
 }
 
 /**
@@ -1241,6 +1272,15 @@ function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null, ke
   // s'annuler, et on ne peut pas retirer un décalage de grille d'un document
   // auquel on l'a déjà appliqué sans accumuler les arrondis (§7.8, lot E).
   rawDoc = doc;
+  // ADN derive du document BRUT, et une seule fois par document. Deux raisons :
+  // une correction de grille ne doit pas redistribuer la graine (donc pas la
+  // variante de cadrage), et la restauration d'un projet passe ICI sans passer
+  // par `applyImportedDoc` - sans cette ligne, choisir un preset apres avoir
+  // rouvert un projet n'aurait aucun ADN a appliquer.
+  if (dnaSourceDoc !== doc) {
+    dnaSourceDoc = doc;
+    currentDna = VISUAL_DNA_V1 ? deriveVisualDna(doc) : null;
+  }
   const corrected = applyCorrections(doc, corrections);
   currentDoc = corrected;
   currentTimeline = buildMusicTimeline(corrected);
@@ -1286,8 +1326,18 @@ function reapplyCorrections(): void {
 function applyImportedDoc(doc: PmdiDocument, suggestedPresetId: string | null, waveformPeaks: WaveformPeaks | null): void {
   selectedPresetId = suggestedPresetId;
   customPreset = null;
+  // ADN VISUEL (blueprint SSG) - derive AVANT les macros, qui en dependent.
+  // `applyDocCore` verra `dnaSourceDoc === doc` et ne re-derivera pas.
+  dnaSourceDoc = doc;
+  currentDna = VISUAL_DNA_V1 ? deriveVisualDna(doc) : null;
+  // « Meme morceau -> meme monde » : la graine remplace celle que
+  // `startNewProjectIdentity` vient de tirer au hasard. Pose AVANT
+  // `applyDocCore`, qui construit le `StepContextBuilder` avec.
+  // Elle reste modifiable a la main et par « Nouvelle variante » : ce n'est
+  // qu'un point de depart, pas un verrou.
+  if (currentDna) projectSeed = currentDna.seed;
   const preset = PRESET_CATALOG.find((p) => p.id === suggestedPresetId);
-  currentMacros = preset?.macros ?? neutralMacros();
+  currentMacros = macrosForCatalogPreset(preset);
   // Critère 14 : c'est ICI, et seulement ici, que l'application impose un style
   // — la suggestion à l'import. Sous `prefers-reduced-motion`, un style à
   // mouvement soutenu n'est pas proposé d'office ; il reste choisissable à la
