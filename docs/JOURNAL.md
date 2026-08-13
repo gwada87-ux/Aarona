@@ -8347,3 +8347,58 @@ nommer.
   points d'export ne traduit que `'m'` → `'min'`. Doc 12 donne `quality` comme
   chaîne ouverte ; harmoniser demanderait de toucher le format de l'export
   statique, hors périmètre de ce lot.
+
+---
+
+## 13 août 2026 — Qualité PMDI normalisée : le mineur s'épelle `min`
+
+Livré : `Beat_Studio_CDJ_MOBILE_alpha24.html` (= alpha23 + drapeau
+`_PMDI_QUALITY_NORM_V1`). Ferme la dernière limite consignée au lot
+précédent.
+
+### Deux notations, une seule frontière
+
+`_detectChordName` produit la notation de PARTITION, où le mineur s'écrit
+`m` : `m`, `m7`, `mmaj7`. Le contrat PMDI (doc 12) l'épelle `min` — son
+exemple donne « maj | min | min7 | sus4 ». La conversion en place ne
+traduisait que le cas NU (`'m'` → `'min'`), si bien qu'un mineur septième
+partait en `m7` et un mineur majeur septième en `mmaj7`.
+
+Règle retenue : **le `m` INITIAL devient `min`, sauf quand il ouvre `maj`** —
+qui marque le majeur, pas le mineur. Tout le reste passe inchangé. Les NOMS
+d'accord du MIDI, eux, gardent la notation de partition : c'est ce qu'un
+musicien lit dans son DAW. Seule la frontière PMDI est normalisée.
+
+### Vérifié sur le code LIVRÉ, pas sur une copie
+
+La fonction a été extraite du fichier tel qu'il est livré, puis exécutée sur
+une table de cas — plutôt que retapée dans un test, ce qui n'aurait prouvé que
+la fidélité de ma frappe :
+
+```
+  m       -> min        mmaj7  -> minmaj7      dim  -> dim     5 -> 5
+  m7      -> min7       maj7   -> maj7         aug  -> aug     7 -> 7
+  maj     -> maj        sus4   -> sus4         ?    -> ?       "" -> ""
+                                        TOUS JUSTES (14 cas)
+```
+
+Le cas `maj7` est celui qui compte le plus : il commence lui aussi par `m`, et
+une règle naïve en aurait fait `minaj7`.
+
+Bout en bout, sur `buildPmdiDocument(32)` — le chemin réel de l'export
+statique — la qualité `minmaj7` apparaît dans le document. C'est la preuve du
+CÂBLAGE : elle ne peut venir que de la nouvelle branche, `m7` empruntant
+exactement le même chemin. Drapeau à `false`, même appel : aucune qualité en
+notation de partition, ancienne conversion rétablie.
+
+`node --check` du bloc `text/x-dc` : OK. Diff alpha23 → alpha24 : 4 hunks,
+26 lignes ajoutées, 2 retirées. **Aucun son touché.**
+
+### Limite connue
+
+La normalisation ne porte que sur le marqueur de mineur. Une qualité composée
+comme `sus47` (suspendue avec septième) reste telle quelle, là où l'usage
+écrirait `7sus4` ; et `7` seul désigne une dominante sans que doc 12 tranche
+la graphie. Ces cas n'ont pas été demandés et ne sont pas des erreurs de
+contrat — doc 12 donne `quality` comme chaîne OUVERTE. À rouvrir si un
+consommateur en a besoin.

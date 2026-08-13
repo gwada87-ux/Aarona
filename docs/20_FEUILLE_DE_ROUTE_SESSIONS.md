@@ -33,8 +33,9 @@ utile (SESSION E).
    `docs/18_PHASE3_JUGEMENT.md` §10 (serveur sur 5174, `__pulsarDebug`,
    sonde pixels — jamais de capture d'écran du volet).
 7. Fichiers Beat Studio : le fichier canonique est
-   `C:\Users\gwada\Downloads\Beat_Studio_CDJ_MOBILE_alpha23.html`
-   (= alpha22 + fondamentale d'accord V3, flag `_CHORD_ROOT_V3` ; alpha22 =
+   `C:\Users\gwada\Downloads\Beat_Studio_CDJ_MOBILE_alpha24.html`
+   (= alpha23 + qualité PMDI normalisée, flag `_PMDI_QUALITY_NORM_V1` ;
+   alpha23 = alpha22 + fondamentale d'accord V3, flag `_CHORD_ROOT_V3` ; alpha22 =
    alpha21 + nommage d'accord V2, flag `_CHORD_DETECT_V2` ; alpha21 =
    alpha20 + notes/accords en direct, flag `_PMDI_LIVE_NOTES_V1`).
    Format `text/x-dc` : édition DIRECTE par
