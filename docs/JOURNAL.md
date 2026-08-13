@@ -7889,3 +7889,94 @@ de `docs/20`) : les cinq tests ajoutés le sont dans un bloc `describe` séparé
   consignée dans l'ADR-015, à rouvrir seulement si le verdict le justifie.
 - Une palette monochrome (`graphite`, 8°) ne montrera qu'un effet ténu :
   c'est voulu, la palette reste le choix artistique dominant.
+
+---
+
+## 13 août 2026 — ADR-015 lot 2 : l'émetteur Beat Studio (notes et accords en direct)
+
+Livré : `Beat_Studio_CDJ_MOBILE_alpha21.html` (= alpha20 + 2 hunks additifs).
+Le lot 1 cesse d'être inerte : le canal transporte enfin de l'harmonie.
+
+**Format du fichier hôte — piège évité.** `alpha21` est au format
+`text/x-dc` (le code applicatif vit dans `<script type="text/x-dc">`), donc
+s'édite DIRECTEMENT par remplacement de chaîne exact. `bundle.py` ne concerne
+que la lignée `v16_*` (code encodé en JSON dans `<script
+type="__bundler/template">`) : l'appliquer ici n'aurait rien donné de bon.
+Vérifié avant la première édition, pas supposé.
+
+### Les deux hunks
+
+1. Drapeau `_PMDI_LIVE_NOTES_V1` dans le bloc de flags.
+2. `_pmdiLiveSchedule` appelle `_pmdiLiveEmitTonal(t, step, stepDur, p)`,
+   nouvelle méthode voisine de `_pmdiLiveEmitHit`.
+
+`diff` : **2 hunks, 52 lignes ajoutées, 0 supprimée.** Rien n'est retiré ni
+déplacé, l'invariant de timing du scheduler n'est pas touché — l'émission
+OBSERVE, elle ne replanifie rien (même discipline que les lots 3 et 3b).
+
+**Aucune logique harmonique nouvelle.** La conversion est strictement celle de
+l'export PMDI statique (`_PMDI_NOTES_V1`) : `NOTES[nm]` →
+`_midiFreqToNoteNumber` pour les notes, `_chordNoteNamesToPitchClasses` +
+`_detectChordName` pour la fondamentale et la qualité. La dupliquer autrement
+aurait été le seul moyen sûr de la faire diverger de l'export.
+
+Règles des frappes reprises telles quelles : instant `t + mt` (celui que
+`playCell` utilise pour le son), vélocité réelle via `_dpVel`, **piste
+inaudible jamais annoncée**. L'accord n'est émis qu'au pas 0 de chaque mesure
+— il décrit la mesure entière, et côté visualizer il s'INSTALLE jusqu'au
+suivant au lieu de se tirer comme une frappe.
+
+### Vérification par EXÉCUTION (Playwright, `file://`, DataChannel espionné)
+
+Le DataChannel PMDI est remplacé par un espion, un beat est généré, la lecture
+lancée, et on lit ce que l'hôte annonce réellement :
+
+```
+messages : 201   ->   chord 6 · note 77 · event 95 · tempo 23
+accords : root 9 / 2 / 2 / 7      dur 1,567 s (= 16 x stepDur, une mesure)
+notes   : midi 62/61/62/61  velocity 0,395 / 0,087 / 0,224  track "piano"
+fondamentales hors 0..11 : 0      hauteurs invalides : 0      erreurs page : 0
+```
+
+**Drapeau à `false`, même scénario : `event 84 · tempo 20`, zéro note, zéro
+accord** — exactement le comportement d'alpha20. La règle « flag éteint =
+sortie identique » est donc vérifiée par exécution, pas seulement par lecture.
+
+### Ce que la mesure a appris — `quality` vaut souvent « ? »
+
+Les accords annoncés portent `quality: "?"` ou `"?maj7"`. Ce n'est pas un
+défaut de ce lot : `_detectChordName` ne reconnaît que les triades standard
+(majeur, mineur, dim, aug) et annote `?` pour tout le reste — or les accords
+générés n'en sont pas toujours. **La même chaîne figure dans un fichier
+`.pmdi.json` exporté pour le même accord** : la parité export statique /
+canal direct est intacte, ce qui est précisément la propriété recherchée.
+
+La FONDAMENTALE, elle, est correcte et c'est la seule donnée que le lot 1
+consomme : `_detectChordName` la dérive de `pcs[0]`, exactement la valeur
+envoyée dans `root`.
+
+À garder en tête pour le lot 3 (scène vitrine) : si `quality` devait piloter
+quelque chose de visible, il faudrait d'abord améliorer `_detectChordName` —
+ce qui changerait AUSSI l'export statique, donc un lot à part, avec son propre
+drapeau.
+
+### Écart assumé avec le texte de l'ADR-015
+
+L'ADR annonçait le drapeau « à `false` par défaut ». Il est livré à **`true`**,
+pour la même raison que `_PMDI_LIVE_EVENTS_V1` au lot 2 d'ADR-012 : sans lui
+le chantier reste invisible et aucun verdict n'est possible. Le risque est nul
+— l'émission est doublement gardée en amont (`_PMDI_LIVE_V1` et un
+DataChannel ouvert), n'existe donc que lorsqu'un visualizer est connecté, et
+ne touche à aucun chemin audio. Passer le drapeau à `false` rétablit alpha20 à
+l'identique, ce qui est vérifié ci-dessus.
+
+### Ce qui reste
+
+- **Le verdict à l'œil d'Aaron, sur un de SES beats** : lancer alpha21 avec le
+  visualizer connecté et regarder si la couleur suit l'harmonie. C'est le
+  différenciateur produit — il doit se VOIR. Rappel : l'effet est BORNÉ par
+  `hueModulation` (8 à 24° selon la palette), c'est une dérive, pas un
+  arc-en-ciel ; et il n'agit que sur le mode live AUTOMATIQUE (pas sur le
+  mode direct manuel, raison mesurée dans l'ADR-015).
+- Lot 3 : la scène vitrine qui VOIT la mélodie (les 77 notes par run
+  ci-dessus prouvent que la matière est là).

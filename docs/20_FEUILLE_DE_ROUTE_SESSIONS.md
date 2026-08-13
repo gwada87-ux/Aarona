@@ -33,8 +33,11 @@ utile (SESSION E).
    `docs/18_PHASE3_JUGEMENT.md` §10 (serveur sur 5174, `__pulsarDebug`,
    sonde pixels — jamais de capture d'écran du volet).
 7. Fichiers Beat Studio : le fichier canonique est
-   `C:\Users\gwada\Downloads\Beat_Studio_CDJ_MOBILE_alpha20.html`
-   (= alpha19 + canal PMDI complet). Voir « Maintenance » en fin de document
+   `C:\Users\gwada\Downloads\Beat_Studio_CDJ_MOBILE_alpha21.html`
+   (= alpha20 + notes/accords en direct, ADR-015 lot 2, flag
+   `_PMDI_LIVE_NOTES_V1`). Format `text/x-dc` : édition DIRECTE par
+   remplacement de chaîne exact — `bundle.py` ne concerne QUE la lignée
+   `v16_*`, ne pas l'appliquer ici. Voir « Maintenance » en fin de document
    si la lignée a avancé.
 
 ---
