@@ -520,3 +520,100 @@ l'export — la dette de six scènes écrites contre Canvas 2D.
 **Note de numérotation.** `docs/20` (SESSION E) réservait « ADR-014 » au chantier mélodie/accords.
 Les ADR sont numérotés dans l'ordre de RÉDACTION (001…013) ; celui-ci est donc l'ADR-014, et le
 chantier mélodie/accords deviendra l'**ADR-015**. `docs/20` est corrigé en conséquence.
+
+---
+
+## ADR-015 — Visuels mélodie/accords : la couleur suit l'harmonie, par le cercle des quintes
+
+**Contexte.** Priorité n° 3 du classement d'Aaron (12 août 2026), après le canal de vérité
+(ADR-012) et le rendu GPU (ADR-013). Le verrou « notes/mélodie/accords » de `CLAUDE.md` est **LEVÉ
+pour ce chantier** par la validation de `docs/20` par Aaron le 13 août 2026 ; les autres verrous
+(mobile, i18n, lyrics, 4K, rendu serveur) tiennent.
+
+Tout est déjà dimensionné pour, et c'est ce qui rend ce chantier peu coûteux :
+- le canal de vérité **transporte déjà l'inconnu sans casser** — `TruthChannel.ingest` compte puis
+  ignore un `kind` non reconnu (règle 3 de doc 12) ; ajouter des payloads n'est pas une rupture de
+  contrat, c'est l'usage prévu ;
+- Beat Studio sait déjà convertir ses notes et ses accords : la conversion existe dans l'export
+  PMDI statique (`cell.notes` → `NOTES[nm]` → `_midiFreqToNoteNumber` ; accords via
+  `pat.dna.chords[barIdx%4]` + `_chordNoteNamesToPitchClasses` + `_detectChordName`) ;
+- le visualizer a déjà l'outillage couleur : `core/color/oklch.ts` (dont `rgbToOklch`) et surtout
+  `PaletteBook`, qui pré-calcule des variantes de teinte **structurellement bornées**.
+
+**La contrainte qui commande tout le reste.** `render/Palette.ts` (§3.5, §6.3) interdit
+explicitement « la rotation de teinte pilotée par l'index d'un élément (`hue = f(i)`) ou par le
+temps parcourant le cercle chromatique — c'est la signature de l'amateurisme », et borne toute
+modulation temps réel à `hueModulation` (8 à 24° selon la palette, plafond dur 40°). Un chantier
+« la couleur tourne avec la musique » passe donc à un cheveu de l'interdit. Il en est sauvé par une
+distinction de fond : ici la teinte est fonction de **l'HARMONIE**, pas de l'index ni de l'horloge.
+Retirer l'audio supprime l'effet — c'est le critère §6.1. Mais la BORNE, elle, reste due.
+
+**Options pour la correspondance fondamentale → teinte.**
+
+**(a) Linéaire par classe de hauteur** (`pc / 12 × amplitude`). Rejetée : elle rend Do et Si
+visuellement voisins alors qu'ils sont harmoniquement éloignés, et Do et Sol éloignés alors qu'ils
+sont les plus proches parents qui soient. Pour un produit dont le différenciateur est « le visuel
+CONNAÎT la musique », c'est exactement l'erreur à ne pas commettre.
+
+**(b) Par le CERCLE DES QUINTES, relatif à un centre tonal.** Retenue. La distance signée en
+quintes entre l'accord courant et le centre tonal du morceau vit dans `[-6, +5]` ; elle est
+proportionnelle à l'écart harmonique perçu. Le centre tonal est le premier accord annoncé après un
+`reset` : le morceau se colore donc à sa teinte de palette au repos, et ne s'en écarte QUE lorsqu'il
+module. La discontinuité inévitable — comprimer un cercle de 12 sur un arc borné en casse forcément
+la continuité quelque part — tombe sur le triton, c'est-à-dire précisément l'accord le plus
+lointain : le saut visuel y est musicalement juste, pas un artefact.
+
+**(c) Teinte absolue par tonalité** (Do = rouge, etc., à la Scriabine). Rejetée : elle détruirait
+l'identité des 8 palettes, qui sont un choix de direction artistique, pas un canevas neutre.
+
+**Décision.**
+
+1. **Payloads** `{kind:'note', midi, dur, velocity, track}` et `{kind:'chord', root, quality, dur}`
+   sur l'enveloppe existante `{pmdiLive:'1.0', tHost, payload}` — mêmes formes que `NoteEvent` /
+   `ChordEvent` de doc 12. Validés à la réception comme toute entrée non fiable ; un champ
+   manquant ou hors bornes fait rejeter le message, jamais lever.
+2. **Correspondance (b)**, isolée dans un module PUR (`tonalHue.ts`), donc testable sans navigateur
+   — même traitement que `bloomMath`, `strokeGeometry` ou `hdrMath`.
+3. **La borne de §3.5 est tenue par PARTAGE DE BUDGET, pas par superposition.** Le décalage
+   d'accord et la modulation par élément puisent dans la MÊME enveloppe `hueModulation` : ce que
+   l'accord consomme est retiré à `hexModulated`. L'excursion totale d'un élément reste donc
+   `≤ hueModulation` à tout instant, exactement comme avant ce chantier. C'est ce qui permet
+   d'affirmer que l'invariant reste STRUCTUREL et non déclaratif — et c'est vérifié par test.
+4. **Fondu sur frontière de mesure**, jamais de saut : le décalage glisse vers sa cible, et la
+   frontière de mesure est le seul instant où une nouvelle cible est prise.
+5. **Périmètre du lot 1 : le pipeline live AUTOMATIQUE** (`PaletteBook`), où l'architecture le
+   supporte nativement — les scènes lisent `frame.palette` et héritent du décalage sans qu'une
+   seule d'entre elles soit réécrite (« effet global, aucune scène à réécrire »).
+
+**Ce que le lot 1 ne couvre PAS, et pourquoi — mesuré.** Le moteur FICHIER (donc le mode direct
+MANUEL, où Aaron passe beaucoup de temps) ne reçoit pas l'effet. Raison architecturale, pas
+d'oubli : ses couches capturent la palette dans `Layer.init()`, si bien que changer la palette
+impose un `scene.init()`, qui **recrée tous les sprites** (`createSprite`). À la frontière de
+mesure, cela allouerait à ~0,6 Hz en pleine boucle de rendu — contraire à la règle « zéro
+allocation dans la boucle » de docs/10. Rendre l'harmonie visible dans le moteur fichier demande
+donc un mécanisme distinct (une couleur résolue par frame plutôt que capturée à l'init) : c'est un
+lot à part entière, à ouvrir seulement si le verdict d'Aaron sur le lot 1 le justifie.
+
+**Découpage.**
+
+1. **Lot 1 (celui-ci)** — réception `note`/`chord`, correspondance par quintes, décalage de teinte
+   borné et fondu, câblage dans le pipeline live. Banc synthétique étendu. **Inerte tant que Beat
+   Studio n'émet pas** : aucun accord n'arrive, le décalage reste nul, le rendu est identique à
+   avant — même discipline que le lot 1 d'ADR-012.
+2. **Lot 2 — l'émetteur Beat Studio.** Émission depuis `_pmdiLiveSchedule`, même motif que
+   `_pmdiLiveEmitHit`, pistes piano/bells, derrière un flag `_PMDI_LIVE_NOTES_V1` à `false` par
+   défaut, hunks additifs (règles du dépôt hôte : sortie byte-identique flag éteint). C'est ce lot
+   qui rend le chantier VISIBLE.
+3. **Lot 3 — la scène vitrine qui VOIT la mélodie** : les notes dessinent une géométrie
+   (constellation, arcs), hauteur → position, vélocité → taille, en respectant §6.1 — retirer
+   l'audio ne doit pas la rendre identique à un analyseur.
+
+**Conséquences.**
+- `TruthChannel` gagne deux familles de payloads et un anneau d'accords ; les tests `liveTruth`
+  existants doivent rester verts **sans modification** (ADR-012 est en production).
+- Le décalage de teinte est déterministe (fonction des accords annoncés et du temps), donc la Loi 1
+  est intacte : aucun tirage nouveau.
+- Une palette monochrome (`graphite`, `hueModulation` 8°) ne montrera qu'un effet ténu. C'est
+  voulu : la palette reste le choix artistique dominant, l'harmonie la module.
+- Critère de succès, non fermable par une mesure : **le verdict d'Aaron sur un de SES beats.**
+  C'est le différenciateur produit — il doit se VOIR.

@@ -10,6 +10,7 @@ import { OverlayDirector } from './Overlays';
 import { actionForKey, loadControls, saveControls, type PersistedControls } from './Controls';
 import { mergeLiveConfig, type LiveConfig, type LiveConfigPatch } from './LiveConfig';
 import { TruthDirector } from './truth/TruthDirector';
+import { CHORD_HUE_SHARE, chordHueOffsetDeg } from './util/tonalHue';
 
 /**
  * Etape 53 (hors roadmap) : rendu du mode "live" - deliberement SEPARE du
@@ -537,6 +538,20 @@ export class LiveVisualPanel {
       else if (engine.section.dropFired) pipeline.palette.next(0);
     }
     if (engine.beat.beatsThisFrame > 0) pipeline.palette.markBeat();
+
+    // ADR-015 : la couleur suit l'HARMONIE. La cible est recalculee a chaque
+    // trame parce que `setTonalHueTarget` est idempotente — mais elle ne
+    // CHANGE qu'a l'arrivee d'un nouvel accord, lequel est annonce par mesure
+    // cote Beat Studio : la frontiere de mesure est donc portee par l'harmonie
+    // elle-meme, sans qu'il faille un signal de mesure separe. Sans canal de
+    // verite, ou avant le premier accord, `chordRoot` vaut -1 et la cible est
+    // nulle : la palette rend exactement ce qu'elle rendait avant ce chantier.
+    const chordRoot = this.truth?.chordRoot ?? -1;
+    pipeline.palette.setTonalHueTarget(
+      chordRoot < 0
+        ? 0
+        : chordHueOffsetDeg(chordRoot, this.truth!.tonalCenter, pipeline.palette.current.hueModulation * CHORD_HUE_SHARE),
+    );
     // Le shake est une modulation de la CAMERA, pas un effet separe (§3.6).
     // L'amplitude passe par le budget : c'est lui qui porte la retenue avant
     // impact et la retombee d'apres drop.

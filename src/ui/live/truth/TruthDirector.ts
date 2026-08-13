@@ -42,6 +42,20 @@ export class TruthDirector {
   private eventCursor = 0;
   private prevDetectedKickT = Number.NEGATIVE_INFINITY;
 
+  /**
+   * Fondamentale de l'accord COURANT (0..11), ou -1 tant qu'aucun accord n'a
+   * ete annonce (ADR-015). Un accord s'INSTALLE : il reste courant jusqu'au
+   * suivant, contrairement a une frappe qui se tire et retombe.
+   */
+  chordRoot = -1;
+  /**
+   * Centre tonal du morceau : le PREMIER accord annonce depuis le dernier
+   * `reset`. C'est lui qui met la palette au repos sur sa propre teinte — un
+   * morceau en fa# n'a aucune raison de vivre a l'oppose du cercle.
+   */
+  tonalCenter = -1;
+  private chordCursor = 0;
+
   constructor(private readonly config: LiveTruthConfig) {
     this.channel = new TruthChannel(config);
     this.aligner = new ClockAligner(config);
@@ -56,6 +70,10 @@ export class TruthDirector {
     if (this.channel.takeReset()) {
       this.aligner.reset();
       this.eventCursor = this.channel.eventSeq;
+      // Nouveau morceau : le centre tonal du precedent n'a plus de sens.
+      this.chordCursor = this.channel.chordSeq;
+      this.chordRoot = -1;
+      this.tonalCenter = -1;
     }
 
     // Alimentation de l'aligneur : tout kick DETECTE depuis la derniere
@@ -89,6 +107,7 @@ export class TruthDirector {
         // d'acquisition : les tirer d'un coup ferait une rafale de rattrapage.
         // On saute tout ce qui est deja du, on ne tire que l'avenir.
         this.fireDueEvents(tLocalNow, engine, !wasActive);
+        this.installDueChords(tLocalNow, engine);
       }
     } else if (this.active) {
       engine.beat.clearTruth();
@@ -96,7 +115,38 @@ export class TruthDirector {
       // La file en attente ne survit pas au repli : la retirer d'un coup
       // evite une rafale de tirs perimes a la reactivation.
       this.eventCursor = this.channel.eventSeq;
+      // L'harmonie annoncee devient caduque avec l'horloge qui la datait : la
+      // couleur revient au repos (en glissant, jamais d'un coup - c'est
+      // `PaletteBook` qui tient le fondu). Le CENTRE TONAL, lui, survit : il
+      // appartient au morceau, pas a la session de canal, et le reperdre
+      // ferait sauter la couleur a chaque micro-coupure.
+      this.chordCursor = this.channel.chordSeq;
+      this.chordRoot = -1;
       this.active = false;
+    }
+  }
+
+  /**
+   * Installe les accords annonces dont l'instant VISUEL est atteint - meme
+   * convention que `fireDueEvents` (tInstall = tHost + offset - syncOffset).
+   *
+   * Deux differences assumees avec les frappes : un accord en RETARD s'installe
+   * quand meme (il decrit un etat qui dure, pas une impulsion qu'on raterait),
+   * et il n'existe pas de garde anti-rafale a l'activation - installer
+   * successivement trois accords perimes en une trame ne produit qu'un seul
+   * etat final, le dernier.
+   */
+  private installDueChords(tLocalNow: number, engine: LiveAnalysisEngine): void {
+    const ch = this.channel;
+    if (this.chordCursor < ch.chordSeqFloor) this.chordCursor = ch.chordSeqFloor;
+    const syncSec = engine.beat.sync.totalMs / 1000;
+    while (this.chordCursor < ch.chordSeq) {
+      const seq = this.chordCursor;
+      if (ch.chordHostTimeAt(seq) + this.aligner.offsetSec - syncSec > tLocalNow) break;
+      this.chordCursor++;
+      this.chordRoot = ch.chordRootAt(seq);
+      // Le premier accord entendu FIXE le centre tonal du morceau.
+      if (this.tonalCenter < 0) this.tonalCenter = this.chordRoot;
     }
   }
 

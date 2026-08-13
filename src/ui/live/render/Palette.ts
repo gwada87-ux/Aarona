@@ -24,6 +24,16 @@
  */
 
 import { contrastRatio, mixOklch, oklchToHex, oklchToRgb, type Oklch } from '../../../core/color/oklch';
+import { CHORD_HUE_SHARE } from '../util/tonalHue';
+
+/**
+ * Vitesse de glissement du decalage harmonique (ADR-015), en degres par
+ * seconde. Choisie pour qu'une modulation d'un demi-ton voisin (quelques
+ * degres) se resorbe en une fraction de mesure et qu'un saut au triton prenne
+ * environ une mesure a tempo courant : la couleur SUIT l'harmonie sans jamais
+ * clignoter avec elle.
+ */
+export const TONAL_HUE_GLIDE_DEG_PER_SEC = 9;
 
 export type PaletteRole = 'background' | 'primary' | 'secondary' | 'accent' | 'highlight';
 
@@ -151,6 +161,9 @@ export class PaletteBook {
   private readonly baseHex = new Map<PaletteRole, string>();
   /** `role -> pas de modulation -> chaine`. Taille bornee : 5 roles x 16 pas. */
   private readonly modHex = new Map<PaletteRole, string[]>();
+  /** Decalage harmonique courant et sa cible, en degres (ADR-015). 0 = aucun accord connu. */
+  private tonalHue = 0;
+  private tonalHueTarget = 0;
 
   constructor(startIndex = 0) {
     this.index = ((startIndex % PALETTES.length) + PALETTES.length) % PALETTES.length;
@@ -195,7 +208,33 @@ export class PaletteBook {
     this.crossfadeTo(this.index + 1, durationSec);
   }
 
+  /**
+   * Cible du decalage de teinte HARMONIQUE, en degres (ADR-015). Bornee ICI a
+   * `CHORD_HUE_SHARE x hueModulation` de la palette courante — la borne est
+   * donc structurelle, elle ne depend pas de la bonne foi de l'appelant.
+   *
+   * Le decalage ne saute jamais : `update()` l'y amene en glissant. L'appelant
+   * ne pose une nouvelle cible qu'a la frontiere de MESURE (§3.5 : la couleur
+   * suit l'harmonie, elle ne clignote pas avec elle).
+   */
+  setTonalHueTarget(deg: number): void {
+    const max = this.toPalette.hueModulation * CHORD_HUE_SHARE;
+    const safe = Number.isFinite(deg) ? deg : 0;
+    this.tonalHueTarget = safe < -max ? -max : safe > max ? max : safe;
+  }
+
+  /** Decalage harmonique effectivement applique a cet instant, en degres. */
+  get tonalHueDeg(): number {
+    return this.tonalHue;
+  }
+
   update(dt: number): void {
+    if (this.tonalHue !== this.tonalHueTarget) {
+      const step = TONAL_HUE_GLIDE_DEG_PER_SEC * dt;
+      const delta = this.tonalHueTarget - this.tonalHue;
+      this.tonalHue = Math.abs(delta) <= step ? this.tonalHueTarget : this.tonalHue + Math.sign(delta) * step;
+      this.dirty = true;
+    }
     if (this.mix < 1) {
       this.mix = Math.min(1, this.mix + dt * this.mixSpeed);
       this.dirty = true;
@@ -286,10 +325,20 @@ export class PaletteBook {
       MAX_HUE_MODULATION,
       t >= 1 ? this.toPalette.hueModulation : Math.min(this.fromPalette.hueModulation, this.toPalette.hueModulation),
     );
+    // ADR-015 : l'harmonie et la modulation par element puisent dans la MEME
+    // enveloppe. Ce que l'accord consomme est retire au reste, de sorte que
+    // l'excursion totale d'un element reste bornee par `hueModulation`
+    // exactement comme avant ce chantier - l'invariant de §3.5 demeure
+    // STRUCTUREL. A decalage nul (aucun accord annonce), `perElement` vaut
+    // `modulation` et la teinte de base est inchangee : le rendu est alors
+    // rigoureusement identique a celui d'avant.
+    const shift = this.tonalHue;
+    const perElement = Math.max(0, modulation - Math.abs(shift));
     for (const role of PALETTE_ROLES) {
       const a = this.fromPalette.roles[role];
       const b = this.toPalette.roles[role];
-      const c = t >= 1 ? b : mixOklch(a, b, t);
+      const base = t >= 1 ? b : mixOklch(a, b, t);
+      const c = shift === 0 ? base : { l: base.l, c: base.c, h: base.h + shift };
       this.resolved.set(role, c);
       this.baseHex.set(role, oklchToHex(c));
 
@@ -300,7 +349,7 @@ export class PaletteBook {
       }
       for (let i = 0; i < MOD_STEPS; i++) {
         const amount = (i / (MOD_STEPS - 1)) * 2 - 1;
-        bucket[i] = oklchToHex({ l: c.l, c: c.c, h: c.h + amount * modulation });
+        bucket[i] = oklchToHex({ l: c.l, c: c.c, h: c.h + amount * perElement });
       }
     }
   }

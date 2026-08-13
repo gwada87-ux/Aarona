@@ -7802,3 +7802,90 @@ Aucun code modifié : `npm test` reste à 130 fichiers / 1239 tests verts
   l'œil sur la bascule du lot 3.
 - Si la mesure conclut à (c), la prochaine session utile est la **SESSION E**
   (visuels mélodie/accords, priorité n° 3), dont l'ADR devient l'**ADR-015**.
+
+---
+
+## 13 août 2026 — ADR-015 lot 1 : la couleur suit l'harmonie (cercle des quintes)
+
+Ouverture du chantier mélodie/accords, priorité n° 3 d'Aaron. ADR-015 écrit
+PUIS exécuté, conformément au mandat de la SESSION E.
+
+Nouveaux : `src/ui/live/util/tonalHue.ts` (pur), `tests/unit/live/tonalHue.test.ts`
+(15 tests). Édités : `TruthChannel` (payloads `chord`/`note`, anneau
+d'accords), `TruthDirector` (accord courant + centre tonal, installés à
+l'instant visuel), `render/Palette.ts` (décalage de teinte borné et glissé),
+`LiveVisualPanel` (câblage), `liveTruth.test.ts` (5 tests ajoutés, bloc
+additif — les tests d'ADR-012 ne sont pas touchés).
+
+### Le piège que la lecture du code a évité
+
+`render/Palette.ts` §3.5 interdit noir sur blanc « la rotation de teinte
+pilotée par l'index d'un élément ou par le temps parcourant le cercle
+chromatique — c'est la signature de l'amateurisme », et borne toute modulation
+temps réel à `hueModulation` (8 à 24° selon la palette). Un chantier « la
+couleur tourne avec la musique » passait donc à un cheveu de l'interdit.
+
+Deux décisions l'en sortent :
+
+1. **La teinte est fonction de l'HARMONIE, jamais de l'index ni de
+   l'horloge** — retirer l'audio supprime l'effet (critère §6.1).
+2. **La borne est tenue par PARTAGE DE BUDGET, pas par superposition.**
+   L'accord et la modulation par élément puisent dans la même enveloppe : ce
+   que l'accord consomme est retiré à `hexModulated`. L'excursion totale d'un
+   élément reste `≤ hueModulation`, exactement comme avant — l'invariant reste
+   STRUCTUREL, et un test le vérifie sur les 8 palettes. À décalage nul (aucun
+   accord annoncé), `perElement` vaut `modulation` et la teinte de base est
+   inchangée : le rendu est alors rigoureusement identique à celui d'avant.
+
+### Le cercle des quintes plutôt que `pitchClass / 12`
+
+Une correspondance linéaire rendrait Do et Si visuellement VOISINS alors
+qu'ils sont harmoniquement éloignés, et Do et Sol ÉLOIGNÉS alors qu'ils sont
+les plus proches parents qui soient. La distance en quintes, elle, est
+proportionnelle à l'écart perçu — et elle est mesurée depuis le CENTRE TONAL
+(le premier accord annoncé), si bien que le morceau se colore à la teinte de
+sa palette au repos et ne s'en écarte que lorsqu'il module. La discontinuité
+inévitable — comprimer un cercle de douze sur un arc borné en casse forcément
+la continuité quelque part — tombe sur le triton, c'est-à-dire l'accord le
+plus lointain : le saut y est musicalement juste.
+
+### Deux comportements que le banc a révélés (et que l'ADR décrivait)
+
+Le test de bout en bout a d'abord échoué, et c'est le TEST qui avait tort —
+deux fois :
+
+- à l'activation de la vérité, les accords annoncés pendant l'acquisition
+  s'installent d'un coup ; trois accords périmés en une trame ne laissent
+  qu'un seul état final, le dernier. Le centre tonal, lui, reste bien le
+  PREMIER accord annoncé ;
+- ce premier install tombe donc à l'instant de la convergence, pas à celui de
+  son accord. Le contrôle temporel ne vaut qu'en régime établi — où il tient
+  à moins de 50 ms de la convention visuelle `tHost + offset − syncOffset`,
+  la même que les frappes du lot 2 d'ADR-012.
+
+### Portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 131 fichiers, 1259 tests verts (1239 -> 1259, +20)
+npm run test:arch   -> 1 test vert
+npm run build       -> 597,44 kB (gzip 171,69 kB), 2,66 s
+```
+
+Les tests `liveTruth` d'ADR-012 restent verts **sans modification** (règle 3
+de `docs/20`) : les cinq tests ajoutés le sont dans un bloc `describe` séparé.
+
+### Ce qui reste — et pourquoi le chantier n'est pas encore VISIBLE
+
+- **Le lot 1 est INERTE tant que Beat Studio n'émet pas d'accords** : aucun
+  message `chord` n'arrive, le décalage reste nul, le rendu est identique à
+  avant. Même discipline que le lot 1 d'ADR-012, qui a attendu son émetteur.
+  **C'est le lot 2 (émetteur `_PMDI_LIVE_NOTES_V1` côté alpha20) qui rendra
+  l'effet visible** — et c'est lui qu'il faut faire avant tout verdict à
+  l'œil.
+- Le moteur FICHIER (donc le mode direct MANUEL) ne reçoit pas l'effet : ses
+  couches capturent la palette dans `init()`, et la changer par mesure
+  recréerait tous les sprites en pleine boucle de rendu. Raison mesurée,
+  consignée dans l'ADR-015, à rouvrir seulement si le verdict le justifie.
+- Une palette monochrome (`graphite`, 8°) ne montrera qu'un effet ténu :
+  c'est voulu, la palette reste le choix artistique dominant.

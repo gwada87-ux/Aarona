@@ -22,6 +22,8 @@ import { BeatClock } from '../../../src/ui/live/audio/BeatClock';
 import { TruthChannel } from '../../../src/ui/live/truth/TruthChannel';
 import { TruthDirector } from '../../../src/ui/live/truth/TruthDirector';
 import { maxPhaseJumpMsAfter, phaseErrorRmsMs, record, sampleAt } from './beatMetrics';
+import { PALETTES, PaletteBook } from '../../../src/ui/live/render/Palette';
+import { CHORD_HUE_SHARE, chordHueOffsetDeg } from '../../../src/ui/live/util/tonalHue';
 
 /** Offset vrai entre horloge locale et horloge hote : tLocal - tHost. */
 const OFFSET_SEC = 12.345;
@@ -345,5 +347,128 @@ describe('ADR-012 - priorite operateur > hote > PLL', () => {
     clock.clearTruth();
     expect(clock.truthActive).toBe(false);
     expect(Math.abs(clock.bpm - 128), 'periode conservee au repli').toBeLessThan(0.01);
+  });
+});
+
+describe('ADR-015 lot 1 - accords et notes sur le canal de verite', () => {
+  const config = makeConfig().truth;
+
+  it('accepte un accord valide, REJETTE une fondamentale hors 0..11', () => {
+    const c = new TruthChannel(config);
+    const chord = (root: unknown): string =>
+      JSON.stringify({ pmdiLive: '1.0', tHost: 1, payload: { kind: 'chord', root, quality: 'min7', dur: 2 } });
+    expect(c.ingest(1, chord(9))).toBe('accepted');
+    expect(c.chordSeq).toBe(1);
+    expect(c.chordRootAt(0)).toBe(9);
+    // Une fondamentale fausse n'est pas une donnee INCONNUE : la tolerance de
+    // la regle 3 ne la couvre pas, elle doit etre rejetee.
+    expect(c.ingest(1, chord(12))).toBe('rejected');
+    expect(c.ingest(1, chord(-1))).toBe('rejected');
+    expect(c.ingest(1, chord(1.5))).toBe('rejected');
+    expect(c.ingest(1, chord('do'))).toBe('rejected');
+    expect(c.ingest(1, chord(undefined))).toBe('rejected');
+    expect(c.chordSeq, 'aucun accord fautif n\'entre dans le ring').toBe(1);
+  });
+
+  it('accepte une note valide (consommee au lot 3), rejette une note sans hauteur', () => {
+    const c = new TruthChannel(config);
+    const note = (midi: unknown): string =>
+      JSON.stringify({ pmdiLive: '1.0', tHost: 1, payload: { kind: 'note', midi, dur: 0.5, velocity: 0.8, track: 'piano' } });
+    expect(c.ingest(1, note(60))).toBe('accepted');
+    expect(c.ingest(1, note(60.5)), 'hauteur decimale autorisee (glissandos, doc 12)').toBe('accepted');
+    expect(c.ingest(1, note(Number.NaN))).toBe('rejected');
+    expect(c.ingest(1, note('do'))).toBe('rejected');
+    // Une note n'est PAS un accord : elle n'entre pas dans le ring d'accords.
+    expect(c.chordSeq).toBe(0);
+  });
+
+  it('le ring d\'accords se vide au reset', () => {
+    const c = new TruthChannel(config);
+    c.ingest(1, JSON.stringify({ pmdiLive: '1.0', tHost: 1, payload: { kind: 'chord', root: 4 } }));
+    expect(c.chordSeq).toBe(1);
+    c.reset();
+    expect(c.chordSeq).toBe(0);
+  });
+
+  it('bout en bout : le centre tonal est le PREMIER accord, la couleur suit les suivants', () => {
+    // Hote synthetique d'ADR-012, augmente d'annonces d'accords : la
+    // progression la-min -> fa -> do -> sol, une par mesure, annoncee avec le
+    // meme lookahead que les frappes.
+    const signal = clickTrack(BPM, 30, { jitterPct: 0 });
+    const PROGRESSION = [9, 5, 0, 7]; // la, fa, do, sol
+    const BAR_SEC = (60 / BPM) * 4;
+    const chordMsgs: HostMessage[] = [];
+    const chordSoundsAt: number[] = [];
+    for (let bar = 0; bar * BAR_SEC < signal.durationSec; bar++) {
+      const tLocalSounds = 0.3 + bar * BAR_SEC;
+      chordSoundsAt.push(tLocalSounds);
+      chordMsgs.push({
+        tArr: tLocalSounds - LOOKAHEAD_SEC,
+        raw: JSON.stringify({
+          pmdiLive: '1.0',
+          tHost: tLocalSounds - OFFSET_SEC,
+          payload: { kind: 'chord', root: PROGRESSION[bar % PROGRESSION.length], quality: 'maj', dur: BAR_SEC },
+        }),
+      });
+    }
+
+    const engine = createEngine(signal);
+    const truth = new TruthDirector(makeConfig().truth);
+    const messages = [...buildHostMessages(signal), ...chordMsgs].sort((a, b) => a.tArr - b.tArr);
+    let msgIndex = 0;
+    const installs: { t: number; root: number }[] = [];
+    let prevRoot = -1;
+
+    record(engine, signal, {
+      onFrame: (ctx) => {
+        while (msgIndex < messages.length && messages[msgIndex]!.tArr <= ctx.tAudio) {
+          truth.ingest(ctx.tAudio, messages[msgIndex]!.raw);
+          msgIndex++;
+        }
+        truth.step(ctx.tAudio, ctx.engine);
+        if (truth.chordRoot !== prevRoot) {
+          prevRoot = truth.chordRoot;
+          if (truth.chordRoot >= 0) installs.push({ t: ctx.tAudio, root: truth.chordRoot });
+        }
+      },
+    });
+
+    expect(installs.length, 'des accords ont ete installes').toBeGreaterThan(4);
+    // Le centre tonal est le premier accord ANNONCE (la mineur), pas un do
+    // arbitraire — c'est ce qui met la palette au repos sur sa propre teinte.
+    expect(truth.tonalCenter).toBe(PROGRESSION[0]);
+    // Il n'est PAS forcement le premier accord OBSERVE : la verite ne prend
+    // autorite qu'apres convergence de l'aligneur, et les accords annonces
+    // pendant l'acquisition s'installent alors d'un coup — trois accords
+    // perimes en une trame ne laissent qu'un etat final, le dernier
+    // (comportement documente par l'ADR-015, verifie ici).
+    expect(PROGRESSION).toContain(installs[0]!.root);
+    // La progression est suivie dans l'ordre, sans accord saute ni double.
+    for (let i = 0; i < installs.length; i++) {
+      const attendu = PROGRESSION[(PROGRESSION.indexOf(installs[0]!.root) + i) % PROGRESSION.length];
+      expect(installs[i]!.root, `accord ${i}`).toBe(attendu);
+    }
+    // Installation a l'instant VISUEL : meme convention que les frappes du
+    // lot 2 d'ADR-012 (tHost + offset - syncOffset), a une trame pres.
+    // Le PREMIER install est exclu : c'est la rafale de rattrapage a
+    // l'activation, qui tombe a l'instant de la convergence et non a celui de
+    // l'accord. Tous les suivants, en regime etabli, doivent viser juste.
+    const syncSec = engine.beat.sync.totalMs / 1000;
+    for (const inst of installs.slice(1)) {
+      const attenduLocal = chordSoundsAt.reduce((best, t) => (Math.abs(t - syncSec - inst.t) < Math.abs(best - syncSec - inst.t) ? t : best));
+      expect(Math.abs(inst.t - (attenduLocal - syncSec)), `accord installe a t=${inst.t.toFixed(3)}`).toBeLessThan(0.05);
+    }
+  });
+
+  it('la teinte revient au repos quand la verite se retire, le centre tonal survit', () => {
+    const book = new PaletteBook(0);
+    const centre = 0;
+    book.setTonalHueTarget(chordHueOffsetDeg(6, centre, PALETTES[0]!.hueModulation * CHORD_HUE_SHARE));
+    book.update(1000);
+    expect(Math.abs(book.tonalHueDeg)).toBeGreaterThan(0);
+    // Canal perdu : `TruthDirector` remet `chordRoot` a -1, l'appelant vise 0.
+    book.setTonalHueTarget(0);
+    book.update(1000);
+    expect(book.tonalHueDeg).toBe(0);
   });
 });

@@ -33,6 +33,8 @@ const FIREABLE: Readonly<Record<string, OnsetKind>> = Object.freeze({
 const KIND_CODE: Readonly<Record<OnsetKind, number>> = Object.freeze({ kick: 0, snare: 1, hat: 2 });
 const CODE_KIND: readonly OnsetKind[] = Object.freeze(['kick', 'snare', 'hat']);
 
+import { isPitchClass } from '../util/tonalHue';
+
 interface ParsedMessage {
   readonly pmdiLive: string;
   readonly tHost: number;
@@ -48,6 +50,15 @@ export class TruthChannel {
   private readonly eventKind: Uint8Array;
   private readonly eventVel: Float32Array;
   private eventSeqW = 0;
+  /**
+   * File des ACCORDS annonces (ADR-015, lot 1) - deux rings paralleles, meme
+   * discipline que les evenements. Separee de la file d'evenements a dessein :
+   * un accord n'est pas une frappe, il ne se « tire » pas, il s'INSTALLE
+   * jusqu'au suivant. Les melanger obligerait chaque lecteur a filtrer.
+   */
+  private readonly chordT: Float64Array;
+  private readonly chordRoot: Uint8Array;
+  private chordSeqW = 0;
   /** Ecarts arrivee locale - tHost, pour l'amorce grossiere de l'aligneur. */
   private readonly arrivals: Float64Array;
   private arrivalCount = 0;
@@ -76,6 +87,8 @@ export class TruthChannel {
     this.eventT = new Float64Array(config.eventRingSize);
     this.eventKind = new Uint8Array(config.eventRingSize);
     this.eventVel = new Float32Array(config.eventRingSize);
+    this.chordT = new Float64Array(config.eventRingSize);
+    this.chordRoot = new Uint8Array(config.eventRingSize);
   }
 
   /**
@@ -131,6 +144,37 @@ export class TruthChannel {
         }
         this.rejected++;
         return 'rejected';
+      }
+      case 'chord': {
+        // ADR-015 : seule la FONDAMENTALE est consommee au lot 1 ; `quality` et
+        // `dur` voyagent sans etre lus, exactement comme doc 12 le prevoit
+        // (un champ non consomme n'est pas une erreur). Une fondamentale hors
+        // 0..11 fait REJETER le message : c'est une donnee fausse, pas une
+        // donnee inconnue - la tolerance de la regle 3 ne la couvre pas.
+        const root = p['root'];
+        if (!isPitchClass(root)) {
+          this.rejected++;
+          return 'rejected';
+        }
+        const i = this.chordSeqW % this.chordT.length;
+        this.chordT[i] = msg.tHost;
+        this.chordRoot[i] = root;
+        this.chordSeqW++;
+        this.accepted++;
+        return 'accepted';
+      }
+      case 'note': {
+        // Transporte et VALIDE des maintenant, consomme au lot 3 (la scene
+        // vitrine). L'accepter ici plutot que de le laisser tomber dans
+        // `default` rend le compteur honnete : le canal ne « ignore » pas des
+        // notes, il les recoit.
+        const midi = p['midi'];
+        if (typeof midi !== 'number' || !Number.isFinite(midi)) {
+          this.rejected++;
+          return 'rejected';
+        }
+        this.accepted++;
+        return 'accepted';
       }
       case 'heartbeat':
         this.accepted++;
@@ -192,6 +236,25 @@ export class TruthChannel {
     return this.eventVel[seq % this.eventVel.length]!;
   }
 
+  /** Sequence d'ecriture de la file d'accords (ADR-015). Le lecteur garde son propre curseur. */
+  get chordSeq(): number {
+    return this.chordSeqW;
+  }
+
+  /** Plus ancienne sequence d'accord encore presente dans le ring. */
+  get chordSeqFloor(): number {
+    return Math.max(0, this.chordSeqW - this.chordT.length);
+  }
+
+  chordHostTimeAt(seq: number): number {
+    return this.chordT[seq % this.chordT.length]!;
+  }
+
+  /** Fondamentale (classe de hauteur 0..11) de l'accord de sequence `seq`. */
+  chordRootAt(seq: number): number {
+    return this.chordRoot[seq % this.chordRoot.length]!;
+  }
+
   get arrivalSamples(): number {
     return this.arrivalCount;
   }
@@ -214,6 +277,7 @@ export class TruthChannel {
   reset(): void {
     this.kickSeq = 0;
     this.eventSeqW = 0;
+    this.chordSeqW = 0;
     this.arrivalCount = 0;
     this.arrivalIndex = 0;
     this.lastMessageLocal = Number.NEGATIVE_INFINITY;
