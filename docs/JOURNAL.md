@@ -8642,3 +8642,75 @@ dans `src/ui/live/NOTES.md`, § « LIMITE CONNUE », c'est-à-dire à côté des
 que quelqu'un voudra un jour retoucher. À rouvrir sur signalement réel.
 
 Aucun code modifié. Sonde supprimée après lecture.
+
+## 13/08/2026 — ADR-014 tranché par la mesure : pas de portage GPU du live
+
+La lecture du HUD d'Aaron ne servait pas qu'à la question des performances : elle
+était le **critère de bascule pré-accepté** de l'ADR-014, écrit en SESSION D et
+laissé en attente depuis. Le critère disait, mot pour mot : « stabilisé à 1 ou 0
+⇒ (a) s'ouvre ; à 2 ou 3 ⇒ le portage n'a pas d'objet ».
+
+Relevé : `qualite 3/3`, aucun `DEGRADE`, `flashs limites 0`. **Option (c), pas de
+portage.** Périmètre évité : ≈ 3 410 lignes, 130 tests live, 7 capacités à
+ajouter à `Renderer` dont 4 pour la seule `type-slam`.
+
+Deux réserves consignées dans l'ADR plutôt que passées sous silence :
+
+- « 3/3 » veut dire « tient la cadence qu'il a lui-même apprise », pas « tient
+  60 fps ». Le `ref 33.3 ms` relevé est une cadence de 30 fps, et les 50,0 puis
+  33,3 ms sont des multiples exacts d'une trame de 60 Hz — signature d'un vsync
+  qui saute des images, pas d'un rendu coûteux.
+- Cette réserve ne rendrait le critère discutable que si l'on cherchait à servir
+  les machines faibles, chantier qu'Aaron a écarté le même jour. Le critère est
+  donc appliqué tel qu'il a été écrit, sur la machine où il était prévu de le lire.
+
+**Fausse alerte levée au passage.** J'avais signalé `evts 46/-67` comme un défaut
+possible du lot notes/accords — plus de la moitié des événements jetés. Vérifié
+dans le code : `skipDue` vaut `!wasActive`, donc la rafale n'est sautée qu'à la
+PREMIÈRE trame après convergence de l'aligneur. Les 67 sont l'arriéré de la phase
+d'acquisition, jeté d'un coup et par conception (`TruthDirector.collectDueNotes` :
+« une note qu'on verrait apparaître une seconde après l'avoir entendue serait pire
+qu'absente »). Le ring fait 64 entrées, donc 67 > 64 a aussi fait tourner le
+tampon — même cause. Cohérent avec les deux captures : `evts 0` en acquisition,
+`evts 46/-67` une fois ACTIF. Aucun défaut. Le compteur étant cumulatif, la rafale
+reste affichée pour toujours ; le discriminant, si le doute revenait, est de
+regarder si le nombre CONTINUE de monter.
+
+Portique : typecheck 0, `test:arch` vert, banc d'accords TOUS JUSTES (15).
+Aucun code modifié — documentation seule.
+
+## 13/08/2026 — ADR-014 tranché par la mesure : pas de portage GPU du live
+
+La lecture du HUD d'Aaron ne servait pas qu'à la question des performances : elle
+était le **critère de bascule pré-accepté** de l'ADR-014, écrit en SESSION D et
+laissé en attente depuis. Le critère disait, mot pour mot : « stabilisé à 1 ou 0
+⇒ (a) s'ouvre ; à 2 ou 3 ⇒ le portage n'a pas d'objet ».
+
+Relevé : `qualite 3/3`, aucun `DEGRADE`, `flashs limites 0`. **Option (c), pas de
+portage.** Périmètre évité : ≈ 3 410 lignes, 130 tests live, 7 capacités à
+ajouter à `Renderer` dont 4 pour la seule `type-slam`.
+
+Deux réserves consignées dans l'ADR plutôt que passées sous silence :
+
+- « 3/3 » veut dire « tient la cadence qu'il a lui-même apprise », pas « tient
+  60 fps ». Le `ref 33.3 ms` relevé est une cadence de 30 fps, et les 50,0 puis
+  33,3 ms sont des multiples exacts d'une trame de 60 Hz — signature d'un vsync
+  qui saute des images, pas d'un rendu coûteux.
+- Cette réserve ne rendrait le critère discutable que si l'on cherchait à servir
+  les machines faibles, chantier qu'Aaron a écarté le même jour. Le critère est
+  donc appliqué tel qu'il a été écrit, sur la machine où il était prévu de le lire.
+
+**Fausse alerte levée au passage.** J'avais signalé `evts 46/-67` comme un défaut
+possible du lot notes/accords — plus de la moitié des événements jetés. Vérifié
+dans le code : `skipDue` vaut `!wasActive`, donc la rafale n'est sautée qu'à la
+PREMIÈRE trame après convergence de l'aligneur. Les 67 sont l'arriéré de la phase
+d'acquisition, jeté d'un coup et par conception (`TruthDirector.collectDueNotes` :
+« une note qu'on verrait apparaître une seconde après l'avoir entendue serait pire
+qu'absente »). Le ring fait 64 entrées, donc 67 > 64 a aussi fait tourner le
+tampon — même cause. Cohérent avec les deux captures : `evts 0` en acquisition,
+`evts 46/-67` une fois ACTIF. Aucun défaut. Le compteur étant cumulatif, la rafale
+reste affichée pour toujours ; le discriminant, si le doute revenait, est de
+regarder si le nombre CONTINUE de monter.
+
+Portique : typecheck 0, `test:arch` vert, banc d'accords TOUS JUSTES (15).
+Aucun code modifié — documentation seule.

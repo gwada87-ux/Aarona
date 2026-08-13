@@ -105,14 +105,20 @@ abstraite : c'est une réécriture, pas un backend — l'ADR doit comparer
 les scènes live par l'interface `Renderer`, (c) ne rien faire (le mode
 direct manuel profite déjà du GPU via les styles). Décision d'Aaron sur ADR.
 
-**ÉTAT : ADR-014 ÉCRIT le 13 août 2026, décision en attente.** Périmètre
-mesuré (≈ 3 410 lignes, 130 tests live), écart d'interface relevé scène par
-scène (7 capacités absentes de `Renderer`, dont 4 pour la seule `type-slam`),
-recommandation (c) assortie d'un **critère de bascule chiffré** vers (a).
-Aucune ligne de code écrite, conformément au mandat ci-dessus. **La décision
-tient à UNE mesure de dix secondes** : en session directe réelle, le niveau
-`FrameBudget` affiché par le HUD (`D`). Stabilisé à 1 ou 0 ⇒ (a) s'ouvre ;
-à 2 ou 3 ⇒ le portage n'a pas d'objet, l'effort va en SESSION E.
+**ÉTAT : CLOS le 13 août 2026 — option (c), pas de portage.** L'ADR-014 avait
+été écrit sans une ligne de code, conformément au mandat, avec un **critère de
+bascule chiffré** : en session directe réelle, le niveau `FrameBudget` du HUD
+(`D`) stabilisé à 1 ou 0 ⇒ (a) s'ouvre ; à 2 ou 3 ⇒ le portage n'a pas d'objet.
+
+Aaron a relevé la mesure le jour même : **`qualite 3/3`**, aucun `DEGRADE`,
+`flashs limites 0`. Le critère, pré-accepté, tranche pour (c). Périmètre évité :
+≈ 3 410 lignes, 130 tests live, 7 capacités à ajouter à `Renderer`.
+
+Réserve consignée dans l'ADR et dans `src/ui/live/NOTES.md` : « 3/3 » signifie
+« tient la cadence apprise », pas « tient 60 fps » — la référence de
+`FrameBudget` est calibrée par machine et n'a pas de plafond. Le chantier
+correspondant a été écarté par Aaron le même jour. À rouvrir avant ce portage si
+des utilisateurs réels signalent un rendu live lent.
 
 ## SESSION E — Visuels mélodie/accords (priorité n°3)
 

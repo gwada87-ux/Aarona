@@ -391,10 +391,36 @@ la sonde passe par un canvas 2D intermédiaire, méthode à consigner au premier
 
 ## ADR-014 — Portage GPU du pipeline live : options, coûts, et critère de bascule
 
-**Statut : DÉCISION EN ATTENTE DU MANDAT D'AARON.** Cet ADR est le livrable du lot 4 d'ADR-013,
-dont `docs/20` (SESSION D) fixe le mandat mot pour mot : « écris l'ADR du portage GPU du pipeline
-live (6 scènes), options et coûts, puis attends ma validation avant toute ligne de code ». Aucune
-ligne du pipeline live n'a été touchée.
+**Statut : TRANCHÉ le 13/08/2026 — option (c), PAS de portage. Le critère chiffré ci-dessous a
+été mesuré et il ferme la question.** Aucune ligne du pipeline live n'a été touchée, ni ne le sera
+au titre de cet ADR.
+
+> Mesure décisive — Aaron, session directe réelle sur `Beat_Studio_CDJ_MOBILE_alpha25.html`,
+> HUD ouvert par `D`, scène `grid-horizon`, canal de vérité ACTIF :
+> `rendu  qualite 3/3   ref 33.3 ms   passes 6.36/10   bitmap 1426x802   14.5 Mo`
+> et `perf  33.3 ms/trame   flashs limites 0`.
+>
+> Le critère disait : « stabilisé à 1 ou 0 ⇒ (a) s'ouvre ; à 2 ou 3 ⇒ le portage n'a pas d'objet ».
+> Relevé **3/3**, aucun `DEGRADE`, aucun flash limité. **Le portage n'a pas d'objet.**
+
+**Deux réserves consignées, qui ne changent pas la décision.**
+
+1. Le niveau 3 tenu ne prouve PAS une marge de calcul : `FrameBudget` calibre sa référence sur la
+   machine, donc « 3/3 » signifie « tient la cadence qu'il a lui-même apprise », pas « tient
+   60 fps ». Le `ref 33.3 ms` relevé est d'ailleurs une cadence de 30 fps, et les valeurs 50,0 puis
+   33,3 ms sont des multiples exacts d'une trame de 60 Hz — signature d'un vsync qui saute des
+   images, pas d'un rendu coûteux. Voir `src/ui/live/NOTES.md`, § « LIMITE CONNUE ».
+2. Cette réserve rendrait le critère discutable si l'on cherchait à servir les machines faibles.
+   Aaron a explicitement écarté ce chantier le même jour (même section de NOTES). Le critère est
+   donc appliqué tel qu'il a été écrit et pré-accepté, sur la machine où il a été prévu de le lire.
+
+Si un jour des utilisateurs réels signalent un rendu live lent, c'est la LIMITE CONNUE qu'il faudra
+rouvrir en premier — pas ce portage, dont le coût (≈ 3 410 lignes, 7 capacités absentes de
+`Renderer`) reste sans rapport avec le gain attendu.
+
+**Mandat d'origine.** `docs/20` (SESSION D) le fixait mot pour mot : « écris l'ADR du portage GPU du
+pipeline live (6 scènes), options et coûts, puis attends ma validation avant toute ligne de code ».
+Il a été tenu.
 
 **Contexte.** Les lots 1 à 3 d'ADR-013 ont donné au moteur FICHIER un backend WebGL2, devenu le
 défaut. Le mode live, lui, a son propre pipeline de rendu, antérieur et indépendant :
