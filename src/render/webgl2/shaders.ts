@@ -101,14 +101,23 @@ precision highp float;
 uniform vec2 uCenter;    // px
 uniform float uR0;
 uniform float uR1;
-uniform vec4 uInner;     // NON prémultipliée
-uniform vec4 uOuter;     // NON prémultipliée
+uniform vec4 uInner;     // NON prémultipliée, sRGB
+uniform vec4 uOuter;     // NON prémultipliée, sRGB
+uniform float uLinearize; // 1.0 en HDR : sortie linéaire (l'interpolation reste en sRGB, comme Canvas)
 in vec2 vLocal;
 out vec4 outColor;
+${'' /* décodage sRGB exact — partagé par copie, GLSL n'a pas d'import */}
+vec3 srgbToLinear3(vec3 c) {
+  bvec3 lo = lessThanEqual(c, vec3(0.04045));
+  vec3 a = c / 12.92;
+  vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
+  return mix(b, a, vec3(lo));
+}
 void main() {
   float t = uR1 > uR0 ? clamp((length(vLocal - uCenter) - uR0) / (uR1 - uR0), 0.0, 1.0) : 1.0;
   vec4 c = mix(uInner, uOuter, t);
-  outColor = vec4(c.rgb * c.a, c.a);
+  vec3 rgb = uLinearize > 0.5 ? srgbToLinear3(c.rgb) : c.rgb;
+  outColor = vec4(rgb * c.a, c.a);
 }
 `;
 
@@ -132,11 +141,23 @@ void main() {
 export const SPRITE_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uTex;
+uniform float uLinearize; // 1.0 en HDR : décodage sRGB APRÈS filtrage (parité avec le drawImage Canvas, qui filtre en sRGB)
 in vec2 vUV;
 in float vAlpha;
 out vec4 outColor;
+vec3 srgbToLinear3(vec3 c) {
+  bvec3 lo = lessThanEqual(c, vec3(0.04045));
+  vec3 a = c / 12.92;
+  vec3 b = pow((c + 0.055) / 1.055, vec3(2.4));
+  return mix(b, a, vec3(lo));
+}
 void main() {
-  outColor = texture(uTex, vUV) * vAlpha;
+  vec4 t = texture(uTex, vUV);
+  if (uLinearize > 0.5) {
+    vec3 straight = t.a > 0.0 ? t.rgb / t.a : vec3(0.0);
+    t = vec4(srgbToLinear3(straight) * t.a, t.a);
+  }
+  outColor = t * vAlpha;
 }
 `;
 
@@ -168,7 +189,12 @@ uniform float uAlpha; // équivalent globalAlpha
 in vec2 vUV;
 out vec4 outColor;
 void main() {
-  outColor = texture(uTex, vUV) * vec4(uTint.rgb, 1.0) * uAlpha;
+  vec4 c = texture(uTex, vUV) * vec4(uTint.rgb, 1.0) * uAlpha;
+  // L'alpha accumulé d'un buffer flottant peut dépasser 1 (fusions
+  // additives) ; recopié tel quel puis composé en normal, il donnerait un
+  // poids NÉGATIF au fond (ONE_MINUS_SRC_ALPHA). Borné ici — sans effet en
+  // SDR, où l'alpha est déjà écrêté à 1 par le format.
+  outColor = vec4(c.rgb, min(c.a, 1.0));
 }
 `;
 
@@ -189,10 +215,17 @@ out vec4 outColor;
 void main() {
   vec4 S = texture(uSrc, vUV);
   vec4 D = texture(uDst, vUV);
-  float as = S.a;
-  float ab = D.a;
+  // Alpha accumulé borné (buffers flottants, voir TONEMAP_FS) : au-delà de
+  // 1, la déprémultiplication sous-estimerait les couleurs droites.
+  float as = min(S.a, 1.0);
+  float ab = min(D.a, 1.0);
   vec3 cs = as > 0.0 ? S.rgb / as : vec3(0.0);
   vec3 cb = ab > 0.0 ? D.rgb / ab : vec3(0.0);
+  // Les formules de fusion W3C sont définies sur [0,1] : en HDR, les valeurs
+  // linéaires accumulées peuvent dépasser 1 — bornées ICI seulement (le
+  // source-over du bas reste non borné). Sans effet en SDR.
+  cb = clamp(cb, 0.0, 1.0);
+  cs = clamp(cs, 0.0, 1.0);
   vec3 B;
   if (uMode == 0) {
     B = mix(2.0 * cb * cs, 1.0 - 2.0 * (1.0 - cb) * (1.0 - cs), step(0.5, cb));
@@ -243,6 +276,108 @@ void main() {
  * MAX_TAPS couvre, le filtrage linéaire lissant les interstices.
  */
 export const BLUR_MAX_TAPS = 24;
+
+/**
+ * Bright-pass du bloom HDR (ADR-013, lot 2) : seuil PHYSIQUE sur l'énergie
+ * linéaire — l'accumulation additive au-delà de 1 existe réellement en 16F
+ * au lieu d'être écrêtée avant le bloom. Seuil doux proportionnel à l'excès,
+ * même esprit que `extractHighlights` (bloomMath) dont le seuil sRGB 200/255
+ * est converti en linéaire (`hdrMath.BLOOM_THRESHOLD_LINEAR`).
+ */
+export const BLOOM_BRIGHTPASS_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform float uThreshold; // linéaire
+in vec2 vUV;
+out vec4 outColor;
+void main() {
+  // Radiance directe (scène opaque, voir TONEMAP_FS) ; alpha de sortie NUL :
+  // la composition additive du bloom ne doit ajouter que de la LUMIÈRE,
+  // jamais gonfler l'alpha accumulé de la scène.
+  vec3 c = texture(uTex, vUV).rgb;
+  float energy = max(c.r, max(c.g, c.b));
+  float factor = energy > uThreshold ? (energy - uThreshold) / max(energy, 1e-6) : 0.0;
+  outColor = vec4(c * factor, 0.0);
+}
+`;
+
+/**
+ * Tone mapping filmique (ADR-013, lot 2) : scène 16F LINÉAIRE -> image
+ * d'affichage sRGB. Les deux courbes candidates de l'ADR sont embarquées et
+ * commutées par uniforme (uCurve 0 = ACES Narkowicz, 1 = AgX minimal) — le
+ * choix par défaut est tranché À LA MESURE (voir hdrMath.ts et le JOURNAL).
+ * Miroir TypeScript exact : hdrMath.ts.
+ */
+export const TONEMAP_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform int uCurve;      // 0 = ACES, 1 = AgX, 2 = pulsar (épaule seule — hdrMath.pulsarToneMap)
+uniform float uExposure;
+in vec2 vUV;
+out vec4 outColor;
+
+vec3 linearToSrgb3(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  bvec3 lo = lessThanEqual(c, vec3(0.0031308));
+  vec3 a = c * 12.92;
+  vec3 b = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
+  return mix(b, a, vec3(lo));
+}
+
+vec3 aces(vec3 x) {
+  const float a = 2.51; const float b = 0.03; const float c = 2.43; const float d = 0.59; const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+const mat3 AGX_MAT = mat3(
+  0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+  0.0784335999999992, 0.878468636469772, 0.0784336,
+  0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+const mat3 AGX_MAT_INV = mat3(
+  1.19687900512017, -0.0528968517574562, -0.0529716355144438,
+  -0.0980208811401368, 1.15190312990417, -0.0980434501171241,
+  -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+const float AGX_MIN_EV = -12.47393;
+const float AGX_MAX_EV = 4.026069;
+
+vec3 agxContrast3(vec3 x) {
+  vec3 x2 = x * x;
+  vec3 x4 = x2 * x2;
+  return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+}
+
+vec3 agx(vec3 v) {
+  v = AGX_MAT * max(v, vec3(1e-10));
+  v = clamp(log2(v), AGX_MIN_EV, AGX_MAX_EV);
+  v = (v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
+  v = agxContrast3(v);
+  v = AGX_MAT_INV * v;
+  // EOTF de sortie de l'ajustement minimal (pow 2,2) : retour au linéaire,
+  // pour encoder en sRGB EXACT ensuite — même convention de sortie qu'ACES.
+  return pow(clamp(v, 0.0, 1.0), vec3(2.2));
+}
+
+const float PULSAR_PIVOT = 0.8;
+
+// Épaule seule : identité sous le pivot (le contenu SDR traverse intact),
+// compression exponentielle douce au-dessus — hdrMath.pulsarToneMap.
+vec3 pulsarShoulder(vec3 x) {
+  vec3 over = max(x - PULSAR_PIVOT, vec3(0.0));
+  vec3 shoulder = PULSAR_PIVOT + (1.0 - PULSAR_PIVOT) * (1.0 - exp(-over / (1.0 - PULSAR_PIVOT)));
+  return mix(max(x, vec3(0.0)), shoulder, step(PULSAR_PIVOT, x));
+}
+
+void main() {
+  // PAS de déprémultiplication : la scène est OPAQUE par construction (le
+  // clear() du style pose a = 1), donc c.rgb EST la radiance finale. L'alpha
+  // du buffer flottant, lui, ACCUMULE au-delà de 1 sous les fusions
+  // additives — diviser par lui assombrissait toute l'image (mesuré :
+  // radiance ÷1,55 à cause du seul bloom, sonde du lot 2).
+  vec3 straight = texture(uTex, vUV).rgb * uExposure;
+  vec3 mapped = uCurve == 0 ? aces(straight) : uCurve == 1 ? agx(straight) : pulsarShoulder(straight);
+  outColor = vec4(linearToSrgb3(mapped), 1.0);
+}
+`;
 
 export const BLUR_FS = `#version 300 es
 precision highp float;

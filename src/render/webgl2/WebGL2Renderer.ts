@@ -6,8 +6,19 @@ import { ABERRATION_TINT_ALPHA, computeAberrationOffsetPx } from '../canvas2d/ch
 import { buildStrokeStrip, strokeStripCapacity } from './strokeGeometry';
 import { triangleIndexCapacity, triangulatePolygon } from './fillGeometry';
 import {
+  BLOOM_INTENSITY,
+  BLOOM_LEVEL_SIGMA,
+  BLOOM_THRESHOLD_LINEAR,
+  DEFAULT_TONE_MAP,
+  HDR_EXPOSURE,
+  bloomLevelCount,
+  srgbToLinear,
+  type ToneMapCurve,
+} from './hdrMath';
+import {
   BLIT_FS,
   BLIT_VS,
+  BLOOM_BRIGHTPASS_FS,
   BLOOM_EXTRACT_FS,
   BLUR_FS,
   BLUR_MAX_TAPS,
@@ -21,6 +32,7 @@ import {
   PRIM_VS,
   SPRITE_FS,
   SPRITE_VS,
+  TONEMAP_FS,
 } from './shaders';
 
 /**
@@ -119,6 +131,23 @@ export class WebGL2Renderer implements Renderer {
   private readonly progLayerComposite: ProgramInfo;
   private readonly progBloomExtract: ProgramInfo;
   private readonly progBlur: ProgramInfo;
+  private readonly progBrightpass: ProgramInfo;
+  private readonly progTonemap: ProgramInfo;
+
+  /**
+   * Pipeline HDR (ADR-013, lot 2) : composition en RGBA16F LINÉAIRE, bloom à
+   * seuil physique par chaîne MIP, tone mapping filmique vers une texture
+   * d'affichage sRGB. Actif quand `EXT_color_buffer_float` est disponible
+   * (rendu vers flottant) ; sinon repli SDR = comportement exact du lot 1 —
+   * une capacité absente n'arrête jamais le rendu (même esprit que la Loi 3).
+   */
+  private readonly hdr: boolean;
+  /** 0 = ACES, 1 = AgX, 2 = pulsar (uniform `uCurve` du shader tonemap). */
+  private readonly toneMapCurve: 0 | 1 | 2;
+  /** Exposition pré-courbe (hdrMath.HDR_EXPOSURE par défaut — sert à la comparaison des courbes). */
+  private readonly exposure: number;
+  /** Échantillons MSAA disponibles pour le format de scène courant (0 = pas de MSAA). */
+  private readonly msaaSamples: number;
 
   private readonly vaoQuad: WebGLVertexArrayObject;
   private readonly vaoPath: WebGLVertexArrayObject;
@@ -138,6 +167,10 @@ export class WebGL2Renderer implements Renderer {
   private bloomExtract: TargetTexture | null = null;
   private bloomBlur: TargetTexture | null = null;
   private aberrationScratch: TargetTexture | null = null;
+  /** Chaîne MIP du bloom HDR — paires (niveau, tampon de flou), moitié de résolution à chaque niveau. */
+  private bloomChain: { a: TargetTexture; b: TargetTexture }[] = [];
+  /** Image APRÈS tone mapping (RGBA8, sRGB) — l'aberration et la présentation travaillent dessus en HDR. */
+  private displayTex: TargetTexture | null = null;
 
   /** Matrice affine 2D en espace pixel, colonne-major pour mat3 (voir `applyShake`/`applyCamera`). */
   private readonly transform = new Float32Array(9);
@@ -167,7 +200,10 @@ export class WebGL2Renderer implements Renderer {
   private indexScratch = new Uint16Array(1024);
   private instanceData = new Float32Array(4096);
 
-  constructor(private readonly canvas: Canvas2DLike) {
+  constructor(
+    private readonly canvas: Canvas2DLike,
+    options?: { readonly toneMap?: ToneMapCurve; readonly exposure?: number },
+  ) {
     // Même remarque que Canvas2DRenderer : l'union perd la surcharge précise.
     const displayCtx = canvas.getContext('2d') as Context2DLike | null;
     if (!displayCtx) {
@@ -189,18 +225,30 @@ export class WebGL2Renderer implements Renderer {
     }
     this.gl = gl;
 
+    // HDR : rendre vers RGBA16F exige EXT_color_buffer_float (le filtrage
+    // linéaire du demi-flottant, lui, est dans le cœur de WebGL2).
+    this.hdr = gl.getExtension('EXT_color_buffer_float') !== null;
+    const curve = options?.toneMap ?? DEFAULT_TONE_MAP;
+    this.toneMapCurve = curve === 'aces' ? 0 : curve === 'agx' ? 1 : 2;
+    this.exposure = options?.exposure !== undefined && Number.isFinite(options.exposure) && options.exposure > 0 ? options.exposure : HDR_EXPOSURE;
+    const sceneFormat = this.hdr ? gl.RGBA16F : gl.RGBA8;
+    const supported = gl.getInternalformatParameter(gl.RENDERBUFFER, sceneFormat, gl.SAMPLES) as Int32Array | null;
+    this.msaaSamples = supported && supported.length > 0 ? Math.min(4, supported[0]!) : 0;
+
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.BLEND);
 
     this.progPrim = this.createProgram(PRIM_VS, PRIM_FS, ['uTransform', 'uTargetSize', 'uColor']);
     this.progCircle = this.createProgram(CIRCLE_VS, CIRCLE_FS, ['uTransform', 'uTargetSize', 'uCenter', 'uExtent', 'uColor', 'uRadius', 'uHalfWidth']);
-    this.progGradient = this.createProgram(GRADIENT_VS, GRADIENT_FS, ['uTransform', 'uTargetSize', 'uCenter', 'uR0', 'uR1', 'uInner', 'uOuter']);
-    this.progSprite = this.createProgram(SPRITE_VS, SPRITE_FS, ['uTransform', 'uTargetSize', 'uTex']);
+    this.progGradient = this.createProgram(GRADIENT_VS, GRADIENT_FS, ['uTransform', 'uTargetSize', 'uCenter', 'uR0', 'uR1', 'uInner', 'uOuter', 'uLinearize']);
+    this.progSprite = this.createProgram(SPRITE_VS, SPRITE_FS, ['uTransform', 'uTargetSize', 'uTex', 'uLinearize']);
     this.progBlit = this.createProgram(BLIT_VS, BLIT_FS, ['uDstRect', 'uTargetSize', 'uYSign', 'uTex', 'uTint', 'uAlpha']);
     this.progLayerComposite = this.createProgram(LAYER_COMPOSITE_VS, LAYER_COMPOSITE_FS, ['uDstRect', 'uTargetSize', 'uYSign', 'uDst', 'uSrc', 'uMode']);
     this.progBloomExtract = this.createProgram(BLIT_VS, BLOOM_EXTRACT_FS, ['uDstRect', 'uTargetSize', 'uYSign', 'uTex', 'uThreshold']);
     this.progBlur = this.createProgram(BLIT_VS, BLUR_FS, ['uDstRect', 'uTargetSize', 'uYSign', 'uTex', 'uDir', 'uTexSize', 'uSigma', 'uStepPx']);
+    this.progBrightpass = this.createProgram(BLIT_VS, BLOOM_BRIGHTPASS_FS, ['uDstRect', 'uTargetSize', 'uYSign', 'uTex', 'uThreshold']);
+    this.progTonemap = this.createProgram(BLIT_VS, TONEMAP_FS, ['uDstRect', 'uTargetSize', 'uYSign', 'uTex', 'uCurve', 'uExposure']);
 
     // Quad partagé (coin [0,1]²) — cercles, blits, passes plein cadre, sprites.
     const cornerVbo = gl.createBuffer();
@@ -246,6 +294,11 @@ export class WebGL2Renderer implements Renderer {
     return this.lost;
   }
 
+  /** Le pipeline HDR (lot 2) est-il actif ? Faux = repli SDR lot 1 (`EXT_color_buffer_float` absent). Lu par la sonde. */
+  get hdrActive(): boolean {
+    return this.hdr;
+  }
+
   // -------------------------------------------------------------------------
   // Cycle de frame
   // -------------------------------------------------------------------------
@@ -263,7 +316,7 @@ export class WebGL2Renderer implements Renderer {
     if (this.internalWidth !== iw || this.internalHeight !== ih) {
       this.internalWidth = iw;
       this.internalHeight = ih;
-      this.scene = [this.reallocTarget(this.scene[0], iw, ih, true), this.reallocTarget(this.scene[1], iw, ih, true)];
+      this.scene = [this.reallocTarget(this.scene[0], iw, ih, true, this.hdr), this.reallocTarget(this.scene[1], iw, ih, true, this.hdr)];
       this.sceneIdx = 0;
       // Mêmes gardes de dimensions que Canvas2DRenderer : les buffers annexes
       // sont recréés à leur prochain usage, le feedback repart de zéro.
@@ -271,6 +324,12 @@ export class WebGL2Renderer implements Renderer {
       this.feedback = this.dropTarget(this.feedback);
       this.feedbackValid = false;
       this.aberrationScratch = this.dropTarget(this.aberrationScratch);
+      this.displayTex = this.dropTarget(this.displayTex);
+      for (const pair of this.bloomChain) {
+        this.dropTarget(pair.a);
+        this.dropTarget(pair.b);
+      }
+      this.bloomChain = [];
     }
 
     this.minSide = Math.min(iw, ih);
@@ -299,19 +358,34 @@ export class WebGL2Renderer implements Renderer {
   endFrame(): void {
     const gl = this.gl;
     this.flushLayer();
-    if (this.bloomConfig.enabled) this.applyBloom();
-    if (this.chromaticAberrationEnabled) this.applyChromaticAberration();
 
-    // Présentation : scène -> framebuffer par défaut du canvas GL (agrandissement
-    // bilinéaire si résolution interne < 1, comme le drawImage final de Canvas2D),
-    // y inversé une seule fois ici (voir shaders.ts).
+    let presented: WebGLTexture;
+    if (this.hdr) {
+      // Pipeline lot 2 : bloom en LINÉAIRE (l'énergie > 1 existe encore),
+      // puis tone mapping vers l'image d'affichage sRGB, et l'aberration en
+      // espace AFFICHÉ — même position dans la chaîne que Canvas 2D, où elle
+      // porte sur des pixels déjà encodés.
+      if (this.bloomConfig.enabled) this.applyBloomHdr();
+      this.applyToneMap();
+      if (this.chromaticAberrationEnabled) this.applyChromaticAberration(this.displayTex!);
+      presented = this.displayTex!.texture;
+    } else {
+      // Repli SDR : chemin du lot 1, à l'identique.
+      if (this.bloomConfig.enabled) this.applyBloom();
+      if (this.chromaticAberrationEnabled) this.applyChromaticAberration(this.scene[this.sceneIdx]!);
+      this.resolveTarget(this.scene[this.sceneIdx]!);
+      presented = this.scene[this.sceneIdx]!.texture;
+    }
+
+    // Présentation : image finale -> framebuffer par défaut du canvas GL
+    // (agrandissement bilinéaire si résolution interne < 1, comme le
+    // drawImage final de Canvas2D), y inversé une seule fois ici (shaders.ts).
     const w = this.glCanvas.width;
     const h = this.glCanvas.height;
-    this.resolveTarget(this.scene[this.sceneIdx]!);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, w, h);
     gl.disable(gl.BLEND);
-    this.drawBlit(this.scene[this.sceneIdx]!.texture, 0, 0, w, h, w, h, -1, 1, 1, 1, 1);
+    this.drawBlit(presented, 0, 0, w, h, w, h, -1, 1, 1, 1, 1);
     gl.enable(gl.BLEND);
 
     if (gl.isContextLost()) {
@@ -498,6 +572,9 @@ export class WebGL2Renderer implements Renderer {
     gl.uniform1f(this.u(this.progGradient, 'uR1'), outerRadius * this.minSide);
     gl.uniform4f(this.u(this.progGradient, 'uInner'), inner.r / 255, inner.g / 255, inner.b / 255, inner.a);
     gl.uniform4f(this.u(this.progGradient, 'uOuter'), outer.r / 255, outer.g / 255, outer.b / 255, outer.a);
+    // HDR : l'interpolation reste en sRGB (celle des dégradés Canvas), seule
+    // la SORTIE est décodée en linéaire — voir GRADIENT_FS.
+    gl.uniform1f(this.u(this.progGradient, 'uLinearize'), this.hdr ? 1 : 0);
     this.uploadPathQuad(0, 0, this.internalWidth, this.internalHeight);
     gl.bindVertexArray(this.vaoPath);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -559,6 +636,9 @@ export class WebGL2Renderer implements Renderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, sprite.texture);
     gl.uniform1i(this.u(this.progSprite, 'uTex'), 0);
+    // HDR : décodage sRGB APRÈS filtrage, au fragment (parité avec le
+    // drawImage Canvas qui filtre en sRGB) — voir SPRITE_FS.
+    gl.uniform1f(this.u(this.progSprite, 'uLinearize'), this.hdr ? 1 : 0);
     gl.bindVertexArray(this.vaoSprite);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceVbo);
     gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.subarray(0, count * 4), gl.DYNAMIC_DRAW);
@@ -583,19 +663,19 @@ export class WebGL2Renderer implements Renderer {
   }
 
   captureFeedback(): void {
-    const gl = this.gl;
     this.flushLayer();
     const w = this.internalWidth;
     const h = this.internalHeight;
     if (!this.feedback || this.feedback.width !== w || this.feedback.height !== h) {
-      this.feedback = this.reallocTarget(this.feedback, w, h);
+      // Même format que la scène (16F en HDR) : la traînée reste linéaire.
+      this.feedback = this.reallocTarget(this.feedback, w, h, false, this.hdr);
       this.feedbackValid = false;
     }
     this.resolveTarget(this.scene[this.sceneIdx]!);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.scene[this.sceneIdx]!.fbo);
-    gl.bindTexture(gl.TEXTURE_2D, this.feedback.texture);
-    gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    // Copie par blit-dessin plutôt que copyTexSubImage2D : la copie de
+    // framebuffer vers texture est interdite entre certains formats
+    // flottants — le blit est légal et identique dans les deux modes.
+    this.blitCopy(this.scene[this.sceneIdx]!.texture, this.feedback);
     this.feedbackValid = true;
   }
 
@@ -609,7 +689,7 @@ export class WebGL2Renderer implements Renderer {
     const h = this.internalHeight;
     if (w === 0 || h === 0) return; // avant la première frame, rien à préparer
     if (!this.layer || this.layer.width !== w || this.layer.height !== h) {
-      this.layer = this.reallocTarget(this.layer, w, h, true);
+      this.layer = this.reallocTarget(this.layer, w, h, true, this.hdr);
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.drawFboOf(this.layer));
     gl.viewport(0, 0, w, h);
@@ -655,6 +735,77 @@ export class WebGL2Renderer implements Renderer {
   // -------------------------------------------------------------------------
   // Post SDR — mêmes réglages observables que Canvas2DRenderer
   // -------------------------------------------------------------------------
+
+  /**
+   * Bloom HDR (ADR-013, lot 2) : bright-pass à seuil PHYSIQUE (linéaire) puis
+   * chaîne MIP gaussienne — chaque niveau est la moitié du précédent, flouté
+   * d'un petit σ dans son propre espace, et tous se composent additivement :
+   * la pyramide fait la largeur du halo, plus une cascade de downscale.
+   */
+  private applyBloomHdr(): void {
+    const gl = this.gl;
+    const base = computeSmallDimensions(this.internalWidth, this.internalHeight, this.bloomConfig.resolutionScale);
+    const levels = bloomLevelCount(this.bloomConfig.passes, base.width, base.height);
+
+    if (this.bloomChain.length !== levels || this.bloomChain[0]?.a.width !== base.width || this.bloomChain[0]?.a.height !== base.height) {
+      for (const pair of this.bloomChain) {
+        this.dropTarget(pair.a);
+        this.dropTarget(pair.b);
+      }
+      this.bloomChain = [];
+      let w = base.width;
+      let h = base.height;
+      for (let i = 0; i < levels; i++) {
+        this.bloomChain.push({
+          a: this.reallocTarget(null, w, h, false, true),
+          b: this.reallocTarget(null, w, h, false, true),
+        });
+        w = Math.max(1, Math.floor(w / 2));
+        h = Math.max(1, Math.floor(h / 2));
+      }
+    }
+
+    this.resolveTarget(this.scene[this.sceneIdx]!);
+    gl.disable(gl.BLEND);
+
+    // 1. Bright-pass : énergie linéaire au-dessus du seuil -> niveau 0.
+    const level0 = this.bloomChain[0]!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, level0.a.fbo);
+    gl.viewport(0, 0, level0.a.width, level0.a.height);
+    gl.useProgram(this.progBrightpass.program);
+    gl.uniform4f(this.u(this.progBrightpass, 'uDstRect'), 0, 0, level0.a.width, level0.a.height);
+    gl.uniform2f(this.u(this.progBrightpass, 'uTargetSize'), level0.a.width, level0.a.height);
+    gl.uniform1f(this.u(this.progBrightpass, 'uYSign'), 1);
+    gl.uniform1f(this.u(this.progBrightpass, 'uThreshold'), BLOOM_THRESHOLD_LINEAR);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene[this.sceneIdx]!.texture);
+    gl.uniform1i(this.u(this.progBrightpass, 'uTex'), 0);
+    gl.bindVertexArray(this.vaoQuad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // 2. Descente de la pyramide (sous-échantillonnage bilinéaire) + flou
+    //    séparable par niveau. Les passes ÉCRASENT leur cible : fusion coupée
+    //    (blitCopy la réactive en sortant, blurPass n'y touche pas).
+    for (let i = 0; i < this.bloomChain.length; i++) {
+      const level = this.bloomChain[i]!;
+      if (i > 0) {
+        this.blitCopy(this.bloomChain[i - 1]!.a.texture, level.a);
+        gl.disable(gl.BLEND);
+      }
+      this.blurPass(level.a, level.b, 1, 0, BLOOM_LEVEL_SIGMA, 1);
+      this.blurPass(level.b, level.a, 0, 1, BLOOM_LEVEL_SIGMA, 1);
+    }
+
+    // 3. Composition additive de TOUS les niveaux sur la scène.
+    gl.enable(gl.BLEND);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.drawFboOf(this.scene[this.sceneIdx]!));
+    gl.viewport(0, 0, this.internalWidth, this.internalHeight);
+    this.applyFixedBlend('additive');
+    const levelAlpha = BLOOM_INTENSITY / this.bloomChain.length;
+    for (const pair of this.bloomChain) {
+      this.drawBlit(pair.a.texture, 0, 0, this.internalWidth, this.internalHeight, this.internalWidth, this.internalHeight, 1, 1, 1, 1, levelAlpha);
+    }
+  }
 
   private applyBloom(): void {
     const gl = this.gl;
@@ -719,22 +870,24 @@ export class WebGL2Renderer implements Renderer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  private applyChromaticAberration(): void {
+  /**
+   * Aberration chromatique sur `target` — la scène en SDR (chemin lot 1),
+   * l'image d'affichage APRÈS tone mapping en HDR (même position dans la
+   * chaîne que Canvas 2D : des pixels déjà encodés).
+   */
+  private applyChromaticAberration(target: TargetTexture): void {
     const gl = this.gl;
-    const w = this.internalWidth;
-    const h = this.internalHeight;
+    const w = target.width;
+    const h = target.height;
     if (!this.aberrationScratch || this.aberrationScratch.width !== w || this.aberrationScratch.height !== h) {
       this.aberrationScratch = this.reallocTarget(this.aberrationScratch, w, h);
     }
-    // Capture de la scène (bloom inclus) — base commune aux deux passes
+    // Capture de l'image (bloom inclus) — base commune aux deux passes
     // teintées ; lire et écrire la même texture serait indéfini.
-    this.resolveTarget(this.scene[this.sceneIdx]!);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.scene[this.sceneIdx]!.fbo);
-    gl.bindTexture(gl.TEXTURE_2D, this.aberrationScratch.texture);
-    gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    this.resolveTarget(target);
+    this.blitCopy(target.texture, this.aberrationScratch);
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.drawFboOf(this.scene[this.sceneIdx]!));
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.drawFboOf(target));
     gl.viewport(0, 0, w, h);
     this.applyFixedBlend('additive');
     const offsetPx = computeAberrationOffsetPx(w, h);
@@ -744,12 +897,48 @@ export class WebGL2Renderer implements Renderer {
     this.drawBlit(this.aberrationScratch.texture, offsetPx, 0, w, h, w, h, 1, 0, 0, 1, ABERRATION_TINT_ALPHA);
   }
 
+  /** Tone mapping (lot 2) : scène 16F linéaire -> image d'affichage sRGB (RGBA8). */
+  private applyToneMap(): void {
+    const gl = this.gl;
+    const w = this.internalWidth;
+    const h = this.internalHeight;
+    if (!this.displayTex || this.displayTex.width !== w || this.displayTex.height !== h) {
+      this.displayTex = this.reallocTarget(this.displayTex, w, h);
+    }
+    this.resolveTarget(this.scene[this.sceneIdx]!);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.displayTex.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.progTonemap.program);
+    gl.uniform4f(this.u(this.progTonemap, 'uDstRect'), 0, 0, w, h);
+    gl.uniform2f(this.u(this.progTonemap, 'uTargetSize'), w, h);
+    gl.uniform1f(this.u(this.progTonemap, 'uYSign'), 1);
+    gl.uniform1i(this.u(this.progTonemap, 'uCurve'), this.toneMapCurve);
+    gl.uniform1f(this.u(this.progTonemap, 'uExposure'), this.exposure);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.scene[this.sceneIdx]!.texture);
+    gl.uniform1i(this.u(this.progTonemap, 'uTex'), 0);
+    gl.bindVertexArray(this.vaoQuad);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.enable(gl.BLEND);
+  }
+
   // -------------------------------------------------------------------------
   // Aides internes
   // -------------------------------------------------------------------------
 
   private u(prog: ProgramInfo, name: string): WebGLUniformLocation | null {
     return prog.uniforms[name] ?? null;
+  }
+
+  /** Copie `srcTexture` dans `dst` (plein cadre, sans fusion) — remplace copyTexSubImage2D, interdit sur certains formats flottants. */
+  private blitCopy(srcTexture: WebGLTexture, dst: TargetTexture): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+    gl.viewport(0, 0, dst.width, dst.height);
+    gl.disable(gl.BLEND);
+    this.drawBlit(srcTexture, 0, 0, dst.width, dst.height, dst.width, dst.height, 1, 1, 1, 1, 1);
+    gl.enable(gl.BLEND);
   }
 
   /** Cible de dessin courante : le calque overlay/difference s'il est ouvert, sinon la scène. */
@@ -801,7 +990,13 @@ export class WebGL2Renderer implements Renderer {
 
   private setPremultipliedColor(prog: ProgramInfo, color: Color): void {
     const a = color.a;
-    this.gl.uniform4f(this.u(prog, 'uColor'), (color.r / 255) * a, (color.g / 255) * a, (color.b / 255) * a, a);
+    if (this.hdr) {
+      // Loi du lot 2 : la composition travaille en LINÉAIRE — les couleurs
+      // sRGB des couches sont décodées à l'entrée, prémultipliées ensuite.
+      this.gl.uniform4f(this.u(prog, 'uColor'), srgbToLinear(color.r / 255) * a, srgbToLinear(color.g / 255) * a, srgbToLinear(color.b / 255) * a, a);
+    } else {
+      this.gl.uniform4f(this.u(prog, 'uColor'), (color.r / 255) * a, (color.g / 255) * a, (color.b / 255) * a, a);
+    }
   }
 
   /** Blit générique (programme blit) : `tex` vers le rectangle (x, y, w, h) de la cible LIÉE, teinte et alpha donnés. */
@@ -845,7 +1040,12 @@ export class WebGL2Renderer implements Renderer {
     gl.bufferData(gl.ARRAY_BUFFER, q, gl.DYNAMIC_DRAW);
   }
 
-  private reallocTarget(target: TargetTexture | null, width: number, height: number, withMsaa = false): TargetTexture {
+  /**
+   * `float` : cible RGBA16F linéaire (pipeline HDR) au lieu de RGBA8 —
+   * uniquement demandé quand `this.hdr` est vrai (l'extension garantit alors
+   * que le format est rendable, MSAA compris via `msaaSamples`).
+   */
+  private reallocTarget(target: TargetTexture | null, width: number, height: number, withMsaa = false, float = false): TargetTexture {
     const gl = this.gl;
     this.dropTarget(target);
     const texture = gl.createTexture();
@@ -854,7 +1054,11 @@ export class WebGL2Renderer implements Renderer {
     gl.bindTexture(gl.TEXTURE_2D, texture);
     // Zéro-initialisée par spécification WebGL — un feedback fraîchement
     // (re)créé est transparent, comme l'OffscreenCanvas neuf de Canvas2D.
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    if (float) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -864,17 +1068,14 @@ export class WebGL2Renderer implements Renderer {
 
     let msaaFbo: WebGLFramebuffer | null = null;
     let msaaRbo: WebGLRenderbuffer | null = null;
-    if (withMsaa) {
-      const samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) as number);
-      if (samples > 1) {
-        msaaRbo = gl.createRenderbuffer();
-        msaaFbo = gl.createFramebuffer();
-        if (msaaRbo && msaaFbo) {
-          gl.bindRenderbuffer(gl.RENDERBUFFER, msaaRbo);
-          gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.RGBA8, width, height);
-          gl.bindFramebuffer(gl.FRAMEBUFFER, msaaFbo);
-          gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, msaaRbo);
-        }
+    if (withMsaa && this.msaaSamples > 1) {
+      msaaRbo = gl.createRenderbuffer();
+      msaaFbo = gl.createFramebuffer();
+      if (msaaRbo && msaaFbo) {
+        gl.bindRenderbuffer(gl.RENDERBUFFER, msaaRbo);
+        gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.msaaSamples, float ? gl.RGBA16F : gl.RGBA8, width, height);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, msaaFbo);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, msaaRbo);
       }
     }
     return { texture, fbo, width, height, msaaFbo, msaaRbo, dirty: false };

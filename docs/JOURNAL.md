@@ -7535,3 +7535,113 @@ tenu par construction.
 - Sonde exécutée en headless SwiftShader (rendu logiciel) : chiffres sur GPU
   réel possiblement différents à la marge — le verdict à l'œil d'Aaron sur
   `?renderer=webgl2` reste la validation finale du lot.
+
+---
+
+## 13 août 2026 — ADR-013 lot 2 : pipeline HDR linéaire et tone mapping
+
+Nouveaux : `src/render/webgl2/hdrMath.ts` (+ `tests/unit/hdrMath.test.ts`,
+11 tests — sRGB exact, ACES, AgX, courbe retenue, chaîne MIP). Édités :
+`shaders.ts` (bright-pass physique, tonemap tri-courbe, décodage sRGB des
+sprites APRÈS filtrage, dégradés interpolés en sRGB à sortie linéaire, bornes
+d'alpha), `WebGL2Renderer.ts` (cibles RGBA16F + MSAA flottant, chaîne MIP du
+bloom, passe tonemap vers une image d'affichage RGBA8, aberration
+post-tonemap, copies par blit — copyTexSubImage2D est interdit entre formats
+flottants), `ui/App.ts` (1 hunk : `?tonemap=` / `?exposure=`).
+`Canvas2DRenderer` : zéro ligne. Sans `EXT_color_buffer_float`, repli SDR =
+chemin du lot 1 à l'identique.
+
+### La courbe — tranchée à la mesure, et ce n'est aucune des deux candidates
+
+ACES (Narkowicz) et AgX (ajustement minimal) sont implémentées et mesurées
+sur les 8 styles : leur PIED de courbe écrase les fonds très sombres — qui
+sont l'esthétique même de ce produit — de 50 à 80 % (coin de `spectrum-pro` :
+(20,10,36) → (3,2,9) sous ACES à exposition 1), et aucune exposition globale
+ne remonte les fonds sans surexposer le reste (erreur moyenne ≥ 28 % sur tout
+le balayage exposition × courbe). Courbe RETENUE : `pulsar` (épaule seule) —
+IDENTITÉ stricte sous un pivot 0,8 (tout le contenu SDR traverse intact, la
+parité des fonds est structurelle), épaule exponentielle C¹ au-dessus,
+asymptote 1 : l'énergie additive accumulée au-delà du pivot roule vers le
+blanc au lieu d'écrêter — l'objectif du lot. ACES et AgX restent comparables
+au navigateur : `?renderer=webgl2&tonemap=aces|agx&exposure=N`.
+
+### Le vrai bug du lot — l'alpha ACCUMULÉ des buffers flottants
+
+En RGBA8, l'alpha écrête à 1 ; en RGBA16F, les fusions additives l'ACCUMULENT
+au-delà. Trois conséquences corrigées, trouvées à la sonde (l'exécution
+trouve, la lecture non) :
+1. le tonemap « déprémultipliait » en divisant par cet alpha — TOUTE l'image
+   était divisée par ~1,55 (le bright-pass recopiait en plus l'alpha partout,
+   et la composition additive du bloom le gonflait sur tout le cadre). La
+   scène étant OPAQUE par construction (le clear pose a = 1), la radiance
+   finale est `c.rgb`, sans division ;
+2. le bright-pass émet désormais un alpha NUL (le bloom ajoute de la lumière,
+   pas de la couverture) ;
+3. le blit générique et la composition overlay/difference bornent l'alpha lu
+   à 1 (sinon `ONE_MINUS_SRC_ALPHA` donne un poids négatif au fond).
+
+Un « gain émissif » sur les dessins additifs avait été introduit pour
+compenser l'assombrissement (−56 à −80 % sur les styles à glows) — il ne
+compensait que ce bug : une fois l'alpha corrigé, la mesure a donné le gain
+NEUTRE comme meilleur réglage global, et le mécanisme a été retiré.
+
+### Sonde des 8 styles (pulsar, exposition 1 — mêmes conditions que le lot 1)
+
+| style | Canvas 2D (moy / couv / max) | WebGL2 HDR (moy / couv / max) | Δ moy |
+|---|---|---|---|
+| pulse | 18,94 / 6,69 % / 114,8 | 21,78 / 12,77 % / 114,2 | +15,0 % |
+| field | 7,01 / 0,26 % / 255,0 | 8,11 / 0,96 % / 172,0 | +15,5 % |
+| spectrum-pro | 11,98 / 0,51 % / 120,6 | 12,63 / 0,63 % / 115,1 | +5,4 % |
+| monolith | 15,66 / 7,40 % / 145,6 | 16,62 / 8,74 % / 134,1 | +6,1 % |
+| iso-pulse | 12,51 / 1,18 % / 104,0 | 12,79 / 2,09 % / 105,2 | +2,3 % |
+| chambre | 14,09 / 0 % / 38,2 | 19,40 / 0,55 % / 71,7 | +37,7 % |
+| eclats | 37,37 / 47,78 % / 71,7 | 43,66 / 77,80 % / 73,8 | +16,8 % |
+| aurore | 14,46 / 3,76 % / 62,0 | 23,62 / 30,13 % / 86,6 | +63,4 % |
+
+Zéro erreur console. **Critère « aucun style ne sature » : tenu avec une
+marge énorme** (pire luminance moyenne : 43,7 / 255 = 0,17, critère < 0,55).
+`chambre`/`aurore` sont nettement plus lumineux : c'est l'empilement de
+bandes TRANSLUCIDES composé en linéaire — plus dense et plus saturé par
+nature, pas un défaut mesurable (captures avant/après remises à Aaron, c'est
+son œil qui tranche). Le max de `field` passe de 255 (écrêté blanc) à 172 :
+les cœurs saturés GARDENT leur teinte au lieu de blanchir — le comportement
+HDR attendu.
+
+### Réglages exposés (liste demandée par docs/20 SESSION B)
+
+`DEFAULT_TONE_MAP` ('pulsar'), `PULSAR_SHOULDER_PIVOT` (0,8), `HDR_EXPOSURE`
+(1), `BLOOM_THRESHOLD_LINEAR` (srgbToLinear(200/255) ≈ 0,578),
+`BLOOM_INTENSITY` (0,55, réparti sur les niveaux), `BLOOM_LEVEL_SIGMA`
+(2 px/niveau), profondeur de chaîne = `passes + 2` niveaux (bornée à 8 px).
+URL : `?tonemap=pulsar|aces|agx`, `?exposure=N`.
+
+### Portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 129 fichiers, 1232 tests verts (1221 -> 1232, +11)
+npm run test:arch   -> 1 test vert
+npm run build       -> 594,51 kB (gzip 170,81 kB), 2,54 s
+```
+
+### Performance — critère 60 fps p95 : à confirmer sur la machine d'Aaron
+
+La sonde tourne en headless SwiftShader (rendu 100 % LOGICIEL : chaque
+shader émulé au CPU) : 781 ms p50 / 1908 ms p95 par frame en 1080p contre
+144 ms en Canvas 2D — ces chiffres ne disent RIEN d'un GPU réel, où ces
+passes sont massivement parallèles. Procédure de mesure réelle : ouvrir
+`?renderer=webgl2`, style `field`, qualité HIGH, fenêtre au premier plan,
+panneau debug ouvert — lire p50/p95/p99. C'est le critère d'ADR-002/013.
+
+### Limites connues
+
+- `chambre` +38 % / `aurore` +63 % de luminance moyenne (empilement
+  translucide en linéaire) — verdict à l'œil, l'exposition URL permet de
+  moduler pour comparer.
+- `screen` reste en fusion fixe sur valeurs linéaires : écart doux vs le
+  screen sRGB de Canvas sur les couches de variante qui l'utilisent.
+- Perf GPU réel non mesurée ici (voir ci-dessus) — le blit final GL→2D et
+  1-4 résolutions MSAA 16F par frame sont les suspects à surveiller.
+- Le tonemap suppose la scène OPAQUE (vrai pour tous les styles : clear
+  systématique). Un style futur qui rendrait sur fond transparent devrait
+  revisiter la note d'alpha ci-dessus.

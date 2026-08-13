@@ -173,9 +173,18 @@ const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
  * lecteurs du module voient le nouveau backend.
  */
 let renderer: Renderer = (() => {
-  if (new URLSearchParams(window.location.search).get('renderer') === 'webgl2') {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('renderer') === 'webgl2') {
     try {
-      return new WebGL2Renderer(canvas);
+      // `?tonemap=aces|agx` (lot 2) : comparer les deux courbes candidates
+      // d'ADR-013 au navigateur sans recompiler — le defaut est la courbe
+      // tranchee a la mesure (hdrMath.DEFAULT_TONE_MAP).
+      const tm = params.get('tonemap');
+      const exposure = Number.parseFloat(params.get('exposure') ?? '');
+      return new WebGL2Renderer(canvas, {
+        ...(tm === 'aces' || tm === 'agx' || tm === 'pulsar' ? { toneMap: tm } : {}),
+        ...(Number.isFinite(exposure) && exposure > 0 ? { exposure } : {}),
+      });
     } catch (err) {
       console.warn('PULSAR - WebGL2 indisponible, repli Canvas 2D :', err);
     }
