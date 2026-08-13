@@ -8500,3 +8500,32 @@ les autres.
 À partir d'alpha23, les erreurs restantes ne portaient plus que sur
 l'ORTHOGRAPHE (`m7`, `sus47`) : les accords étaient déjà correctement
 identifiés.
+
+### Le tableau de la lignée entre dans le banc (même jour)
+
+Le tableau ci-dessus avait été produit par une boucle shell jetable — donc
+perdu. `banc_accords.js` accepte désormais PLUSIEURS fichiers et sort la
+matrice lui-même : une ligne par cas, une colonne par version, et l'on voit
+d'un coup d'œil à partir de quelle version chaque cas devient juste.
+
+```
+cas                        alpha20  alpha21  alpha22  alpha23  alpha24  alpha25
+mineur septieme            »m7      »m7      »m7      »m7      ok       ok
+V7 SANS QUINTE             G?7      G?7      ok       ok       ok       ok
+1er renversement           E?       E?       Em       ok       ok       ok
+tableau NON trie           E?       E?       Esus4    »m7      ok       ok
+suspendue + 7e             C?7      C?7      Csus47   Csus47   Csus47   ok
+7e SANS tierce             E?       E?       E        ok       ok       ok
+FAUX sur 15                12       12       8        4        2        0
+```
+
+Le marqueur `»xxx` distingue les deux natures d'erreur : nom d'accord JUSTE
+mais orthographe de `quality` fausse, contre nom carrément faux. C'est ce qui
+rend visible d'un coup d'œil que la ligne « 1er renversement » passe de `E?`
+(doute honnête) à `Em` (faux assuré) avant de devenir juste.
+
+**Code de sortie : il ne juge que la DERNIÈRE version passée** — celle qu'on
+livre. Compter les échecs des versions anciennes rendrait le banc inutilisable
+dans un script de livraison ; la lignée est là pour montrer d'où l'on vient,
+pas pour faire échouer la livraison du jour. Vérifié dans les deux sens
+(alpha25 en dernier → 0 ; alpha21 en dernier → 1).
