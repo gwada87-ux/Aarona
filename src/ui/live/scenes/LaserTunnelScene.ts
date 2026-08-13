@@ -42,6 +42,16 @@ const VARIANTS: readonly Variant[] = [
 ];
 
 /** Plafond d'anneaux vivants. Chaque anneau coute un `arc()` : au-dela de 24 on ne les distingue plus. */
+/**
+ * Fenetre de CHARGE avant une frappe annoncee (SESSION F), en secondes.
+ * 80 ms, un peu plus que les 60 ms de `mandala-32` : l'anneau du tunnel part
+ * tres vite (progression exponentielle), il faut donc voir la lumiere
+ * s'amasser un peu plus longtemps pour que le lien de cause a effet se lise.
+ * Chaque scene regle SA fenetre — c'est un parametre de geste, pas une
+ * constante du canal.
+ */
+const PREARM_SEC = 0.08;
+
 const MAX_RINGS = 24;
 /** Duree de vie d'un anneau, en secondes. Regle la profondeur apparente du tunnel. */
 const RING_LIFE = 2.6;
@@ -132,6 +142,29 @@ export class LaserTunnelScene implements LiveScene {
 
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'butt';
+
+    // --- RETENUE AVANT IMPACT (SESSION F, anticipation d'ADR-012) ----------
+    // L'hote annonce ses frappes avant qu'elles ne sonnent : le tunnel CHARGE
+    // au lieu de seulement reagir. La lumiere s'amasse au POINT DE FUITE, et
+    // l'anneau jaillit ensuite exactement de la.
+    //
+    // Geste DELIBEREMENT different de celui de `mandala-32`, qui fait
+    // converger un anneau depuis l'exterieur : ici tout le vocabulaire de la
+    // scene est centrifuge (les anneaux naissent au fond et foncent vers
+    // l'oeil), donc la retenue se lit en PROFONDEUR, pas en rayon. Deux
+    // scenes qui inspireraient du meme geste n'apprendraient rien de plus.
+    //
+    // Sans canal de verite, `nextIn` vaut `+Infinity`, `charge` reste nul et
+    // ce bloc ne dessine rien : la scene est alors strictement celle d'avant.
+    const nextKick = frame.anticipation?.nextIn('kick') ?? Number.POSITIVE_INFINITY;
+    const charge = nextKick < PREARM_SEC ? 1 - nextKick / PREARM_SEC : 0;
+    if (charge > 0) {
+      ctx.globalAlpha = charge * charge * 0.7 * amp;
+      ctx.fillStyle = palette.hex('highlight');
+      ctx.beginPath();
+      ctx.arc(cx, cy, unit * (0.004 + charge * 0.014) * amp, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     let write = 0;
     for (let i = 0; i < this.count; i++) {

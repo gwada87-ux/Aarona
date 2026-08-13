@@ -8136,3 +8136,53 @@ des garde-fous plus que des confirmations :
 - La fenêtre de 60 ms est un choix, pas une mesure : assez pour que le geste
   se voie, assez peu pour qu'il appartienne encore à la frappe. À réviser au
   verdict.
+
+---
+
+## 13 août 2026 — SESSION F (suite) : `laser-tunnel` charge son point de fuite
+
+Second consommateur de l'anticipation, demandé après coup. Édité :
+`LaserTunnelScene.ts` seul — l'API livrée avec `mandala-32` n'a pas bougé
+d'une ligne, ce qui était l'intérêt de la livrer avec un consommateur plutôt
+que seule.
+
+### Un geste différent, à dessein
+
+`mandala-32` fait CONVERGER un anneau depuis l'extérieur vers son noyau. Le
+copier ici aurait été une faute de langage : tout le vocabulaire de
+`laser-tunnel` est centrifuge — les anneaux naissent au fond et foncent vers
+l'œil. Sa retenue se lit donc en PROFONDEUR : la lumière s'amasse au POINT DE
+FUITE pendant les 80 ms qui précèdent le kick annoncé, et l'anneau jaillit
+ensuite exactement de là.
+
+Sur une image figée, les deux scènes restent distinguables : un anneau isolé
+loin du centre (mandala qui inspire) contre un cœur brillant sans anneau
+proche (tunnel qui charge).
+
+**Fenêtre de 80 ms, contre 60 ms pour `mandala-32`** : l'anneau du tunnel part
+très vite (progression exponentielle), il faut voir la lumière s'amasser un
+peu plus longtemps pour que le lien de cause à effet se lise. Chaque scène
+règle SA fenêtre — c'est un paramètre de geste, pas une constante du canal.
+
+### Portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 131 fichiers, 1265 tests verts (inchangé)
+npm run test:arch   -> 1 test vert
+npm run build       -> 604,21 kB (gzip 173,63 kB), 2,34 s
+```
+
+Aucun test ajouté, et c'est volontaire : l'API d'anticipation et ses trois
+garde-fous (avance bornée au lookahead, décroissance vers l'impact, rien avant
+convergence) sont déjà couverts. Ce lot n'ajoute qu'un consommateur, dont la
+seule propriété vérifiable sans œil — l'inertie quand `nextIn` vaut
+`+Infinity` — est structurelle : `charge` vaut alors 0 et le bloc ne dessine
+rien. Les 24 invariants de scène passent sur le fichier modifié.
+
+### Limite assumée
+
+Les deux scènes inspirent maintenant, alors qu'aucune n'a encore été jugée à
+l'œil. Si le geste s'avère trop discret ou trop appuyé, ce sont deux
+constantes à bouger (`PREARM_SEC` dans chaque scène), pas une reprise de
+l'architecture.
