@@ -571,6 +571,10 @@ export class LiveVisualPanel {
         beat: engine.beat,
         features: engine.features,
         onsets: engine.onsetSet,
+        // ADR-015 lot 3 : notes annoncees de la trame. Tampon pre-alloue du
+        // directeur de verite, vide hors mode verite — une scene qui les lit
+        // n'a donc aucun cas particulier a traiter.
+        ...(this.truth ? { notes: this.truth.notes } : {}),
         energy: engine.section,
         intensity: intensityDirector.intensity,
         reducedMotion: this.reducedMotion,

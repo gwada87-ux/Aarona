@@ -472,3 +472,93 @@ describe('ADR-015 lot 1 - accords et notes sur le canal de verite', () => {
     expect(book.tonalHueDeg).toBe(0);
   });
 });
+
+describe('ADR-015 lot 3 - transport des notes jusqu\'aux scenes', () => {
+  const config = makeConfig().truth;
+
+  it('met les notes en file avec leur velocite, et suppose 1 quand elle manque', () => {
+    const c = new TruthChannel(config);
+    const note = (midi: number, velocity?: number): string =>
+      JSON.stringify({ pmdiLive: '1.0', tHost: 1, payload: { kind: 'note', midi, dur: 0.5, velocity, track: 'piano' } });
+    expect(c.ingest(1, note(60, 0.42))).toBe('accepted');
+    expect(c.ingest(1, note(72))).toBe('accepted');
+    expect(c.noteSeq).toBe(2);
+    expect(c.noteMidiAt(0)).toBeCloseTo(60, 5);
+    expect(c.noteVelAt(0)).toBeCloseTo(0.42, 5);
+    // Une note SONNE : un champ optionnel manquant ne doit pas la faire
+    // disparaitre, seulement la supposer pleine.
+    expect(c.noteVelAt(1)).toBe(1);
+    c.reset();
+    expect(c.noteSeq).toBe(0);
+  });
+
+  it('bout en bout : les notes annoncees parviennent aux scenes, a l\'instant visuel', () => {
+    const signal = clickTrack(BPM, 30, { jitterPct: 0 });
+    const MELODIE = [60, 64, 67, 72]; // do, mi, sol, do — un arpege
+    const noteMsgs: HostMessage[] = [];
+    for (let i = 0; i * 0.5 < signal.durationSec; i++) {
+      const tLocalSounds = 0.4 + i * 0.5;
+      noteMsgs.push({
+        tArr: tLocalSounds - LOOKAHEAD_SEC,
+        raw: JSON.stringify({
+          pmdiLive: '1.0',
+          tHost: tLocalSounds - OFFSET_SEC,
+          payload: { kind: 'note', midi: MELODIE[i % MELODIE.length], dur: 0.25, velocity: 0.6, track: 'piano' },
+        }),
+      });
+    }
+
+    const engine = createEngine(signal);
+    const truth = new TruthDirector(makeConfig().truth);
+    const messages = [...buildHostMessages(signal), ...noteMsgs].sort((a, b) => a.tArr - b.tArr);
+    let msgIndex = 0;
+    let framesAvecNotes = 0;
+    let notesVues = 0;
+    let hauteurHorsMelodie = 0;
+    let framesSansVerite = 0;
+    let notesHorsVerite = 0;
+
+    record(engine, signal, {
+      onFrame: (ctx) => {
+        while (msgIndex < messages.length && messages[msgIndex]!.tArr <= ctx.tAudio) {
+          truth.ingest(ctx.tAudio, messages[msgIndex]!.raw);
+          msgIndex++;
+        }
+        truth.step(ctx.tAudio, ctx.engine);
+        const n = truth.notes.count;
+        if (!truth.active) {
+          framesSansVerite++;
+          notesHorsVerite += n;
+        }
+        if (n > 0) {
+          framesAvecNotes++;
+          notesVues += n;
+          for (let i = 0; i < n; i++) {
+            if (!MELODIE.includes(Math.round(truth.notes.midi(i)))) hauteurHorsMelodie++;
+            expect(truth.notes.velocity(i)).toBeCloseTo(0.6, 5);
+          }
+        }
+      },
+    });
+
+    expect(notesVues, 'des notes sont parvenues au rendu').toBeGreaterThan(10);
+    expect(hauteurHorsMelodie, 'aucune hauteur inventee').toBe(0);
+    // Le tampon est vide a chaque trame sans verite : une scene ne voit jamais
+    // les notes de la trame precedente, ni celles d'une session perdue.
+    expect(framesSansVerite).toBeGreaterThan(0);
+    expect(notesHorsVerite).toBe(0);
+    // Une note est une IMPULSION : elle ne survit pas a sa trame.
+    expect(framesAvecNotes).toBeLessThan(notesVues + framesAvecNotes);
+  });
+
+  it('le tampon de trame est borne : une rafale ne peut pas allouer', () => {
+    const c = new TruthChannel(config);
+    for (let i = 0; i < 200; i++) {
+      c.ingest(1, JSON.stringify({ pmdiLive: '1.0', tHost: 1, payload: { kind: 'note', midi: 60 + (i % 12), velocity: 0.5 } }));
+    }
+    // Le ring du canal absorbe sans jamais grandir ; le tampon de trame du
+    // directeur est lui aussi de taille fixe (NOTE_FRAME_CAP).
+    expect(c.noteSeq).toBe(200);
+    expect(c.noteSeqFloor).toBeGreaterThan(0);
+  });
+});

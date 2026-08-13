@@ -34,8 +34,19 @@ describe('Registre de scenes (§4.2)', () => {
     { id: 'type-slam', tags: ['glitch', 'intense', 'strobe'], range: [0.55, 1], reducedMotionSafe: false },
   ];
 
+  /**
+   * Scenes ajoutees APRES la passe 1, par mandat posterieur. La table §4.2
+   * ci-dessus reste la reference de la passe 1 et n'est PAS modifiee : une
+   * scene de plus ne doit jamais pouvoir masquer une regression sur les six
+   * d'origine, d'ou deux listes distinctes.
+   */
+  const HORS_PASSE_1: readonly { id: string; adr: string }[] = [{ id: 'note-helix', adr: 'ADR-015 lot 3' }];
+
   it('les six scenes de la passe 1 sont au registre, conformes a la table §4.2', () => {
-    expect(SCENE_REGISTRY.length).toBe(6);
+    expect(SCENE_REGISTRY.length).toBe(TABLE.length + HORS_PASSE_1.length);
+    for (const row of HORS_PASSE_1) {
+      expect(sceneById(row.id), `${row.id} (${row.adr}) absente du registre`).not.toBeNull();
+    }
     for (const row of TABLE) {
       const entry = sceneById(row.id);
       expect(entry, `${row.id} absente du registre`).not.toBeNull();
@@ -115,8 +126,10 @@ describe('prefers-reduced-motion (§8.12)', () => {
     }
   });
 
-  it('les scenes eligibles sont exactement celles de la table §4.2', () => {
-    expect(playableScenes(true).map((s) => s.id).sort()).toEqual(['curl-flow', 'grid-horizon', 'mandala-32']);
+  it('les scenes eligibles sont exactement celles de la table §4.2, plus les ajouts sans stroboscope', () => {
+    // `note-helix` (ADR-015 lot 3) est eligible : derive lente, aucun
+    // stroboscope, amplitudes deja divisees en mouvement reduit.
+    expect(playableScenes(true).map((s) => s.id).sort()).toEqual(['curl-flow', 'grid-horizon', 'mandala-32', 'note-helix']);
   });
 });
 

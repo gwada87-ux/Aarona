@@ -7980,3 +7980,91 @@ l'identique, ce qui est vérifié ci-dessus.
   mode direct manuel, raison mesurée dans l'ADR-015).
 - Lot 3 : la scène vitrine qui VOIT la mélodie (les 77 notes par run
   ci-dessus prouvent que la matière est là).
+
+---
+
+## 13 août 2026 — ADR-015 lot 3 : `note-helix`, la scène qui VOIT la mélodie
+
+Le chantier mélodie/accords est complet : le lot 1 colorait, le lot 2 émettait,
+le lot 3 DESSINE.
+
+Nouveaux : `src/ui/live/scenes/NoteHelixScene.ts` (7e scène du registre).
+Édités : `scenes/types.ts` (`NoteSet`, `LiveFrame.notes`), `TruthChannel`
+(anneau de notes), `TruthDirector` (tampon de trame pré-alloué),
+`LiveVisualPanel` (câblage), `scenes/index.ts`, `liveScenes.test.ts` (table
+§4.2 étendue), `liveTruth.test.ts` (3 tests ajoutés).
+
+### La géométrie : l'hélice des hauteurs
+
+Une note se place en polaire : sa **classe de hauteur** donne l'ANGLE (cercle
+chromatique), son **octave** donne le RAYON. Un la est donc toujours sur le
+même rayon, quelle que soit l'octave, et les octaves s'empilent vers
+l'extérieur. C'est l'hélice des hauteurs, un objet de théorie musicale — pas
+une disposition décorative : une mélodie y **dessine une forme reconnaissable**,
+et deux notes à l'octave tombent sur le même rayon, ce qu'aucun piano-roll ne
+montre. Un arc relie chaque note à la précédente : la ligne mélodique se trace
+elle-même.
+
+La teinte d'une étoile suit sa position sur le **cercle des quintes**, pas sur
+l'index de sa classe de hauteur — deux notes harmoniquement voisines reçoivent
+donc des teintes voisines, et une gamme chromatique ne produit pas un balayage
+arc-en-ciel. Même raisonnement qu'au lot 1, même module (`util/tonalHue.ts`),
+et la modulation passe par `hexModulated`, bornée par construction.
+
+### Pourquoi ce n'est pas un analyseur (§6.1)
+
+Retirer l'audio ne laisse ni écran vide ni nappe de barres : les douze rayons
+et les anneaux d'octave existent en propre, respirent, et l'ensemble dérive
+lentement ; le noyau bat sur le kick. Les notes ALLUMENT cette structure, elles
+ne la constituent pas. Et surtout — c'est le fond de l'affaire — ce qui est
+montré n'est **pas mesurable par une analyse spectrale** : ce sont les notes
+COMPOSÉES, annoncées par l'hôte avant même d'avoir sonné. C'est exactement ce
+que le canal de vérité rend possible et qu'aucun visualizer par analyse ne peut
+imiter.
+
+### Une décision de test à assumer
+
+Les tests figeaient la table §4.2 par `SCENE_REGISTRY.length === 6` et par la
+liste exacte des scènes jouables en mouvement réduit. Une 7e scène les casse.
+Plutôt que d'assouplir ces assertions, la table de la **passe 1 reste
+intacte** et une seconde liste, explicite, porte les ajouts postérieurs
+(`HORS_PASSE_1`) : une scène de plus ne doit jamais pouvoir masquer une
+régression sur les six d'origine. Le registre était conçu pour cette extension
+(« ajouter une scène = ajouter une entrée ici »).
+
+### Transport des notes — zéro allocation, zéro effet de bord
+
+`LiveFrame.notes` est **optionnel** à dessein : les constructeurs de trame qui
+ne le fournissent pas (banc de mesure) restent valides sans modification, et
+une scène qui l'ignore se comporte exactement comme avant. Le tampon
+(`NOTE_FRAME_CAP = 24`) est pré-alloué et vidé à chaque trame, y compris hors
+mode vérité — une scène ne voit donc jamais les notes de la trame précédente,
+ni celles d'une session perdue.
+
+Une note est traitée comme une **impulsion**, pas comme un état : trop en
+retard, elle est jetée (`fireMaxLateSec`), et la rafale d'activation est
+sautée. Une note qui apparaîtrait une seconde après avoir été entendue serait
+pire qu'absente. C'est l'inverse de l'accord du lot 1, qui s'installe.
+
+### Portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 131 fichiers, 1262 tests verts (1259 -> 1262, +3)
+npm run test:arch   -> 1 test vert
+npm run build       -> 602,98 kB (gzip 173,25 kB), 2,33 s
+```
+
+Les 24 invariants de scène (§3.6, §6, particules) passent sur `note-helix`
+sans exception accordée : aucune coordonnée en pixels, aucun `hsl()`, aucun
+`Math.random` dans `render`, une variante décentrée, `resetCompositing` en
+sortie.
+
+### Ce qui reste
+
+- **Le verdict à l'œil, et il est enfin possible** : alpha21 + visualizer,
+  mode live AUTOMATIQUE, et laisser le director amener `note-helix` (plage
+  d'intensité 0,2-0,8) — ou la verrouiller à la main depuis le panneau.
+- La scène ne consomme pas encore `quality` (majeur/mineur) : le lot 2 a
+  montré que `_detectChordName` retourne souvent `?`, améliorer la détection
+  changerait aussi l'export statique. Lot séparé si le besoin se confirme.

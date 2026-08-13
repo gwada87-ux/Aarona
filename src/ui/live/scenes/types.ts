@@ -86,6 +86,25 @@ export interface SceneLayer {
   readonly image: CanvasImageSource;
 }
 
+/**
+ * Notes ANNONCEES tombees pendant cette trame (ADR-015, lot 3). Interface a
+ * accesseurs plutot que tableau d'objets, pour la meme raison qu'`OnsetSet` :
+ * le tampon est pre-alloue et reutilise, une scene ne provoque aucune
+ * allocation en le lisant (docs/10, zero allocation dans la boucle).
+ *
+ * Rappel de §6.1 : une scene qui se contenterait de DESSINER ces notes serait
+ * un piano-roll, donc un analyseur deguise. Elles sont une MATIERE, pas un
+ * affichage.
+ */
+export interface NoteSet {
+  /** Combien de notes sont tombees pendant cette trame. */
+  readonly count: number;
+  /** Hauteur MIDI de la i-eme note (decimale autorisee, doc 12). */
+  midi(i: number): number;
+  /** Velocite 0-1 de la i-eme note. */
+  velocity(i: number): number;
+}
+
 export interface SceneContext {
   /** Surface de SCENE - un buffer, jamais l'ecran. */
   readonly ctx: CanvasRenderingContext2D;
@@ -136,6 +155,15 @@ export interface LiveFrame {
    * Lit les phases VISUELLES, donc deja decalees de `syncOffsetMs`.
    */
   readonly gridAccent: (decayBeats: number) => number;
+  /**
+   * Notes annoncees par l'hote pendant cette trame (ADR-015). OPTIONNEL a
+   * dessein : il n'y en a que si le canal de verite est actif ET que l'hote
+   * emet des notes (flag `_PMDI_LIVE_NOTES_V1` cote Beat Studio). Une scene
+   * qui l'ignore se comporte exactement comme avant ce chantier, et les
+   * constructeurs de trame qui ne le fournissent pas (banc de mesure) restent
+   * valides sans modification.
+   */
+  readonly notes?: NoteSet;
 }
 
 export interface LiveScene {

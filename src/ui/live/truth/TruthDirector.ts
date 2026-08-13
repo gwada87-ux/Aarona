@@ -28,6 +28,44 @@ import type { LiveAnalysisEngine } from '../audio/LiveAnalysisEngine';
 import type { LiveTruthConfig } from '../LiveConfig';
 import { ClockAligner } from './ClockAligner';
 import { TruthChannel, type TruthIngestResult } from './TruthChannel';
+import type { NoteSet } from '../scenes/types';
+
+/**
+ * Combien de notes une seule trame peut porter. Un accord plaque en croches
+ * sur deux pistes en produit une poignee ; 24 laisse une marge confortable
+ * sans jamais allouer. Au-dela, les notes surnumeraires sont ignorees : mieux
+ * vaut une trame dense tronquee qu'une allocation dans la boucle de rendu.
+ */
+const NOTE_FRAME_CAP = 24;
+
+class LiveNoteBuffer implements NoteSet {
+  private readonly midis = new Float32Array(NOTE_FRAME_CAP);
+  private readonly vels = new Float32Array(NOTE_FRAME_CAP);
+  private n = 0;
+
+  get count(): number {
+    return this.n;
+  }
+
+  midi(i: number): number {
+    return i >= 0 && i < this.n ? this.midis[i]! : 0;
+  }
+
+  velocity(i: number): number {
+    return i >= 0 && i < this.n ? this.vels[i]! : 0;
+  }
+
+  clear(): void {
+    this.n = 0;
+  }
+
+  push(midi: number, velocity: number): void {
+    if (this.n >= NOTE_FRAME_CAP) return;
+    this.midis[this.n] = midi;
+    this.vels[this.n] = velocity;
+    this.n++;
+  }
+}
 
 export class TruthDirector {
   readonly channel: TruthChannel;
@@ -56,6 +94,15 @@ export class TruthDirector {
   tonalCenter = -1;
   private chordCursor = 0;
 
+  /**
+   * Notes tombees pendant la trame courante (ADR-015, lot 3). Tampon
+   * PRE-ALLOUE et reutilise : lire ou remplir cette structure n'alloue rien
+   * (docs/10). Vide a chaque trame, y compris hors mode verite — une scene
+   * voit donc zero note des que le canal se retire, sans cas particulier.
+   */
+  readonly notes = new LiveNoteBuffer();
+  private noteCursor = 0;
+
   constructor(private readonly config: LiveTruthConfig) {
     this.channel = new TruthChannel(config);
     this.aligner = new ClockAligner(config);
@@ -67,6 +114,9 @@ export class TruthDirector {
   }
 
   step(tLocalNow: number, engine: LiveAnalysisEngine): void {
+    // Vide a CHAQUE trame, avant tout : une trame sans verite doit montrer
+    // zero note, pas les notes de la trame precedente.
+    this.notes.clear();
     if (this.channel.takeReset()) {
       this.aligner.reset();
       this.eventCursor = this.channel.eventSeq;
@@ -74,6 +124,7 @@ export class TruthDirector {
       this.chordCursor = this.channel.chordSeq;
       this.chordRoot = -1;
       this.tonalCenter = -1;
+      this.noteCursor = this.channel.noteSeq;
     }
 
     // Alimentation de l'aligneur : tout kick DETECTE depuis la derniere
@@ -108,6 +159,7 @@ export class TruthDirector {
         // On saute tout ce qui est deja du, on ne tire que l'avenir.
         this.fireDueEvents(tLocalNow, engine, !wasActive);
         this.installDueChords(tLocalNow, engine);
+        this.collectDueNotes(tLocalNow, engine, !wasActive);
       }
     } else if (this.active) {
       engine.beat.clearTruth();
@@ -122,7 +174,30 @@ export class TruthDirector {
       // ferait sauter la couleur a chaque micro-coupure.
       this.chordCursor = this.channel.chordSeq;
       this.chordRoot = -1;
+      this.noteCursor = this.channel.noteSeq;
       this.active = false;
+    }
+  }
+
+  /**
+   * Rassemble les notes dont l'instant VISUEL est atteint — meme convention
+   * que les frappes et les accords. Contrairement a un accord, une note est
+   * une IMPULSION : trop en retard, elle est jetee comme une frappe ratee
+   * (`fireMaxLateSec`), et la rafale d'activation est sautee. Une note qu'on
+   * verrait apparaitre une seconde apres l'avoir entendue serait pire
+   * qu'absente.
+   */
+  private collectDueNotes(tLocalNow: number, engine: LiveAnalysisEngine, skipDue: boolean): void {
+    const ch = this.channel;
+    if (this.noteCursor < ch.noteSeqFloor) this.noteCursor = ch.noteSeqFloor;
+    const syncSec = engine.beat.sync.totalMs / 1000;
+    while (this.noteCursor < ch.noteSeq) {
+      const seq = this.noteCursor;
+      const tFire = ch.noteHostTimeAt(seq) + this.aligner.offsetSec - syncSec;
+      if (tFire > tLocalNow) break;
+      this.noteCursor++;
+      if (skipDue || tLocalNow - tFire > this.config.fireMaxLateSec) continue;
+      this.notes.push(ch.noteMidiAt(seq), ch.noteVelAt(seq));
     }
   }
 

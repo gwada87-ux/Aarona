@@ -59,6 +59,11 @@ export class TruthChannel {
   private readonly chordT: Float64Array;
   private readonly chordRoot: Uint8Array;
   private chordSeqW = 0;
+  /** File des NOTES annoncees (ADR-015, lot 3) - trois rings paralleles, meme discipline que les evenements. */
+  private readonly noteT: Float64Array;
+  private readonly noteMidi: Float32Array;
+  private readonly noteVel: Float32Array;
+  private noteSeqW = 0;
   /** Ecarts arrivee locale - tHost, pour l'amorce grossiere de l'aligneur. */
   private readonly arrivals: Float64Array;
   private arrivalCount = 0;
@@ -89,6 +94,9 @@ export class TruthChannel {
     this.eventVel = new Float32Array(config.eventRingSize);
     this.chordT = new Float64Array(config.eventRingSize);
     this.chordRoot = new Uint8Array(config.eventRingSize);
+    this.noteT = new Float64Array(config.eventRingSize);
+    this.noteMidi = new Float32Array(config.eventRingSize);
+    this.noteVel = new Float32Array(config.eventRingSize);
   }
 
   /**
@@ -173,6 +181,16 @@ export class TruthChannel {
           this.rejected++;
           return 'rejected';
         }
+        // ADR-015 lot 3 : mise en file pour la scene vitrine. La velocite
+        // absente ou aberrante vaut 1 - une note SONNE, l'ignorer pour un
+        // champ optionnel manquant serait pire que la supposer pleine.
+        const rawVel = p['velocity'];
+        const vel = typeof rawVel === 'number' && Number.isFinite(rawVel) && rawVel > 0 ? Math.min(1, rawVel) : 1;
+        const n = this.noteSeqW % this.noteT.length;
+        this.noteT[n] = msg.tHost;
+        this.noteMidi[n] = midi;
+        this.noteVel[n] = vel;
+        this.noteSeqW++;
         this.accepted++;
         return 'accepted';
       }
@@ -255,6 +273,28 @@ export class TruthChannel {
     return this.chordRoot[seq % this.chordRoot.length]!;
   }
 
+  /** Sequence d'ecriture de la file de notes (ADR-015 lot 3). */
+  get noteSeq(): number {
+    return this.noteSeqW;
+  }
+
+  /** Plus ancienne sequence de note encore presente dans le ring. */
+  get noteSeqFloor(): number {
+    return Math.max(0, this.noteSeqW - this.noteT.length);
+  }
+
+  noteHostTimeAt(seq: number): number {
+    return this.noteT[seq % this.noteT.length]!;
+  }
+
+  noteMidiAt(seq: number): number {
+    return this.noteMidi[seq % this.noteMidi.length]!;
+  }
+
+  noteVelAt(seq: number): number {
+    return this.noteVel[seq % this.noteVel.length]!;
+  }
+
   get arrivalSamples(): number {
     return this.arrivalCount;
   }
@@ -278,6 +318,7 @@ export class TruthChannel {
     this.kickSeq = 0;
     this.eventSeqW = 0;
     this.chordSeqW = 0;
+    this.noteSeqW = 0;
     this.arrivalCount = 0;
     this.arrivalIndex = 0;
     this.lastMessageLocal = Number.NEGATIVE_INFINITY;
