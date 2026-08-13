@@ -562,3 +562,64 @@ describe('ADR-015 lot 3 - transport des notes jusqu\'aux scenes', () => {
     expect(c.noteSeqFloor).toBeGreaterThan(0);
   });
 });
+
+describe('SESSION F - anticipation exposee aux scenes (ADR-012)', () => {
+  it('sans canal de verite, rien n\'est annonce : +Infinity, jamais une valeur inventee', () => {
+    const truth = new TruthDirector(makeConfig().truth);
+    for (const kind of ['kick', 'snare', 'hat'] as const) {
+      expect(truth.anticipation.nextIn(kind)).toBe(Number.POSITIVE_INFINITY);
+    }
+  });
+
+  it('bout en bout : l\'avance vaut le lookahead de l\'hote, et decroit vers l\'impact', () => {
+    const signal = clickTrack(BPM, 30, { jitterPct: 0 });
+    const engine = createEngine(signal);
+    const truth = new TruthDirector(makeConfig().truth);
+    const messages = buildHostMessages(signal);
+    let msgIndex = 0;
+
+    const avances: number[] = [];
+    let vuFini = 0;
+    let vuInfini = 0;
+    let maxAvance = 0;
+    /** Suites strictement decroissantes : l'avance doit fondre vers l'impact. */
+    let decroissances = 0;
+    let precedente = Number.POSITIVE_INFINITY;
+
+    record(engine, signal, {
+      onFrame: (ctx) => {
+        while (msgIndex < messages.length && messages[msgIndex]!.tArr <= ctx.tAudio) {
+          truth.ingest(ctx.tAudio, messages[msgIndex]!.raw);
+          msgIndex++;
+        }
+        truth.step(ctx.tAudio, ctx.engine);
+        const dt = truth.anticipation.nextIn('kick');
+        if (Number.isFinite(dt)) {
+          vuFini++;
+          avances.push(dt);
+          if (dt > maxAvance) maxAvance = dt;
+          if (truth.active && dt < precedente) decroissances++;
+          precedente = dt;
+        } else {
+          vuInfini++;
+          precedente = Number.POSITIVE_INFINITY;
+        }
+      },
+    });
+
+    expect(vuFini, 'des frappes ont ete annoncees a l\'avance').toBeGreaterThan(20);
+    // L'avance ne peut jamais depasser le lookahead du scheduler hote : au-dela,
+    // rien n'est encore annonce. C'est la garantie qui rend la retenue bornee.
+    expect(maxAvance).toBeLessThanOrEqual(LOOKAHEAD_SEC + 0.02);
+    expect(Math.min(...avances), 'l\'avance descend bien pres de zero').toBeLessThan(0.03);
+    expect(decroissances, 'l\'avance fond vers l\'impact').toBeGreaterThan(10);
+    // Avant convergence de l'aligneur, aucune avance n'est publiee : une
+    // anticipation non alignee serait pire qu'absente.
+    expect(vuInfini).toBeGreaterThan(0);
+  });
+
+  it('une famille inconnue ne renvoie jamais de valeur', () => {
+    const truth = new TruthDirector(makeConfig().truth);
+    expect(truth.anticipation.nextIn('perc' as unknown as 'kick')).toBe(Number.POSITIVE_INFINITY);
+  });
+});

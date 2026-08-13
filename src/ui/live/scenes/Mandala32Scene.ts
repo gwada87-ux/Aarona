@@ -49,6 +49,15 @@ const VARIANTS: readonly Variant[] = [
 
 /** Suite de secteurs imposee par §4.2. */
 const SEGMENTS = [6, 8, 12, 16] as const;
+/**
+ * Fenetre de RETENUE avant une frappe annoncee (SESSION F), en secondes.
+ * 60 ms — environ quatre trames a 60 Hz : assez pour que le geste se voie,
+ * assez peu pour qu'il appartienne encore a la frappe et ne devienne pas une
+ * animation autonome. Borne par le lookahead du scheduler hote (~100 ms), au
+ * -dela duquel il n'y a de toute facon rien d'annonce.
+ */
+const PREARM_SEC = 0.06;
+
 /** Plafond d'ondes de choc simultanees. */
 const MAX_WAVES = 6;
 const WAVE_LIFE = 0.9;
@@ -133,7 +142,15 @@ export class Mandala32Scene implements LiveScene {
     const cx = v.centerX * view.w;
     const cy = v.centerY * view.h;
     const scale = v.closeUp ? 1.55 : 1;
-    const inner = unit * 0.09 * scale * (1 + kick * 0.18 * amp);
+    // SESSION F — l'avance d'annonce, quand elle existe. `+Infinity` (aucun
+    // canal, ou rien d'annonce) donne une charge nulle : tout ce qui suit est
+    // alors inerte, et la scene rend exactement ce qu'elle rendait avant.
+    const nextKick = frame.anticipation?.nextIn('kick') ?? Number.POSITIVE_INFINITY;
+    const charge = nextKick < PREARM_SEC ? 1 - nextKick / PREARM_SEC : 0;
+
+    // Le noyau se CONTRACTE pendant la retenue, puis se dilate sur la frappe :
+    // deux gestes opposes, donc lisibles l'un apres l'autre.
+    const inner = unit * 0.09 * scale * (1 + kick * 0.18 * amp - charge * 0.06 * amp);
     const reach = unit * 0.34 * scale;
 
     // Rotation sur la PHRASE : deuxieme parametre, deuxieme source.
@@ -170,6 +187,26 @@ export class Mandala32Scene implements LiveScene {
         ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
         ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
       }
+      ctx.stroke();
+    }
+
+    // --- RETENUE AVANT IMPACT (SESSION F, anticipation d'ADR-012) ----------
+    // L'hote annonce ses frappes avant qu'elles ne sonnent : l'onde de choc
+    // peut donc s'ARMER au lieu de seulement reagir. Un anneau fin converge
+    // vers le noyau pendant les dernieres millisecondes, et l'onde part de
+    // l'endroit exact ou il arrive. C'est l'inverse d'un effet reactif : on
+    // voit le systeme INSPIRER.
+    //
+    // Sans canal de verite, `nextIn` vaut `+Infinity`, `charge` reste nul et
+    // ce bloc ne dessine rien — la scene est alors strictement celle d'avant.
+    if (charge > 0) {
+      ctx.globalAlpha = charge * charge * 0.45 * amp;
+      ctx.strokeStyle = palette.hex('highlight');
+      ctx.lineWidth = Math.max(1, unit * 0.0025 * amp);
+      ctx.beginPath();
+      // Converge de l'exterieur vers le noyau : a l'impact, il l'atteint
+      // exactement, et l'onde repart de la.
+      ctx.arc(cx, cy, inner + reach * 0.5 * (1 - charge), 0, Math.PI * 2);
       ctx.stroke();
     }
 

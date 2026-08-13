@@ -105,6 +105,25 @@ export interface NoteSet {
   velocity(i: number): number;
 }
 
+/**
+ * ANTICIPATION (ADR-012, « l'anticipation ~100 ms est exposee au dispatcher »).
+ * L'hote annonce ses frappes au moment ou son scheduler les PLANIFIE, donc
+ * avant qu'elles ne sonnent : on connait l'avenir proche, et une scene peut
+ * s'y PREPARER — retenue avant impact, charge d'un anneau, inspiration avant
+ * le coup.
+ *
+ * C'est la seule information du canal de verite qu'AUCUNE analyse ne pourra
+ * jamais fournir : un detecteur ne connait le passe qu'apres coup.
+ */
+export interface Anticipation {
+  /**
+   * Secondes avant l'instant VISUEL de la prochaine frappe ANNONCEE de ce
+   * type. `+Infinity` si rien n'est annonce — une scene doit donc toujours
+   * savoir se passer de la reponse.
+   */
+  nextIn(kind: OnsetKind): number;
+}
+
 export interface SceneContext {
   /** Surface de SCENE - un buffer, jamais l'ecran. */
   readonly ctx: CanvasRenderingContext2D;
@@ -164,6 +183,13 @@ export interface LiveFrame {
    * valides sans modification.
    */
   readonly notes?: NoteSet;
+  /**
+   * Avance d'annonce du canal de verite (ADR-012). OPTIONNEL, comme `notes` :
+   * absent sans canal, et une scene qui l'ignore se comporte exactement comme
+   * avant. Une scene qui le lit doit rester juste quand il vaut `+Infinity` —
+   * c'est le cas nominal sur du son externe.
+   */
+  readonly anticipation?: Anticipation;
 }
 
 export interface LiveScene {

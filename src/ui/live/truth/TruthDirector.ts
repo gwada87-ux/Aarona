@@ -28,7 +28,8 @@ import type { LiveAnalysisEngine } from '../audio/LiveAnalysisEngine';
 import type { LiveTruthConfig } from '../LiveConfig';
 import { ClockAligner } from './ClockAligner';
 import { TruthChannel, type TruthIngestResult } from './TruthChannel';
-import type { NoteSet } from '../scenes/types';
+import type { Anticipation, NoteSet } from '../scenes/types';
+import type { OnsetKind } from '../audio/OnsetDetector';
 
 /**
  * Combien de notes une seule trame peut porter. Un accord plaque en croches
@@ -64,6 +65,37 @@ class LiveNoteBuffer implements NoteSet {
     this.midis[this.n] = midi;
     this.vels[this.n] = velocity;
     this.n++;
+  }
+}
+
+/** Ordre des familles dans les tampons d'anticipation — celui de `KIND_CODE`. */
+const ANTICIPATED_KINDS: readonly OnsetKind[] = ['kick', 'snare', 'hat'];
+
+/**
+ * Avance d'annonce par famille (SESSION F). Tampon PRE-ALLOUE, recalcule a
+ * chaque trame : lire cette structure n'alloue rien.
+ */
+class LiveAnticipation implements Anticipation {
+  private readonly nextInSec = new Float32Array(ANTICIPATED_KINDS.length);
+
+  constructor() {
+    this.clear();
+  }
+
+  nextIn(kind: OnsetKind): number {
+    const i = ANTICIPATED_KINDS.indexOf(kind);
+    return i < 0 ? Number.POSITIVE_INFINITY : this.nextInSec[i]!;
+  }
+
+  clear(): void {
+    this.nextInSec.fill(Number.POSITIVE_INFINITY);
+  }
+
+  /** Retient le PLUS PROCHE : la file est chronologique, mais on ne le suppose pas. */
+  offer(kind: OnsetKind, sec: number): void {
+    const i = ANTICIPATED_KINDS.indexOf(kind);
+    if (i < 0) return;
+    if (sec < this.nextInSec[i]!) this.nextInSec[i] = sec;
   }
 }
 
@@ -103,6 +135,13 @@ export class TruthDirector {
   readonly notes = new LiveNoteBuffer();
   private noteCursor = 0;
 
+  /**
+   * Avance d'annonce exposee aux scenes (SESSION F). Remise a `+Infinity` a
+   * chaque trame : hors mode verite, une scene lit donc « rien d'annonce » et
+   * retombe naturellement sur son comportement reactif.
+   */
+  readonly anticipation = new LiveAnticipation();
+
   constructor(private readonly config: LiveTruthConfig) {
     this.channel = new TruthChannel(config);
     this.aligner = new ClockAligner(config);
@@ -117,6 +156,7 @@ export class TruthDirector {
     // Vide a CHAQUE trame, avant tout : une trame sans verite doit montrer
     // zero note, pas les notes de la trame precedente.
     this.notes.clear();
+    this.anticipation.clear();
     if (this.channel.takeReset()) {
       this.aligner.reset();
       this.eventCursor = this.channel.eventSeq;
@@ -160,6 +200,7 @@ export class TruthDirector {
         this.fireDueEvents(tLocalNow, engine, !wasActive);
         this.installDueChords(tLocalNow, engine);
         this.collectDueNotes(tLocalNow, engine, !wasActive);
+        this.scanAnticipation(tLocalNow, engine);
       }
     } else if (this.active) {
       engine.beat.clearTruth();
@@ -176,6 +217,25 @@ export class TruthDirector {
       this.chordRoot = -1;
       this.noteCursor = this.channel.noteSeq;
       this.active = false;
+    }
+  }
+
+  /**
+   * Mesure l'avance des frappes ENCORE A VENIR (SESSION F). Appelee APRES
+   * `fireDueEvents`, donc le curseur pointe deja au-dela de tout ce qui est
+   * du : les entrees restantes sont exactement l'avenir connu.
+   *
+   * Le parcours est borne par la taille de la file en attente, laquelle ne
+   * contient que le lookahead du scheduler hote (~100 ms) — une poignee
+   * d'entrees, pas un historique.
+   */
+  private scanAnticipation(tLocalNow: number, engine: LiveAnalysisEngine): void {
+    const ch = this.channel;
+    const syncSec = engine.beat.sync.totalMs / 1000;
+    for (let seq = Math.max(this.eventCursor, ch.eventSeqFloor); seq < ch.eventSeq; seq++) {
+      const tFire = ch.eventHostTimeAt(seq) + this.aligner.offsetSec - syncSec;
+      if (tFire <= tLocalNow) continue;
+      this.anticipation.offer(ch.eventKindAt(seq), tFire - tLocalNow);
     }
   }
 

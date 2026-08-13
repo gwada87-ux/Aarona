@@ -8068,3 +8068,71 @@ sortie.
 - La scène ne consomme pas encore `quality` (majeur/mineur) : le lot 2 a
   montré que `_detectChordName` retourne souvent `?`, améliorer la détection
   changerait aussi l'export statique. Lot séparé si le besoin se confirme.
+
+---
+
+## 13 août 2026 — SESSION F : l'anticipation devient visible (retenue avant impact)
+
+ADR-012 promettait que l'avance d'annonce (~100 ms) serait « exposée au
+dispatcher ». Elle l'est enfin, et surtout : **quelque chose s'en sert.**
+
+Édités : `scenes/types.ts` (`Anticipation`, `LiveFrame.anticipation`),
+`TruthDirector` (mesure de l'avance), `LiveVisualPanel` (câblage),
+`Mandala32Scene` (le consommateur), `liveTruth.test.ts` (3 tests ajoutés).
+
+### La règle « pas d'API sans consommateur », tenue
+
+L'exposition et son usage sont livrés dans le MÊME lot, comme `docs/20` le
+demandait. Une API d'anticipation sans scène qui s'en serve n'aurait été
+qu'une promesse de plus à maintenir.
+
+### Ce que ça change à l'écran
+
+`mandala-32` **arme** désormais son onde de choc au lieu de seulement y
+réagir : pendant les 60 ms qui précèdent un kick ANNONCÉ, un anneau fin
+converge vers le noyau, et le noyau se CONTRACTE — puis l'onde repart de
+l'endroit exact où l'anneau arrive. Deux gestes opposés, donc lisibles l'un
+après l'autre : on voit le système INSPIRER avant de frapper.
+
+C'est la première chose du produit qu'aucune analyse ne pourra jamais faire.
+Un détecteur ne connaît le passé qu'après coup ; seule la vérité annoncée
+permet de se préparer. C'était l'argument central d'ADR-012 — il est
+maintenant démontré à l'image, pas seulement dans un ADR.
+
+### Inerte par construction
+
+`nextIn(kind)` vaut `+Infinity` quand rien n'est annoncé — sans canal, sur du
+son externe, ou avant convergence de l'aligneur. La charge est alors nulle et
+le bloc ne dessine rien : `mandala-32` rend exactement ce qu'elle rendait
+avant. Même discipline que `notes` au lot 3, et `anticipation` est
+OPTIONNEL sur `LiveFrame` pour la même raison — aucun constructeur de trame
+existant n'a été touché.
+
+### Ce que le banc a vérifié
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 131 fichiers, 1265 tests verts (1262 -> 1265, +3)
+npm run test:arch   -> 1 test vert
+npm run build       -> 603,97 kB (gzip 173,54 kB), 2,29 s
+```
+
+Trois propriétés mesurées sur l'hôte synthétique, et deux d'entre elles sont
+des garde-fous plus que des confirmations :
+
+- **l'avance ne dépasse JAMAIS le lookahead de l'hôte** (~100 ms). C'est ce
+  qui borne la retenue : une scène ne peut pas s'armer plus tôt que ce que
+  l'hôte a réellement planifié ;
+- **elle fond vers zéro** à l'approche de l'impact (décroissances comptées) ;
+- **rien n'est publié avant convergence de l'aligneur** — une anticipation
+  non alignée serait pire qu'absente, elle armerait au mauvais moment.
+
+### Limites connues
+
+- Un seul consommateur (`mandala-32`, sur le kick). `laser-tunnel` était
+  l'autre candidat de `docs/20` ; l'y ajouter est une ligne, mais deux scènes
+  qui inspirent en même temps n'apportent rien tant que la première n'a pas
+  été jugée à l'œil.
+- La fenêtre de 60 ms est un choix, pas une mesure : assez pour que le geste
+  se voie, assez peu pour qu'il appartienne encore à la frappe. À réviser au
+  verdict.
