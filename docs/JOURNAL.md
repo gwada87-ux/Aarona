@@ -8463,3 +8463,40 @@ qu'un traité d'harmonie exigerait. Deux conventions y sont des CHOIX
 assumés — les renversements sont nommés par leur fondamentale et non en
 accord barré (`C/E`), et une dyade conserve la lecture d'avant faute de preuve
 suffisante.
+
+---
+
+## 13 août 2026 — Le banc appliqué à toute la lignée : mesure de la régression
+
+`banc_accords.js` rendu TOLERANT aux versions anciennes (gabarits, choix de
+fondamentale et normalisation deviennent facultatifs à l'extraction). Sans
+cela il ne savait mesurer que la dernière version — c'est-à-dire tout sauf
+une régression.
+
+| version | faux / 15 | lot |
+|---|---|---|
+| alpha20 · alpha21 | **12** | état d'origine |
+| alpha22 | 8 | la quinte n'est plus exigée (`_CHORD_DETECT_V2`) |
+| alpha23 | 4 | fondamentale par gabarits (`_CHORD_ROOT_V3`) |
+| alpha24 | 2 | `m7` → `min7` (`_PMDI_QUALITY_NORM_V1`) |
+| alpha25 | **0** | `sus47` → `7sus4` (`_CHORD_SUS_ORDER_V1`) |
+
+Sur alpha21, seuls trois accords passaient : les triades en position
+fondamentale, quinte présente. Tout le reste sortait `E?`, `C?`, `G?7`.
+
+### Ce que la mesure dit et qui n'est pas flatteur
+
+**alpha22, pris isolément, échange des `?` contre des réponses CONFIANTES ET
+FAUSSES.** `['E3','G3','C4']` passe de `E?` — « je ne sais pas » — à `Em`,
+alors que c'est un do majeur renversé. Le point d'interrogation signalait au
+moins le doute. Il a fallu la fondamentale par gabarits (alpha23) pour que ces
+cas deviennent justes.
+
+Le progrès est donc net (12 → 8 → 4 → 2 → 0) mais **pas monotone en
+qualité d'erreur** : c'est l'enchaînement des quatre lots qui est correct, pas
+chacun pris seul. À retenir avant de livrer un maillon de cette chaîne sans
+les autres.
+
+À partir d'alpha23, les erreurs restantes ne portaient plus que sur
+l'ORTHOGRAPHE (`m7`, `sus47`) : les accords étaient déjà correctement
+identifiés.
