@@ -7645,3 +7645,91 @@ panneau debug ouvert — lire p50/p95/p99. C'est le critère d'ADR-002/013.
 - Le tonemap suppose la scène OPAQUE (vrai pour tous les styles : clear
   systématique). Un style futur qui rendrait sur fond transparent devrait
   revisiter la note d'alpha ci-dessus.
+
+---
+
+## 13 août 2026 — ADR-013 lot 3 : WebGL2 par défaut, aperçu ET export
+
+Nouveaux : `src/render/backendChoice.ts` (décision PURE + `tests/unit/
+backendChoice.test.ts`, 7 tests), `src/render/createRenderer.ts` (fabrique
+unique + `disposeRenderer`). Édités : `WebGL2Renderer` (`dispose()`, blit
+final durci), `createOffscreenExportTarget` (backend transmis + `dispose`),
+`ui/App.ts` (fabrique, `?renderer=` élargi, libération après export fixe),
+`ui/dialogs/ExportDialog.ts` (même backend, libération dans le `finally`),
+`ui/styleThumbnails.ts` (commentaire : Canvas 2D délibéré), `docs/10`.
+
+### La décision structurante : l'export bascule AVEC l'aperçu
+
+C'était la question ouverte du lot. Laisser l'export en Canvas 2D aurait eu
+deux conséquences inacceptables : l'aperçu montrerait le « look » HDR du
+lot 2 et la vidéo livrerait autre chose — l'aperçu MENTIRAIT sur le fichier —
+et le critère golden « preview ≡ export (< 2 % de pixels) » comparerait deux
+rasterizers différents, exactement ce qu'ADR-013 exclut (« sur le MÊME
+backend »). Les deux passent donc par `createRenderer`.
+
+Conséquence d'architecture : la fabrique vit dans `render/`, pas dans `ui/` —
+`export/` en a besoin et n'a pas le droit d'importer `ui/` (docs/02). La
+DÉCISION de l'utilisateur reste bien dans `ui/`, qui lit `?renderer=` et
+passe l'`override` ; la fabrique ne connaît ni URL ni DOM. Test
+d'architecture vert, `render/ -> core` inchangé.
+
+### Deux gardes que la mise en production exigeait
+
+1. **Libération du contexte GL après chaque export.** Un navigateur borne le
+   nombre de contextes WebGL vivants (~16) et tue le PLUS ANCIEN au-delà —
+   c'est-à-dire celui de l'aperçu. Sans libération, une dizaine d'exports
+   auraient fait basculer l'aperçu en Canvas 2D sans que rien ne l'explique.
+   `WebGL2Renderer.dispose()` (`WEBGL_lose_context`) est appelé dans le
+   `finally` des deux chemins d'export, et par le repli sur contexte perdu.
+   **Vérifié : 6 exports successifs, l'aperçu rend toujours en WebGL2.**
+2. **Blit final en espace écran garanti.** Le canvas d'affichage n'appartient
+   pas qu'au renderer : le `FlashLimiter` y écrit, et en session directe le
+   pipeline live aussi. Une transformation laissée par un autre écrivain
+   aurait décalé l'image entière. Le blit est désormais encadré par
+   `save`/`setTransform(identité)`/`restore` — un par image, pas un par
+   primitive.
+
+**Les vignettes de style restent Canvas 2D, délibérément** : huit contextes
+WebGL recréés à chaque changement de palette évinceraient celui de l'aperçu,
+et une vignette 160×90 ne montre ni halo étendu ni haute lumière.
+
+### Vérification au navigateur (sonde headless, style `field`, t = 6 s)
+
+| | contextes WebGL2 | luminance max | export d'image fixe |
+|---|---|---|---|
+| **sans paramètre (défaut)** | 1 (aperçu) → 2 (export) | **172** | PNG 1920×1080, 355 Ko |
+| **`?renderer=canvas2d`** | **0** | **255** | PNG 1920×1080, 947 Ko |
+
+Les deux signatures sont sans ambiguïté : le défaut crée un contexte GL et la
+luminance max plafonne à 172 (le cœur de `field` GARDE sa teinte), tandis que
+le repli forcé n'en crée aucun et écrête à 255 (blanc pur, signature 8 bits).
+Le second contexte au moment de l'export prouve que l'export suit bien
+l'aperçu ; il retombe à zéro création supplémentaire quand `canvas2d` est
+forcé. **Zéro erreur console, zéro repli intempestif dans les deux cas.**
+
+### Portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 130 fichiers, 1239 tests verts (1232 -> 1239, +7)
+npm run test:arch   -> 1 test vert
+npm run build       -> 595,19 kB (gzip 171,09 kB), 2,26 s
+```
+
+`exportDeterminism` reste vert et le RESTERA quel que soit le backend : il
+teste la séquence de sous-pas, pas les pixels (voir son en-tête).
+
+### Ce qui reste ouvert — et c'est à Aaron
+
+- **Le critère 60 fps p95 en 1080p n'est PAS vérifié.** La sonde tourne en
+  SwiftShader (rendu logiciel) : ses temps ne disent rien d'un vrai GPU.
+  Procédure de mesure en 5 minutes dans `docs/10_PERFORMANCE.md` (panneau de
+  debug, fenêtre au premier plan). **Si le p95 dépasse 16,6 ms sur ta
+  machine, `?renderer=canvas2d` rétablit l'état d'avant immédiatement**, et
+  la bascule se rediscute.
+- **`QualityGovernor`/`qualityLevels` non ré-étalonnés, délibérément** :
+  leurs seuils viennent de mesures Canvas 2D réelles ; les remplacer par des
+  valeurs déduites d'un rendu logiciel serait pire que ne rien changer.
+- Le critère produit de `01_VISION.md` — « le rendu est jugé pro sur
+  comparaison à l'aveugle » — n'est pas fermable par une mesure : c'est le
+  verdict d'Aaron, sur le tour complet import → aperçu → export.

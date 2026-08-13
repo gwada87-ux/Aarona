@@ -27,6 +27,35 @@ Une machine plus modeste doit rester **utilisable** grâce au `QualityGovernor`,
 Un budget consommé à 96 % peut sembler tendu. C'est volontaire : un budget confortable produit du
 code paresseux, et la marge réelle vient du `QualityGovernor`.
 
+### Ce que la bascule GPU change dans ce tableau (ADR-013, lot 3)
+
+Le backend par défaut est **WebGL2** depuis le lot 3 ; Canvas 2D reste le repli. Le tableau
+ci-dessus est un budget de **temps CPU par image**, et il ne change pas de VALEURS — mais la nature
+de deux lignes change :
+
+- **`Scene.draw`** ne rasterise plus : elle empile des commandes GL. Le coût CPU baisse, le coût
+  réel se déplace vers le GPU, que ce tableau ne mesure pas.
+- **Présentation** absorbe des étapes nouvelles et INCOMPRESSIBLES, payées à chaque image quelle que
+  soit la scène : 1 à 4 résolutions MSAA, la chaîne MIP du bloom, la passe de tone mapping, puis un
+  `drawImage` plein cadre du canvas GL vers le canvas d'affichage 2D (ce blit est ce qui garde le
+  `FlashLimiter` opérant — voir l'en-tête de `WebGL2Renderer`). C'est la ligne à surveiller.
+
+**Ces chiffres n'ont PAS été re-mesurés sur GPU réel** : la sonde automatisée du projet tourne en
+headless SwiftShader, c'est-à-dire en rendu 100 % logiciel — ses temps (≈ 780 ms/image en 1080p) ne
+disent rien d'une carte graphique. Tant que la mesure réelle n'est pas faite, le tableau reste la
+cible, et le `QualityGovernor` la protection.
+
+**Procédure de mesure réelle** (5 minutes, à faire fenêtre au premier plan — un onglet en arrière-plan
+est bridé par le navigateur et fausse tout) : ouvrir l'application sans paramètre d'URL, style
+`field`, qualité HIGH forcée, panneau de debug ouvert, puis lire `p50 / p95 / p99`. Le critère
+d'ADR-002 repris par ADR-013 est **60 fps p95 en 1080p** sur la scène de référence (`Field`, HIGH,
+2 500 particules, bloom). Comparer avec `?renderer=canvas2d` donne l'écart entre les deux backends
+sur la même machine.
+
+**Ré-étalonnage de `QualityGovernor`/`qualityLevels` : délibérément NON fait.** Les seuils actuels
+ont été choisis sur des mesures Canvas 2D réelles ; les remplacer par des valeurs déduites d'un
+rendu logiciel serait pire que ne rien changer. À rouvrir quand la mesure ci-dessus existe.
+
 ---
 
 ## Les quatre niveaux de qualité
@@ -164,8 +193,8 @@ important.
 | Analyse audio | Worker | 8 s de calcul bloquerait tout |
 | Décodage audio | thread principal | `decodeAudioData` y est déjà asynchrone |
 | Pics de waveform | Worker | traite le même tampon, déjà transféré |
-| Rendu de preview | thread principal | Canvas 2D visible ; `OffscreenCanvas` en V2 |
-| Rendu d'export | thread principal (V1), Worker (V2) | libère l'onglet pendant un long export |
+| Rendu de preview | thread principal | WebGL2 par défaut depuis ADR-013 lot 3 (Canvas 2D en repli), composé hors écran puis blitté sur le canvas visible |
+| Rendu d'export | thread principal (V1), Worker (V2) | libère l'onglet pendant un long export ; MÊME backend que la preview (ADR-013 lot 3) |
 
 ---
 

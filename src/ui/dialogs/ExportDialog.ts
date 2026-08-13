@@ -8,6 +8,7 @@
 import { findFormat, BITRATE_BPS, type Fps } from '../../export/formats';
 import { runExport, ExportCancelledError, type ExportResult } from '../../export/ExportPipeline';
 import { createOffscreenExportTarget } from '../../export/createOffscreenExportTarget';
+import type { RendererOverride } from '../../render/backendChoice';
 import { MediabunnyEncoder } from '../../export/encoders/MediabunnyEncoder';
 import { detectExportPath } from '../../export/encoders/detectSupport';
 import { runRealtimeCapture } from '../../export/encoders/MediaRecorderFallback';
@@ -36,6 +37,13 @@ export interface ExportDialogOptions {
   readonly getAudioBuffer: () => AudioBuffer | null;
   /** Graine du projet (docs/13_PROJECT_FORMAT.md) — DOIT être la même qu'en preview pour un export reproductible au pixel près. */
   readonly getProjectSeed: () => number;
+  /**
+   * Backend de rendu choisi par l'utilisateur (ADR-013 lot 3, `?renderer=`).
+   * L'export DOIT utiliser le même que l'aperçu, sinon l'aperçu ment sur le
+   * fichier livré. Optionnel : sans lui, la fabrique décide seule (WebGL2 si
+   * disponible), ce qui reste le bon défaut.
+   */
+  readonly getRendererOverride?: () => RendererOverride;
   /** Repli `MediaRecorder` : capture le canvas de preview EN TEMPS RÉEL — il doit donc jouer pendant l'export. */
   readonly seekToStart: () => void;
   readonly play: () => void;
@@ -87,6 +95,10 @@ export class ExportDialog {
     this.cancelBtn.disabled = false;
     this.controller = new AbortController();
     const startedAt = performance.now();
+    // Déclaré ICI pour être rendu par le `finally` quoi qu'il arrive (succès,
+    // échec, annulation) : un contexte WebGL non libéré à chaque export finit
+    // par faire perdre le sien à l'aperçu (voir `createRenderer.ts`).
+    let disposeExportTarget: (() => void) | null = null;
 
     try {
       const bitrateBps = BITRATE_BPS.medium;
@@ -96,7 +108,15 @@ export class ExportDialog {
       let result: ExportResult;
       if (path === 'webcodecs') {
         this.statusEl.textContent = `Export WebCodecs — ${format.label}, ${fps}fps…`;
-        const { target, canvas: exportCanvas } = createOffscreenExportTarget(format.width, format.height, false);
+        // MÊME backend que l'aperçu (ADR-013 lot 3) : sinon l'aperçu mentirait
+        // sur le fichier livré. Libéré dans le `finally` de `run()`.
+        const { target, canvas: exportCanvas, dispose } = createOffscreenExportTarget(
+          format.width,
+          format.height,
+          false,
+          this.options.getRendererOverride?.(),
+        );
+        disposeExportTarget = dispose;
         const encoder = new MediabunnyEncoder(exportCanvas, fps, bitrateBps);
         result = await runExport(
           {
@@ -158,6 +178,7 @@ export class ExportDialog {
         console.error(err);
       }
     } finally {
+      disposeExportTarget?.();
       this.exportBtn.disabled = false;
       this.cancelBtn.disabled = true;
       this.controller = null;

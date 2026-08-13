@@ -299,6 +299,23 @@ export class WebGL2Renderer implements Renderer {
     return this.hdr;
   }
 
+  /**
+   * Libère le CONTEXTE WebGL (ADR-013, lot 3) — et avec lui toutes ses
+   * ressources. À appeler dès qu'un renderer ne sert plus, en pratique après
+   * chaque export : le navigateur borne le nombre de contextes vivants (~16)
+   * et tue le PLUS ANCIEN au-delà, c'est-à-dire celui de l'aperçu. Sans cette
+   * libération, une dizaine d'exports feraient perdre son contexte à
+   * l'aperçu, qui basculerait en Canvas 2D sans raison visible.
+   *
+   * `WEBGL_lose_context` est la seule façon spécifiée de rendre un contexte
+   * avant le ramasse-miettes ; supprimer les objets un à un ne rend pas
+   * l'emplacement. Idempotent, et sans effet si le contexte est DÉJÀ perdu.
+   */
+  dispose(): void {
+    this.lost = true;
+    this.gl.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+
   // -------------------------------------------------------------------------
   // Cycle de frame
   // -------------------------------------------------------------------------
@@ -399,10 +416,20 @@ export class WebGL2Renderer implements Renderer {
     // Blit final vers le canvas d'affichage 2D — même tâche que le rendu,
     // donc le drawing buffer GL est encore garanti présent. 'copy' remplace
     // tout (alpha compris), l'équivalent du dessin direct de Canvas2D.
-    const prevComposite = this.displayCtx.globalCompositeOperation;
+    //
+    // `save`/`setTransform`/`restore` : le blit est en espace ÉCRAN, et ce
+    // contexte 2D n'appartient PAS qu'à ce renderer — le canvas d'affichage
+    // est partagé avec le `FlashLimiter` et, en session directe, avec le
+    // pipeline live (`ui/live/`, hors interface `Renderer`). Une
+    // transformation laissée par un autre écrivain décalerait l'image
+    // entière. Un save/restore PAR IMAGE, pas par primitive : hors du champ
+    // de la règle de docs/10 sur les save/restore en boucle serrée.
+    this.displayCtx.save();
+    this.displayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    this.displayCtx.globalAlpha = 1;
     this.displayCtx.globalCompositeOperation = 'copy';
     this.displayCtx.drawImage(this.glCanvas, 0, 0);
-    this.displayCtx.globalCompositeOperation = prevComposite;
+    this.displayCtx.restore();
   }
 
   // -------------------------------------------------------------------------

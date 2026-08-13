@@ -101,6 +101,14 @@ export function renderStyleThumbnail(
   canvas.width = THUMB_WIDTH;
   canvas.height = THUMB_HEIGHT;
 
+  // Canvas 2D DÉLIBÉRÉMENT, même depuis la bascule WebGL2 du lot 3
+  // (ADR-013). Deux raisons, la première est décisive : un navigateur borne
+  // le nombre de contextes WebGL vivants (~16) et tue le plus ancien au-delà.
+  // Les huit vignettes sont redessinées à chaque changement de palette ou de
+  // graine ; en WebGL2 elles consommeraient huit contextes par passe et
+  // finiraient par faire perdre le sien à l'APERÇU. Ensuite, une vignette de
+  // 160×90 ne montre ni halo étendu ni haute lumière : le « look » HDR du
+  // lot 2 n'y est pas lisible, elle n'a donc rien à y gagner.
   const renderer = new Canvas2DRenderer(canvas);
   const viewport = createViewport(THUMB_WIDTH / THUMB_HEIGHT);
   const scene: Scene = factory(THUMB_PARTICLES, true);

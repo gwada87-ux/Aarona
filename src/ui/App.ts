@@ -23,6 +23,8 @@ import { FixedStep, FIXED_DT } from '../core/time/FixedStep';
 import { createViewport } from '../render/Viewport';
 import { Canvas2DRenderer } from '../render/canvas2d/Canvas2DRenderer';
 import { WebGL2Renderer } from '../render/webgl2/WebGL2Renderer';
+import { createRenderer, disposeRenderer, type RendererOptions } from '../render/createRenderer';
+import { parseRendererOverride } from '../render/backendChoice';
 import type { Renderer } from '../render/Renderer';
 import { StepContextBuilder } from '../music/StepContext';
 import { buildMusicTimeline, type MusicTimeline } from '../music/MusicTimeline';
@@ -163,34 +165,33 @@ function buildFallbackPreset(styleId: StyleId, macros: PresetMacros, reducedFlas
 const audioEngine = new AudioEngine();
 const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
 /**
- * Choix du backend de rendu (ADR-013, lot 1) : SEUL point de decision, dans
- * ui/ (la seule couche qui a le droit de choisir). Opt-in par
- * `?renderer=webgl2` ; Canvas 2D reste le defaut jusqu'au verdict d'Aaron
- * (lot 3). Construction impossible (WebGL2 absent, contexte refuse) =>
- * repli immediat et silencieux ; contexte perdu EN COURS DE SESSION =>
- * `fallbackToCanvas2D()` a la frame suivante, voir la boucle de rendu.
- * `let` et type `Renderer` : la liaison est remplacee par le repli, tous les
- * lecteurs du module voient le nouveau backend.
+ * Preferences de rendu lues dans l'URL — SEUL point de decision, dans ui/
+ * (la seule couche qui a le droit de choisir ; la fabrique, elle, vit dans
+ * `render/` parce que l'export en a besoin aussi et ne peut pas importer
+ * `ui/`).
+ *
+ * `?renderer=canvas2d` force le backend historique, `?renderer=webgl2` le
+ * demande explicitement ; SANS parametre, WebGL2 est le DEFAUT depuis le
+ * lot 3 (ADR-013) et Canvas 2D le repli automatique. `?tonemap=` et
+ * `?exposure=` (lot 2) comparent les courbes candidates sans recompiler.
  */
-let renderer: Renderer = (() => {
+const rendererOverride = parseRendererOverride(new URLSearchParams(window.location.search).get('renderer'));
+const rendererOptions: RendererOptions = (() => {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('renderer') === 'webgl2') {
-    try {
-      // `?tonemap=aces|agx` (lot 2) : comparer les deux courbes candidates
-      // d'ADR-013 au navigateur sans recompiler — le defaut est la courbe
-      // tranchee a la mesure (hdrMath.DEFAULT_TONE_MAP).
-      const tm = params.get('tonemap');
-      const exposure = Number.parseFloat(params.get('exposure') ?? '');
-      return new WebGL2Renderer(canvas, {
-        ...(tm === 'aces' || tm === 'agx' || tm === 'pulsar' ? { toneMap: tm } : {}),
-        ...(Number.isFinite(exposure) && exposure > 0 ? { exposure } : {}),
-      });
-    } catch (err) {
-      console.warn('PULSAR - WebGL2 indisponible, repli Canvas 2D :', err);
-    }
-  }
-  return new Canvas2DRenderer(canvas);
+  const tm = params.get('tonemap');
+  const exposure = Number.parseFloat(params.get('exposure') ?? '');
+  return {
+    ...(tm === 'aces' || tm === 'agx' || tm === 'pulsar' ? { toneMap: tm } : {}),
+    ...(Number.isFinite(exposure) && exposure > 0 ? { exposure } : {}),
+  };
 })();
+/**
+ * `let` et type `Renderer` : la liaison est REMPLACEE par le repli quand le
+ * contexte WebGL est perdu en cours de session (`fallbackToCanvas2D`, voir la
+ * boucle de rendu) — tous les lecteurs du module voient alors le nouveau
+ * backend.
+ */
+let renderer: Renderer = createRenderer(canvas, rendererOverride, rendererOptions);
 const flashLimiter = new FlashLimiter(canvas);
 const viewport = createViewport(16 / 9);
 
@@ -973,6 +974,7 @@ const exportDialog = new ExportDialog({
   getAutomation: () => automation,
   getAudioBuffer: () => currentAudioBuffer,
   getProjectSeed: () => projectSeed,
+  getRendererOverride: () => rendererOverride,
   seekToStart: () => handleSeek(0, 'release'),
   play: () => audioEngine.play(),
   pause: () => audioEngine.pause(),
@@ -1894,8 +1896,12 @@ async function exportStillFrame(): Promise<void> {
   const formatId = document.querySelector<HTMLSelectElement>('#export-format')!.value;
   const format = findFormat(formatId) ?? EXPORT_FORMATS[0]!;
   stillStatus.textContent = 'Rendu…';
+  // Rendu HORS de `try` : le contexte WebGL de l'export doit etre rendu que le
+  // rendu reussisse ou non (voir `createRenderer.ts::disposeRenderer`).
+  let disposeExportTarget: (() => void) | null = null;
   try {
-    const { target, canvas } = createOffscreenExportTarget(format.width, format.height, reducedFlashing);
+    const { target, canvas, dispose } = createOffscreenExportTarget(format.width, format.height, reducedFlashing, rendererOverride);
+    disposeExportTarget = dispose;
     const scene = buildExportScene();
     scene.init({ renderer: target.renderer, palette: currentPalette, cover: coverImage });
     applyLayerMacrosToScene(scene, automatedMacros ?? currentMacros, currentStyleId);
@@ -1930,6 +1936,8 @@ async function exportStillFrame(): Promise<void> {
     stillStatus.textContent = `PNG ${format.width}×${format.height} enregistré (${(blob.size / 1024).toFixed(0)} Ko).`;
   } catch (err) {
     stillStatus.textContent = `Échec du rendu : ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    disposeExportTarget?.();
   }
 }
 
@@ -2756,6 +2764,9 @@ function loop(nowMs: number): void {
  */
 function fallbackToCanvas2D(): void {
   console.warn('PULSAR - contexte WebGL2 perdu, repli Canvas 2D.');
+  // Rend l'emplacement de contexte AVANT d'en construire un autre : un
+  // contexte perdu en occupe encore un jusqu'au ramasse-miettes.
+  disposeRenderer(renderer);
   renderer = new Canvas2DRenderer(canvas);
   if (scene && currentPalette) {
     scene.init({ renderer, palette: currentPalette, cover: coverImage });
