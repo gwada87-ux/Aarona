@@ -8,7 +8,9 @@ critères. **Une session = un lot. Ne pas enchaîner deux lots sans validation
 d'Aaron entre les deux.**
 
 Classement validé par Aaron (12 août 2026) : 1. canal de vérité ✅ fait ·
-2. rendu GPU · 3. visuels mélodie/accords.
+2. rendu GPU ✅ lots 1-3 livrés le 13 août (SESSIONS A-B-C), lot 4 = ADR-014
+écrit, décision en attente · 3. visuels mélodie/accords ← prochaine session
+utile (SESSION E).
 
 ---
 
@@ -96,15 +98,26 @@ abstraite : c'est une réécriture, pas un backend — l'ADR doit comparer
 les scènes live par l'interface `Renderer`, (c) ne rien faire (le mode
 direct manuel profite déjà du GPU via les styles). Décision d'Aaron sur ADR.
 
+**ÉTAT : ADR-014 ÉCRIT le 13 août 2026, décision en attente.** Périmètre
+mesuré (≈ 3 410 lignes, 130 tests live), écart d'interface relevé scène par
+scène (7 capacités absentes de `Renderer`, dont 4 pour la seule `type-slam`),
+recommandation (c) assortie d'un **critère de bascule chiffré** vers (a).
+Aucune ligne de code écrite, conformément au mandat ci-dessus. **La décision
+tient à UNE mesure de dix secondes** : en session directe réelle, le niveau
+`FrameBudget` affiché par le HUD (`D`). Stabilisé à 1 ou 0 ⇒ (a) s'ouvre ;
+à 2 ou 3 ⇒ le portage n'a pas d'objet, l'effort va en SESSION E.
+
 ## SESSION E — Visuels mélodie/accords (priorité n°3)
 
 **Phrase d'ouverture :**
-> Lance le chantier mélodie/accords : écris d'abord l'ADR-014 d'après la
+> Lance le chantier mélodie/accords : écris d'abord l'ADR-015 d'après la
 > section SESSION E de `docs/20_FEUILLE_DE_ROUTE_SESSIONS.md`, puis exécute
 > son lot 1.
 
 Le verrou « notes/mélodie/accords » est LEVÉ pour ce chantier par la
-validation de ce document par Aaron (13 août 2026) — l'ADR-014 le consigne.
+validation de ce document par Aaron (13 août 2026) — l'ADR-015 le consigne.
+(Numéro corrigé : les ADR sont numérotés dans l'ordre de rédaction, et
+l'ADR-014 est celui du portage GPU du pipeline live, écrit en SESSION D.)
 Tout est déjà dimensionné pour :
 
 - **Le canal transporte déjà l'inconnu sans casser** : `TruthChannel.ingest`

@@ -386,3 +386,137 @@ source, aucune dépendance). Le `FlashLimiter` lit les pixels du canvas final : 
 canvas WebGL comme l'autre (drawImage d'un canvas GL est défini). La vérification navigateur de la
 phase 3 (§10) s'applique, avec une note : `getImageData` ne lit pas un canvas WebGL directement —
 la sonde passe par un canvas 2D intermédiaire, méthode à consigner au premier lot.
+
+---
+
+## ADR-014 — Portage GPU du pipeline live : options, coûts, et critère de bascule
+
+**Statut : DÉCISION EN ATTENTE DU MANDAT D'AARON.** Cet ADR est le livrable du lot 4 d'ADR-013,
+dont `docs/20` (SESSION D) fixe le mandat mot pour mot : « écris l'ADR du portage GPU du pipeline
+live (6 scènes), options et coûts, puis attends ma validation avant toute ligne de code ». Aucune
+ligne du pipeline live n'a été touchée.
+
+**Contexte.** Les lots 1 à 3 d'ADR-013 ont donné au moteur FICHIER un backend WebGL2, devenu le
+défaut. Le mode live, lui, a son propre pipeline de rendu, antérieur et indépendant :
+`src/ui/live/render/` + `src/ui/live/scenes/`. Il n'implémente pas l'interface `Renderer` — ses
+scènes reçoivent un `CanvasRenderingContext2D` **brut** (`LiveScene.render(ctx, frame)`). C'est
+pourquoi ADR-013 le classait « une réécriture, pas un backend » et le renvoyait à un ADR séparé.
+
+**Ce que pèse réellement le périmètre** (mesuré, `wc -l`) :
+
+| Bloc | Lignes | Lié au backend ? |
+|---|---|---|
+| `LivePipeline` (4 étages : scène → feedback → compose → post) | 634 | oui |
+| `LayerStack` | 320 | oui |
+| `Bloom` / `PostFX` / `Feedback` / `Camera` | 720 | oui |
+| `Assets` (sprites pré-rendus) | 231 | oui (→ textures) |
+| Les 6 scènes du registre | 1 505 | oui |
+| `FrameBudget` / `Palette` / types / registre | 841 | non (purs) |
+| **À porter** | **≈ 3 410** | |
+
+Filet de sécurité à préserver : **130 tests live verts**, dont ceux d'ADR-012 (canal de vérité, en
+production, intouchable par `docs/20` règle 3).
+
+**Ce que le pipeline live utilise et que `Renderer` n'expose PAS** — l'écart qui décide de l'option
+(b), relevé sur les 6 scènes :
+
+| Capacité manquante | Scènes concernées |
+|---|---|
+| Texte (`font`/`fillText`/`measureText`/alignements) | `type-slam` |
+| Découpe (`clip`) | `type-slam` |
+| Calques par scène (`layers.acquire`) | `type-slam` |
+| Transformation affine arbitraire (`setTransform`) | `type-slam` |
+| Dégradé LINÉAIRE (`createLinearGradient`) | `grid-horizon`, `slice-displace` |
+| Lecture arbitraire de la trame précédente (`drawImage` avec rects source/destination) | `slice-displace` |
+| Terminaisons de trait (`lineCap`) | 5 usages, plusieurs scènes |
+
+Sept extensions d'interface, dont quatre pour la seule scène `type-slam`. Or `Renderer` ne compte
+que 17 opérations, et c'est précisément cette étroitesse qui a rendu les lots 1-3 possibles :
+chaque opération ajoutée doit être écrite DEUX fois (Canvas 2D et WebGL2), et `clip` + texte +
+transformation arbitraire sont les trois plus coûteuses à porter en GL. ADR-013 interdit d'ailleurs
+explicitement toute extension de `Renderer` sans nouvel ADR.
+
+**Le diagnostic de performance, et ce qu'il ne dit pas.** `FrameBudget` documente le fait central :
+« un `performance.now()` autour du code de rendu renvoie ~2 ms alors que le GPU en met 30 — le
+travail Canvas 2D est soumis de façon asynchrone ». Le mode live est donc bien limité par le
+compositeur, pas par le CPU, ce qui est exactement le profil qu'un portage GPU corrigerait.
+**Mais aucune mesure ne dit aujourd'hui à quel niveau de qualité le mode live tourne réellement chez
+Aaron.** `FrameBudget` dégrade automatiquement, dans un ordre fixé (aberration → scanlines →
+2e échelle de bloom → grain → feedback) : si le niveau reste à 3, il n'y a pas de problème à
+résoudre ; s'il tombe à 1 ou 0, le mode live rend en permanence une version amputée de lui-même, et
+c'est mesurable en dix secondes sur le HUD.
+
+**Options.**
+
+**(a) Réécrire `LayerStack`/`Bloom`/`Feedback`/`PostFX` + les 6 scènes sur WebGL2.** Le pipeline
+live devient un moteur GPU à part entière.
+*Pour* : supprime le plafond du compositeur là où il est mesuré ; le post (bloom multi-échelle,
+grain, scanlines, aberration) est exactement ce qu'un shader fait le mieux ; `FrameBudget`
+cesserait de retirer des effets.
+*Contre* : ≈ 3 410 lignes réécrites ; les 130 tests live à re-verdir ; et surtout la perte du
+capital de contraintes NAVIGATEUR accumulé et documenté dans `LayerStack` (pas d'`OffscreenCanvas` —
+`ctx.filter` absent sur Safari ; pas de `willReadFrequently` — bascule logicielle permanente dans
+Chrome ; `ctx.filter` est un état persistant ; plafond mémoire canvas global de Safari à
+~224-256 Mo où `getContext` renvoie `null` sans lever). Un pipeline GL rencontrera ses propres
+pièges équivalents, à redécouvrir un par un.
+*Coût estimé* : 3 à 4 sessions, dont une entièrement consacrée à `type-slam` (texte + découpe +
+calques).
+
+**(b) Faire passer les scènes live par l'interface `Renderer`.** Un seul moteur de rendu pour tout
+le produit.
+*Pour* : élégance réelle — les scènes live hériteraient gratuitement des lots 1-3 et de tout lot
+futur ; une seule chaîne de post à maintenir.
+*Contre* : exige les sept extensions d'interface ci-dessus, donc quatorze implémentations (deux
+backends), et transforme `Renderer` en une API Canvas 2D généraliste — l'inverse exact du choix
+d'ADR-002, dont l'étroitesse est ce qui a permis d'écrire un second backend en un lot. Les scènes
+live sont par ailleurs conçues autour de primitives que `Renderer` ne veut pas exposer (lecture
+arbitraire de la trame précédente pour `slice-displace`). Le `FrameBudget` live et le
+`QualityGovernor` fichier devraient aussi fusionner ou cohabiter, ce que ni l'un ni l'autre
+n'anticipe.
+*Coût estimé* : 2 à 3 sessions, plus une dette d'architecture permanente.
+
+**(c) Ne rien faire dans ce lot — et mesurer d'abord.**
+*Pour, et c'est le fait qui change tout* : **le mode direct MANUEL profite déjà de WebGL2 depuis le
+lot 3.** Quand un contrôle du panneau est touché en session directe, `liveManualOverride` s'active,
+le système à 6 scènes est mis en pause (`liveVisualPanel.setPaused(true)`), et c'est le VRAI moteur
+fichier qui dessine — via `liveStepContextBridge`, `scene` et `renderer`, donc en WebGL2 HDR.
+ADR-013 le disait déjà : « le mode direct manuel, là où Aaron vit ». Le seul chemin resté en
+Canvas 2D est le système AUTOMATIQUE à 6 scènes.
+*Contre* : deux chemins de rendu coexistent durablement, avec deux gouverneurs de qualité et deux
+« looks » (le mode automatique n'a pas le tone mapping du lot 2).
+*Coût* : nul.
+
+**Recommandation motivée : (c) maintenant, avec un critère de bascule chiffré vers (a).** Réécrire
+3 410 lignes et remettre en jeu 130 tests pour un problème qui n'a pas encore été mesuré serait
+exactement l'erreur qu'ADR-002 avait évitée en écrivant Canvas 2D d'abord. (b) est rejeté sur le
+fond, pas sur le coût : il ferait payer à l'interface `Renderer` — et donc aux deux backends, et à
+l'export — la dette de six scènes écrites contre Canvas 2D.
+
+**Critère de bascule, fixé À L'AVANCE comme ADR-002 l'a fait :**
+
+> Si, sur la machine d'Aaron, en session directe réelle (Beat Studio connecté, fenêtre au premier
+> plan), le HUD montre `FrameBudget` **stabilisé au niveau 1 ou 0** — c'est-à-dire le mode live
+> tournant sans feedback, ou sans grain ni seconde échelle de bloom — alors l'option (a) est
+> ouverte, et par les scènes les plus coûteuses d'abord.
+> Si le niveau reste à 2 ou 3, le portage n'a pas d'objet : le compositeur tient le budget, et
+> l'effort va ailleurs (SESSION E, visuels mélodie/accords, priorité n° 3 d'Aaron).
+
+**Conséquences si (c) est retenu.**
+
+- Le pipeline live reste en Canvas 2D et garde ses contraintes documentées.
+- L'écart de « look » entre mode automatique et mode manuel devient un fait assumé, à consigner :
+  le mode manuel a le tone mapping HDR, l'automatique non.
+- La mesure ci-dessus devient une question à poser en session live, pas une tâche de fond.
+
+**Conséquences si (a) est retenu plus tard.**
+
+- Le portage se fait scène par scène derrière un drapeau, comme les lots 1-3, jamais d'un bloc ;
+  `FrameBudget` reste l'arbitre et son ordre de dégradation est conservé tel quel.
+- `type-slam` est traitée en DERNIER : c'est elle qui porte texte, découpe, calques et
+  transformation arbitraire — les quatre capacités les plus coûteuses en GL.
+- Les tests `liveTruth` (ADR-012, en production) doivent rester verts SANS modification : le
+  portage ne touche que le rendu, jamais l'horloge.
+
+**Note de numérotation.** `docs/20` (SESSION E) réservait « ADR-014 » au chantier mélodie/accords.
+Les ADR sont numérotés dans l'ordre de RÉDACTION (001…013) ; celui-ci est donc l'ADR-014, et le
+chantier mélodie/accords deviendra l'**ADR-015**. `docs/20` est corrigé en conséquence.

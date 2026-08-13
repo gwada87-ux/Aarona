@@ -7733,3 +7733,72 @@ teste la séquence de sous-pas, pas les pixels (voir son en-tête).
 - Le critère produit de `01_VISION.md` — « le rendu est jugé pro sur
   comparaison à l'aveugle » — n'est pas fermable par une mesure : c'est le
   verdict d'Aaron, sur le tour complet import → aperçu → export.
+
+---
+
+## 13 août 2026 — ADR-013 lot 4 : l'ADR du portage GPU du pipeline live (ADR-014)
+
+Livrable de la SESSION D, dont le mandat est explicite : « écris l'ADR […]
+puis attends ma validation avant toute ligne de code ». **Aucune ligne du
+pipeline live n'a été touchée** — l'entrée qui suit résume ce que la mesure a
+appris, la décision revient à Aaron.
+
+Édités : `docs/15_ADR.md` (ADR-014), `docs/20_FEUILLE_DE_ROUTE_SESSIONS.md`
+(état de la SESSION D, renumérotation de la SESSION E en ADR-015).
+
+### Ce que la mesure a appris — et qui change la réponse
+
+Le périmètre réel du portage est de **≈ 3 410 lignes** (`LivePipeline` 634,
+`LayerStack` 320, `Bloom`/`PostFX`/`Feedback`/`Camera` 720, `Assets` 231, les
+6 scènes 1 505), sous **130 tests live** dont ceux d'ADR-012, en production.
+
+L'option (b) — « faire passer les scènes live par l'interface `Renderer` » —
+se heurte à un mur chiffré : les scènes reçoivent un
+`CanvasRenderingContext2D` BRUT, et utilisent **sept capacités que `Renderer`
+n'expose pas** (texte, `clip`, calques par scène, transformation affine
+arbitraire, dégradé linéaire, lecture arbitraire de la trame précédente,
+`lineCap`), dont **quatre pour la seule scène `type-slam`**. Les ajouter
+signifierait quatorze implémentations (deux backends) et transformerait
+`Renderer` en API Canvas 2D généraliste — l'inverse exact du choix d'ADR-002,
+dont l'étroitesse (17 opérations) est précisément ce qui a permis d'écrire un
+second backend en un seul lot.
+
+Le fait qui pèse le plus lourd n'est pas un coût, c'est une CONSTATATION :
+**le mode direct MANUEL profite déjà de WebGL2 depuis le lot 3.** Toucher un
+contrôle du panneau en session directe active `liveManualOverride`, met le
+système à 6 scènes en pause et laisse dessiner le vrai moteur fichier — donc
+en WebGL2 HDR. ADR-013 disait déjà « le mode direct manuel, là où Aaron
+vit ». Le seul chemin resté en Canvas 2D est le système AUTOMATIQUE.
+
+### Recommandation, et la mesure qui tranche
+
+(c) maintenant — ne rien réécrire — assorti d'un **critère de bascule chiffré
+vers (a)**, dans l'esprit du critère que l'ADR-002 s'était fixé à l'avance :
+
+> En session directe réelle, fenêtre au premier plan, le HUD (touche `D`)
+> montre-t-il `FrameBudget` stabilisé au **niveau 1 ou 0** ? Si oui, le mode
+> live rend en permanence une version amputée de lui-même (sans feedback, ou
+> sans grain ni seconde échelle de bloom) et l'option (a) s'ouvre. Si le
+> niveau reste à **2 ou 3**, le compositeur tient le budget et le portage n'a
+> pas d'objet.
+
+`FrameBudget` documente lui-même pourquoi la mesure ne peut pas se faire
+autrement : « un `performance.now()` autour du code de rendu renvoie ~2 ms
+alors que le GPU en met 30 — le travail Canvas 2D est soumis de façon
+asynchrone ». Le seul juge est le delta de `requestAnimationFrame`, donc le
+niveau de qualité que le gouverneur finit par tenir.
+
+### Portique
+
+Aucun code modifié : `npm test` reste à 130 fichiers / 1239 tests verts
+(état du lot 3, commit `e6a84b4`). Deux fichiers de documentation édités.
+
+### Ce qui reste ouvert
+
+- **La décision d'Aaron sur ADR-014**, après la mesure de dix secondes
+  ci-dessus.
+- Le chantier GPU d'ADR-013 est par ailleurs CLOS pour les lots 1-3 ; restent
+  en attente de son verdict : la mesure 60 fps p95 du lot 2 et le jugement à
+  l'œil sur la bascule du lot 3.
+- Si la mesure conclut à (c), la prochaine session utile est la **SESSION E**
+  (visuels mélodie/accords, priorité n° 3), dont l'ADR devient l'**ADR-015**.
