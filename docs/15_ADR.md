@@ -322,3 +322,67 @@ mesurent la latence d'affichage, qui ne disparaît pas avec la vérité.
   borne à quelques millisecondes — sous `userTrimMs`, et sous les ~6 ms RMS du PLL actuel — mais
   un passage prolongé sans kick (ambient) retarde la convergence initiale. C'est le prix de (c),
   assumé et mesuré par le banc.
+
+---
+
+## ADR-013 — Rendu GPU : `WebGL2Renderer` derrière l'interface `Renderer` existante
+
+**Contexte.** Mandat explicite d'Aaron (13 août 2026, « lance le rendu GPU »), qui lève le verrou
+WebGL2 posé par `CLAUDE.md` et la phase 3. Le diagnostic est mesuré depuis l'étape 6 du mode live :
+en 1080p, la scène la plus lourde ne coûte que 6 % de plus que la scène vide — tout le budget part
+dans la chaîne de post Canvas 2D, et surtout le PLAFOND DE QUALITÉ est atteint : bloom par cascade
+de downscale, additif qui écrête au blanc 8 bits, banding combattu au grain, aucune composition en
+lumière linéaire. Le critère de bascule d'ADR-002 (60 fps p95) ne sera jamais franchi parce que le
+`FrameBudget` dégrade avant ; il est requalifié : la bascule est une décision de qualité d'image,
+plus une décision de performance.
+
+**Options.** (a) Rester en Canvas 2D — (b) `WebGL2Renderer` derrière l'interface `Renderer`,
+prévu par ADR-002 — (c) WebGPU — (d) réécrire d'abord le pipeline live (6 scènes).
+
+**Décision : (b).** WebGPU (c) est rejeté pour l'instant : couverture Safari incomplète, et
+l'interface `Renderer` n'exprime rien qu'un compute shader servirait — réévaluable par un futur
+ADR sans rien jeter. (d) est rejeté comme PREMIER pas : le pipeline live n'a pas d'interface de
+rendu abstraite, c'est une réécriture, pas un backend — ADR séparé si souhaité. Le backend (b)
+sert déjà DEUX chemins : le mode fichier (styles, export) et le mode direct manuel (les styles
+en live via `LiveStepContextBridge`), là où Aaron vit.
+
+**Choix d'architecture, figés ici.**
+- Les sprites restent rasterisés par `createSprite` en OffscreenCanvas 2D (mêmes pixels source),
+  uploadés en textures, dessinés en quads instanciés. Aucun changement d'API.
+- Modes de fusion : `normal`/`additive`/`screen`/`multiply` en blending fixe ;
+  `overlay`/`difference` par composition de calque (texture intermédiaire + shader) — plus cher,
+  rare, et le seul moyen correct.
+- Lot 2 : composition en RGBA16F LINÉAIRE, bright-pass + chaîne MIP pour le bloom, tone mapping
+  filmique en sortie sRGB (courbe exacte tranchée à la mesure), aberration et résolution interne
+  portés en shader.
+- Repli AUTOMATIQUE et silencieux vers `Canvas2DRenderer` si WebGL2 est absent ou si le contexte
+  est perdu — même esprit que la Loi 3 : une capacité absente ne doit jamais arrêter le rendu.
+- Opt-in d'abord (drapeau de configuration / paramètre d'URL) ; Canvas 2D reste le défaut jusqu'au
+  verdict d'Aaron (lot 3).
+
+**Critères d'acceptation, fixés à l'avance.**
+- Parité inter-backend : PAS byte-identique (deux rasterizers ne le sont jamais). Critère mesuré à
+  la sonde pixels (méthode §10 de la phase 3) : les 8 styles rendent sans erreur, signatures
+  distinctes, luminance moyenne et couverture dans ±25 % du Canvas 2D en lot 1.
+- Déterminisme : Loi 1 intacte (aucun aléa nouveau) ; `exportDeterminism` et le golden
+  preview≡export (<2 % pixels) restent verts SUR LE MÊME backend.
+- Le portique ne descend jamais : typecheck 0, ≥1207 tests, architecture verte
+  (`render/ -> core` uniquement).
+- Perf : en lot 2, la scène de référence d'ADR-002 (`Field`, HIGH, 2500 particules, bloom) tient
+  60 fps p95 en 1080p — mesurée fenêtre au premier plan.
+
+**Découpage — un lot = une livraison validée par Aaron.**
+1. **Lot 1 — parité SDR.** `WebGL2Renderer` complet derrière le drapeau, primitives + sprites +
+   feedback + caméra + 6 modes de fusion, post SDR (bloom/aberration/échelle interne) en shader.
+   Livrable : les 8 styles mesurés à la sonde, tableau comparatif vs Canvas 2D.
+2. **Lot 2 — HDR et le « look ».** Pipeline linéaire 16F, bloom à seuil physique, tone mapping.
+   C'est le lot qui change ce qu'on voit ; capture avant/après par style, verdict à l'œil.
+3. **Lot 3 — bascule.** WebGL2 par défaut là où il est disponible, Canvas 2D en repli, golden
+   export re-mesuré, `docs/10_PERFORMANCE.md` mis à jour.
+4. **Lot 4 (optionnel, ADR séparé)** — pipeline live 6 scènes en GPU.
+
+**Conséquences.** `render/` gagne un second backend et des shaders embarqués (chaînes dans le
+source, aucune dépendance). Le `FlashLimiter` lit les pixels du canvas final : inchangé, il lit le
+canvas WebGL comme l'autre (drawImage d'un canvas GL est défini). La vérification navigateur de la
+phase 3 (§10) s'applique, avec une note : `getImageData` ne lit pas un canvas WebGL directement —
+la sonde passe par un canvas 2D intermédiaire, méthode à consigner au premier lot.
