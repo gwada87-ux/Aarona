@@ -7439,3 +7439,99 @@ capture de référence) · `MAD 4.5 ms`, 24 paires, 363 messages, 0 rejet.
 L'ADR-012 est clos de bout en bout : vérité d'horloge (lot 1), événements
 exacts (lot 2), émetteur Beat Studio (lot 3), le tout en production. Reste le
 jugement esthétique continu d'Aaron, qui n'est pas un critère fermable.
+
+---
+
+## 13 août 2026 — ADR-013 lot 1 : WebGL2Renderer, parité SDR derrière l'opt-in
+
+Nouveaux : `src/render/webgl2/{WebGL2Renderer,shaders,strokeGeometry,fillGeometry}.ts`,
+`tests/unit/{strokeGeometry,fillGeometry}.test.ts` (8 + 6 tests — les parties
+PURES du backend, testables en Node comme `bloomMath`). Édités (`ui/App.ts`,
+4 hunks) : choix du backend (`?renderer=webgl2`, Canvas 2D par défaut, un seul
+point de décision), repli `fallbackToCanvas2D()` sur contexte perdu (lu à
+chaque frame après `endFrame`, sans écran noir), crochets de sonde
+`setStyle`/`seek` dans `__pulsarDebug` (dev uniquement, méthode §10 — ils
+serviront tels quels aux lots 2-3). `Canvas2DRenderer` : zéro ligne touchée.
+
+**Décision de méthode consignée (la note ouverte d'ADR-013)** : le rendu GL
+vit dans un OffscreenCanvas INTERNE, blitté vers le canvas d'affichage 2D
+dans `endFrame()` — `drawImage` d'un canvas GL dans la MÊME tâche que le
+rendu, donc défini sans `preserveDrawingBuffer`. Raison contraignante :
+`FlashLimiter.dimTowards()` fait `getContext('2d')` sur le canvas
+d'affichage ; un contexte WebGL dessus rendrait le survoile de sécurité
+silencieusement inopérant (Loi 5), sans qu'aucun test ne le voie.
+Corollaires gratuits : FlashLimiter inchangé, sonde `getImageData` identique
+sur les deux backends, repli 2D sur le même canvas.
+
+Architecture : couleurs prémultipliées ; `normal`/`additive`/`screen`/
+`multiply` en blending fixe, `overlay`/`difference` par calque intermédiaire
++ passe de composition (ping-pong de deux textures de scène) ; sprites
+rasterisés en OffscreenCanvas 2D (mêmes pixels) uploadés en textures,
+instanciés ; traits extrudés CPU (mitre, testée) ; cercles en SDF ; bloom et
+aberration en shaders sur les MÊMES constantes que `bloomMath`/
+`chromaticMath` ; résolution interne = FBO réduit + agrandissement final.
+
+**Deux corrections imposées par la sonde elle-même** (l'exécution trouve, la
+lecture non) :
+1. `fillPath` en éventail remplissait le creux des rubans CONCAVES d'`aurore`
+   (luminance ×3, couverture ×14) — c'était précisément le point que
+   l'ADR-013 demandait de « VÉRIFIER sur les 8 styles avant de
+   sophistiquer ». Remplacé par une découpe d'oreilles (`fillGeometry.ts`).
+   `monolith` en profite aussi (couverture +34 % → +2 %).
+2. Sans anticrénelage, la couverture dérivait de −30 %/+37 % sur
+   `spectrum-pro`/`iso-pulse` (bords durs des traits) — MSAA 4× sur les
+   cibles scène/calque, résolution différée à la demande.
+
+### Sonde comparative des 8 styles
+
+Méthode : Playwright headless (SwiftShader), vite :5175, `loadDemo()`,
+graine 123456 (champ `#seed-value`), `seek(6,0 s)` en pause amorcée,
+2 `step(1/60)`, `getImageData` du canvas d'affichage 908×511 — identique sur
+les deux backends grâce au blit (voir plus haut). Luma Rec.709 sur 0-255 ;
+couverture = fraction de pixels à luma > 40.
+
+| style | Canvas 2D (moy / couv / max) | WebGL2 (moy / couv / max) | Δ moy | Δ couv |
+|---|---|---|---|---|
+| pulse | 18,94 / 6,69 % / 114,8 | 19,04 / 6,29 % / 117,1 | +0,5 % | −6,0 % |
+| field | 7,01 / 0,263 % / 255,0 | 6,95 / 0,285 % / 255,0 | −0,9 % | +8,3 % |
+| spectrum-pro | 11,98 / 0,511 % / 120,6 | 12,37 / 0,539 % / 121,9 | +3,2 % | +5,7 % |
+| monolith | 15,66 / 7,40 % / 145,6 | 15,60 / 7,57 % / 147,7 | −0,4 % | +2,2 % |
+| iso-pulse | 12,51 / 1,18 % / 104,0 | 12,61 / 1,19 % / 104,8 | +0,8 % | +1,1 % |
+| chambre | 14,09 / 0 % / 38,2 | 13,91 / 0 % / 36,9 | −1,3 % | = |
+| eclats | 37,37 / 47,78 % / 71,7 | 37,26 / 47,87 % / 72,5 | −0,3 % | +0,2 % |
+| aurore | 14,46 / 3,76 % / 62,0 | 14,33 / 3,43 % / 60,8 | −0,9 % | −8,9 % |
+
+Critère ADR-013 (±25 %) : tenu partout, avec de la marge (pire cas : +3,2 %
+en luminance moyenne, −8,9 % en couverture). Zéro erreur console sur les
+deux chargements (seuls messages : `[debug] vite` et l'avertissement
+`willReadFrequently` déclenché par la sonde elle-même, identique en
+Canvas 2D). Signatures distinctes : oui, 8 triplets nettement différents.
+
+### Portique
+
+```
+npm run typecheck   -> 0 erreur
+npm test            -> 128 fichiers, 1221 tests verts (1207 -> 1221, +14)
+npm run test:arch   -> 1 test vert (render/ -> core uniquement)
+npm run build       -> 585,17 kB (gzip 167,67 kB), 2,19 s
+```
+
+`exportDeterminism` + golden export : verts — l'export reste sur Canvas 2D
+au lot 1 (même backend), le critère « sur le même backend » d'ADR-013 est
+tenu par construction.
+
+### Limites connues
+
+- Mitre écrêtée à `miterLimit × demi-largeur` au lieu d'un vrai biseau
+  au-delà (différence sub-pixel sur les angles très fermés).
+- Remplissage de fait en polygones SIMPLES (pair-impair ≈ nonzero pour tous
+  les polygones que les styles produisent) — voir `fillGeometry.ts`.
+- Coût de présentation : un `drawImage` plein cadre GL→2D par frame + 1 à 4
+  blits de résolution MSAA — à mesurer au lot 2 contre le critère 60 fps p95
+  (la sonde ne mesure pas la performance).
+- `overlay`/`difference` composés PAR COUCHE (l'architecture d'ADR-013) : au
+  sein d'une même couche, deux dessins qui se recouvrent se composent en
+  `normal` entre eux.
+- Sonde exécutée en headless SwiftShader (rendu logiciel) : chiffres sur GPU
+  réel possiblement différents à la marge — le verdict à l'œil d'Aaron sur
+  `?renderer=webgl2` reste la validation finale du lot.

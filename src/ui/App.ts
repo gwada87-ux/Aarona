@@ -22,6 +22,8 @@ import { AudioValidationError } from '../audio/decode';
 import { FixedStep, FIXED_DT } from '../core/time/FixedStep';
 import { createViewport } from '../render/Viewport';
 import { Canvas2DRenderer } from '../render/canvas2d/Canvas2DRenderer';
+import { WebGL2Renderer } from '../render/webgl2/WebGL2Renderer';
+import type { Renderer } from '../render/Renderer';
 import { StepContextBuilder } from '../music/StepContext';
 import { buildMusicTimeline, type MusicTimeline } from '../music/MusicTimeline';
 import { NO_CORRECTIONS, addDrop, applyCorrections, isNeutral, moveSectionStart, normaliseCorrections, removeDropNear, type AnalysisCorrections } from '../music/corrections';
@@ -160,7 +162,26 @@ function buildFallbackPreset(styleId: StyleId, macros: PresetMacros, reducedFlas
 
 const audioEngine = new AudioEngine();
 const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
-const renderer = new Canvas2DRenderer(canvas);
+/**
+ * Choix du backend de rendu (ADR-013, lot 1) : SEUL point de decision, dans
+ * ui/ (la seule couche qui a le droit de choisir). Opt-in par
+ * `?renderer=webgl2` ; Canvas 2D reste le defaut jusqu'au verdict d'Aaron
+ * (lot 3). Construction impossible (WebGL2 absent, contexte refuse) =>
+ * repli immediat et silencieux ; contexte perdu EN COURS DE SESSION =>
+ * `fallbackToCanvas2D()` a la frame suivante, voir la boucle de rendu.
+ * `let` et type `Renderer` : la liaison est remplacee par le repli, tous les
+ * lecteurs du module voient le nouveau backend.
+ */
+let renderer: Renderer = (() => {
+  if (new URLSearchParams(window.location.search).get('renderer') === 'webgl2') {
+    try {
+      return new WebGL2Renderer(canvas);
+    } catch (err) {
+      console.warn('PULSAR - WebGL2 indisponible, repli Canvas 2D :', err);
+    }
+  }
+  return new Canvas2DRenderer(canvas);
+})();
 const flashLimiter = new FlashLimiter(canvas);
 const viewport = createViewport(16 / 9);
 
@@ -2669,6 +2690,10 @@ function loop(nowMs: number): void {
     }
     scene.draw(renderer, viewport);
     renderer.endFrame();
+    // ADR-013 : contexte WebGL2 perdu => repli Canvas 2D a la frame suivante,
+    // sans exception, sans ecran noir (le canvas d'affichage garde la
+    // derniere image valide, WebGL2Renderer n'y blitte plus une fois perdu).
+    if (renderer instanceof WebGL2Renderer && renderer.contextLost) fallbackToCanvas2D();
     flashLimiter.apply(liveManualOverride.active ? liveSimT : simT);
   }
   const renderMs = performance.now() - renderStartMs;
@@ -2709,6 +2734,26 @@ function loop(nowMs: number): void {
   const syncMs = (lastAudioT - simT) * 1000;
   const syncOk = Math.abs(syncMs) <= SYNC_TOLERANCE_MS;
   outSync.textContent = audioEngine.playing ? `${syncMs >= 0 ? '+' : ''}${syncMs.toFixed(1)} ms ${syncOk ? '✅' : '⚠️'}` : '—';
+}
+
+/**
+ * Repli AUTOMATIQUE vers Canvas 2D quand le contexte WebGL2 est perdu
+ * (ADR-013 : « repli a la frame suivante, sans exception, sans ecran noir »).
+ * Rebranche tout ce qui tient au backend : les sprites des couches sont
+ * recrees par `scene.init` (meme chemin qu'un changement de palette), et les
+ * reglages de post portes par le renderer sont reposes — memes trois appels
+ * que la fin d'`applyActiveConfiguration`, qui n'est pas reutilisee ici parce
+ * qu'elle a un effet de bord en session directe (bascule en mode manuel).
+ */
+function fallbackToCanvas2D(): void {
+  console.warn('PULSAR - contexte WebGL2 perdu, repli Canvas 2D.');
+  renderer = new Canvas2DRenderer(canvas);
+  if (scene && currentPalette) {
+    scene.init({ renderer, palette: currentPalette, cover: coverImage });
+  }
+  applyBloom();
+  renderer.setChromaticAberration(QUALITY_LEVEL_CONFIGS[currentQualityLevel].chromaticAberration);
+  renderer.setInternalResolutionScale(QUALITY_LEVEL_CONFIGS[currentQualityLevel].internalResolutionScale);
 }
 
 /**
@@ -2802,6 +2847,16 @@ if (import.meta.env.DEV) {
     get automation() {
       return { pistes: automation.length, frame: { ...automationAt(simT) }, macros: automatedMacros };
     },
+    // Sonde comparative des lots GPU (ADR-013, lots 1-3, méthode §10) : un
+    // style + un instant, posés en pause de façon DÉTERMINISTE (seek +
+    // amorçage), pour mesurer la même image sur les deux backends. Dev
+    // uniquement, comme tout ce bloc — absent du build.
+    setStyle: (styleId: StyleId) => {
+      currentStyleId = styleId;
+      advancedPanel.selectStyle(styleId);
+      applyActiveConfiguration();
+    },
+    seek: (t: number) => handleSeek(t, 'release'),
     // `setBlend` et `clamped` ont été RETIRÉS après la vérification du critère
     // 13 de §12. Ils forçaient un mode de fusion sur toutes les couches et
     // exposaient le compteur d'écrêtage du `FlashLimiter` ; le critère est
