@@ -7373,3 +7373,25 @@ Reste ouvert : HUD sans affichage de l'état du canal (lot suivant) ;
 événements exacts + anticipation (lot 2) ; émetteur côté Beat Studio
 (lot 3, observation de `schedulerTick` derrière flag `_XXX_V1`) — sans lui,
 le canal reste inerte en production, comportement identique à avant.
+
+---
+
+## 13 août 2026 — Mode C vérifié de bout en bout (ADR-012, lots 1+3)
+
+Chaîne complète confirmée sur capture HUD d'Aaron, en conditions réelles
+(Beat_Studio_CDJ_MOBILE_alpha16_PMDI_LIVE.html → Pages `index-DG_BwLbk.js`) :
+
+```
+verite   canal vivant   msgs 522/0/0   hote 150.90 BPM   paires 24 (+2 amb.)
+         MAD 5.0 ms   offset -1.777 s   ACTIF
+tempo    150.90 BPM (= hôte, exact)   downbeat 1.00   phrase valide   LOCKED
+kicks    0/0 (le PLL ne juge plus, la grille hôte fait foi)
+```
+
+Corrigé dans la foulée : la ligne `tempo` du HUD affichait la confiance de
+l'ESTIMATEUR (0.60) sous une ligne vérité ACTIF — elle affiche désormais
+`effectiveConfidence` (ce que la machine à états consomme réellement), avec
+l'estimateur entre parenthèses quand il diffère. Portique : 126/1205 verts.
+
+Reste ouvert (inchangé) : lot 2 (événements exacts + anticipation ~100 ms),
+validation à l'œil de la qualité de synchro perçue.

@@ -61,8 +61,14 @@ export class DebugHud {
 
     this.lines.length = 0;
     this.lines.push(`etat        ${engine.state}${engine.staleFrames > 0 ? `  (trames rejouees ${engine.staleFrames})` : ''}`);
+    // `effectiveConfidence` est ce que la machine a etats et l'accent de
+    // grille consomment reellement : 1 en tap manuel ou en mode verite. La
+    // confiance de l'estimateur reste affichee entre parentheses quand elle
+    // differe - sinon un HUD a "conf 0.60" sous une ligne verite ACTIF se
+    // contredit lui-meme (vu sur capture, 13/08/2026).
+    const conf = engine.effectiveConfidence;
     this.lines.push(
-      `tempo       ${beat.bpm.toFixed(2)} BPM   conf ${engine.tempo.confidence.toFixed(2)}   downbeat ${beat.downbeatConfidence.toFixed(2)}${beat.phraseValid ? '' : '  (phrase invalide)'}`,
+      `tempo       ${beat.bpm.toFixed(2)} BPM   conf ${conf.toFixed(2)}${conf !== engine.tempo.confidence ? ` (estimateur ${engine.tempo.confidence.toFixed(2)})` : ''}   downbeat ${beat.downbeatConfidence.toFixed(2)}${beat.phraseValid ? '' : '  (phrase invalide)'}`,
     );
     // Ligne du canal de verite (ADR-012). C'est l'outil de diagnostic du
     // bout-en-bout : "aucun message" = emetteur absent ou iframe perimee ;
