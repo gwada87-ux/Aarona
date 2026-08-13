@@ -7427,3 +7427,15 @@ porteuse ≤2,5 intervalles, repli du rendu vers le détecteur vérifié.
 Ajustement de mesure au passage : la décomposition biais/gigue du test lot 1
 était fragile (le biais n'est mesurable qu'avant activation) — remplacée par
 la borne exploitable : RMS total < 8 ms, sous le PLL seul (5,9 ms étape 1).
+
+### Lot 2 vérifié de bout en bout (capture HUD d'Aaron, 13 août 2026)
+
+`conf 1.00 (estimateur 0.60)` · `144.08 BPM` = hôte exact · `downbeat 1.00` ·
+`phrase 2` avec coupe director `[phrase-score / phrase] db=1.00` (le repli
+deux-mesures n'est plus nécessaire) · marqueurs `kick 0.81 / snare 0.33 /
+hat 0.19` = vélocités composées (contre 1.00/0.48/1.00 côté détecteur sur la
+capture de référence) · `MAD 4.5 ms`, 24 paires, 363 messages, 0 rejet.
+
+L'ADR-012 est clos de bout en bout : vérité d'horloge (lot 1), événements
+exacts (lot 2), émetteur Beat Studio (lot 3), le tout en production. Reste le
+jugement esthétique continu d'Aaron, qui n'est pas un critère fermable.
