@@ -8529,3 +8529,26 @@ livre. Compter les échecs des versions anciennes rendrait le banc inutilisable
 dans un script de livraison ; la lignée est là pour montrer d'où l'on vient,
 pas pour faire échouer la livraison du jour. Vérifié dans les deux sens
 (alpha25 en dernier → 0 ; alpha21 en dernier → 1).
+
+### Le banc entre au dépôt (même jour)
+
+`tools/bancAccords.js` + script `npm run banc:accords`. Documenté dans
+`docs/20`, section « Maintenance courante », où l'on ira le chercher.
+
+**Outil, PAS test vitest** — et c'est le point de conception. Il mesure un
+fichier EXTERNE au dépôt (la lignée Beat Studio) : un test qui échoue quand ce
+fichier est absent ferait tomber le portique sur toute machine qui ne l'a pas,
+et un test qui se contente de sauter mentirait sur sa couverture. Il vit donc
+dans `tools/`, hors du `include` de `tsconfig` et hors du périmètre scanné par
+le test d'architecture — vérifié : typecheck 0, 1265 tests, arch verte,
+inchangés.
+
+Une correction au passage : le dépôt est `"type": "module"`, si bien que le
+`require` hérité du brouillon échouait dès le premier lancement par le script
+npm. Converti en ESM.
+
+Pourquoi ce banc appartient à PULSAR et non à Beat Studio : la chaîne
+`root`/`quality` est produite là-bas mais CONSOMMÉE ici — la rotation de teinte
+d'ADR-015 lit `root`, une scène future lira `quality`. Une erreur de nommage
+chez l'hôte devient une erreur de couleur ici, et Beat Studio n'a aucune
+infrastructure de test où la loger.

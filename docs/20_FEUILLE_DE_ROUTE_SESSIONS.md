@@ -175,6 +175,21 @@ Candidat : pré-armement de l'onde de choc de `mandala-32` ou des anneaux de
   `schedulerTick` (hook). Modèle : diff entre `alpha19.html` et `alpha20.html`.
   Vérification : extraire le bloc `<script type="text/x-dc">` et
   `node --check` (les blocs `<script>` ordinaires ne contiennent PAS l'appli).
+- **Chaîne d'accords (PMDI `root`/`quality`).** Elle vit dans Beat Studio, pas
+  ici, mais PULSAR la CONSOMME — une erreur de nommage chez l'hôte devient une
+  erreur de couleur ici. Avant ET après toute retouche de `_detectChordName`,
+  `_chordRootFromNames` ou `_pmdiNormalizeQuality` :
+
+  ```
+  npm run banc:accords -- <fichier.html>            détail d'une version
+  npm run banc:accords -- <f1.html> <f2.html> ...   matrice cas x version
+  ```
+
+  `tools/bancAccords.js` extrait ces fonctions du fichier livré et les exécute
+  sur 15 accords de référence. **Outil, pas test** : il mesure un fichier
+  externe au dépôt, donc hors portique (voir son en-tête). Code de sortie = état
+  de la DERNIÈRE version passée. Référence de la lignée : alpha20/21 → 12 faux
+  sur 15, alpha22 → 8, alpha23 → 4, alpha24 → 2, **alpha25 → 0**.
 - **Déploiement.** Chaque push sur `main` redéploie GitHub Pages (~90 s).
   Vérifier le bundle servi : le nom `assets/index-*.js` change, et le
   contenu se sonde par `curl | grep <marqueur>`. L'iframe de Beat Studio
