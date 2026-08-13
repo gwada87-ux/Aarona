@@ -8601,3 +8601,44 @@ c'est elle qui rend l'archivage sans conséquence, pas la bonne volonté.
 
 `npm run test:arch` après archivage : le fichier canonique reste trouvé
 (alpha25 est toujours le plus haut numéro), TOUS JUSTES, code 0.
+
+## 13/08/2026 — Adaptation de qualité live : limite mesurée, correctif écarté
+
+Aaron lit le HUD en mode direct et rapporte `rendu qualite 3/3`, `ref 33.3 ms`.
+La lecture ouvre une question qui n'était pas celle posée : je lui avais donné
+l'échelle **à l'envers** (3 est le maximum, le compteur descend), et surtout il
+objecte, à juste titre, que régler les performances sur SA machine n'a pas de
+sens — ce sont les machines des clients qui comptent.
+
+L'objection a mené à une mesure. Sonde directe sur `FrameBudget`, 60 trames de
+calibration puis 10 s de régime établi :
+
+```
+A. lente AVANT la calibration      B. ralentit APRÈS la calibration
+  60 fps -> ref  16,7 ms -> 3/3      60 -> 40 fps : 3/3 -> 3/3  (zone morte)
+  30 fps -> ref  33,3 ms -> 3/3      60 -> 30 fps : 3/3 -> 0/3
+  20 fps -> ref  50,0 ms -> 3/3      60 -> 20 fps : 3/3 -> 0/3
+  10 fps -> ref 100,0 ms -> 3/3      60 -> 10 fps : 3/3 -> 0/3
+```
+
+**Une machine à 10 images par seconde garde 6000 particules.** Le mécanisme de
+descente n'est pas en faute — colonne B, il fonctionne exactement comme spécifié.
+La référence apprise, elle, n'a pas de plafond : la lenteur présente avant la
+calibration devient la définition de « normal ». Écart en jeu : ×10 particules,
+×3,3 passes plein écran.
+
+Vérifié au passage : `setLevel` n'est appelé que par `live-bench.ts`. **Aucun
+réglage de qualité n'est exposé à l'utilisateur**, ni manuel ni automatique, sur
+ces machines-là.
+
+**Décision d'Aaron : ne pas corriger.** Le plafond absolu sur la référence porte
+un risque réel (un écran bloqué à 30 Hz serait dégradé à tort) et le rapport
+risque/gain ne le justifie pas tant qu'aucun utilisateur ne s'est plaint. Le
+sélecteur manuel ne corrige rien par défaut.
+
+Consigné en détail — les deux correctifs écartés, leurs risques, et le
+discriminant variance qui séparerait un écran bloqué d'une machine qui souffre —
+dans `src/ui/live/NOTES.md`, § « LIMITE CONNUE », c'est-à-dire à côté des seuils
+que quelqu'un voudra un jour retoucher. À rouvrir sur signalement réel.
+
+Aucun code modifié. Sonde supprimée après lecture.

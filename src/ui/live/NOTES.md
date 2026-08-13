@@ -460,6 +460,55 @@ Memoire canvas : 34,2 Mo au maximum, pour un plafond de 120 Mo (§3.1). Un
 ecran 4K a DPR 2 sans plafond de bitmap en demanderait quatre fois plus - c'est
 exactement ce que le plafond de 1920x1080 evite.
 
+### LIMITE CONNUE - la reference apprise n'a pas de plafond (13/08/2026)
+
+`FrameBudget` calibre sa periode de reference sur la mediane des 60 premieres
+trames de la machine, puis juge tout le reste par rapport a elle. C'est
+DELIBERE - c'est ce qui evite de traiter un ecran 120 ou 144 Hz comme "rapide",
+et le test "estime la periode de reference au lieu de supposer 16,7 ms"
+(`tests/unit/live/liveRender.test.ts`) fixe ce comportement.
+
+La contrepartie est qu'une machine deja lente AU DEMARRAGE calibre une
+reference lente, et ne descend alors jamais. Mesure par sonde directe sur la
+classe, 60 trames de calibration puis 10 s de regime etabli :
+
+| vitesse reelle | reference apprise | niveau tenu | particules |
+|---|---|---|---|
+| 60 fps | 16,7 ms | 3/3 | 6000 |
+| 30 fps | 33,3 ms | 3/3 | 6000 |
+| 20 fps | 50,0 ms | 3/3 | 6000 |
+| 10 fps | 100,0 ms | **3/3** | **6000** |
+
+Une machine a 10 images par seconde garde donc la qualite maximale. Le
+mecanisme de descente n'est PAS en faute : la meme sonde montre qu'une machine
+calibree a 16,7 ms puis tombee a 33,3 ms ou moins descend bien a 0/3. Il est
+seulement aveugle a la lenteur presente AVANT la calibration.
+
+Ecart en jeu entre le niveau tenu a tort et le niveau adapte : x10 particules
+(6000 contre 600) et x3,3 passes plein ecran (10 contre 3).
+
+**Non corrige, sur decision d'Aaron du 13/08/2026.** Deux correctifs avaient
+ete proposes et sont ecartes, pas oublies :
+
+1. Un plafond absolu sur la reference apprise (au-dela de ~20 ms, refuser la
+   mesure et prendre le plafond comme cible). Corrige le defaut a la racine.
+   Ecarte pour son risque : un ecran REELLEMENT bloque a 30 Hz - portable en
+   economie d'energie - serait degrade au minimum alors que la machine en est
+   peut-etre capable. Un ecran bloque donne des durees exactement regulieres,
+   une machine qui souffre donne des durees irregulieres ; la variance de la
+   fenetre de calibration les distinguerait, mais cette finesse n'a pas ete
+   codee faute d'avoir observe le cas.
+2. Un selecteur de qualite dans le panneau, appelant le `setLevel` existant.
+   Sans risque pour la logique automatique, mais ne corrige rien par defaut :
+   il faut que l'utilisateur pense a s'en servir. A noter - `setLevel` n'est
+   aujourd'hui appele que par `src/ui/live/testing/live-bench.ts`, donc AUCUN
+   reglage de qualite n'est expose a l'utilisateur, ni manuel ni automatique,
+   sur ces machines.
+
+A rouvrir si des utilisateurs reels signalent un rendu lent : c'est le mode
+d'echec le plus probable, et le plus silencieux - rien dans le HUD ne le
+signale, `qualite 3/3` s'y affiche comme sur une machine saine.
+
 ### Captures
 
 Trois captures a trois instants, trois palettes, deux niveaux de qualite, dans
