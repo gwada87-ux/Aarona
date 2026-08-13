@@ -8186,3 +8186,87 @@ Les deux scènes inspirent maintenant, alors qu'aucune n'a encore été jugée �
 l'œil. Si le geste s'avère trop discret ou trop appuyé, ce sont deux
 constantes à bouger (`PREARM_SEC` dans chaque scène), pas une reprise de
 l'architecture.
+
+---
+
+## 13 août 2026 — Nommage d'accord V2 : la quinte n'est plus exigée
+
+Livré : `Beat_Studio_CDJ_MOBILE_alpha22.html` (= alpha21 + drapeau
+`_CHORD_DETECT_V2`). Corrige le constat du lot 2 d'ADR-015 : `quality` valait
+souvent `?` sur le canal PMDI.
+
+### Le diagnostic était déjà écrit dans le fichier
+
+Ce n'était pas une découverte à faire, mais une dette à ramasser. Le
+commentaire de `chordLabel` (moteur de mélodie V5) avait **mesuré** le
+problème et l'avait laissé en l'état :
+
+> « La QUINTE peut être omise — c'est même le voicing le plus courant d'un V7
+> (mesuré : le tritone-sub de ce moteur rend `['G3','B3','F4']`, fondamentale/
+> tierce/septième, sans quinte). La qualité se juge donc sur la TIERCE
+> d'abord ; la quinte ne sert qu'à distinguer dim et aug. `_detectChordName`,
+> lui, exige la quinte et rend `?` dans ce cas : on ne l'appelle pas ici, et
+> on ne le corrige pas non plus (il sert à l'export MIDI — signalé, hors
+> périmètre). »
+
+V2 adopte donc **l'échelle de `chordLabel`, déjà validée** — pas une logique
+harmonique nouvelle, ce qui est précisément ce qui rend le correctif sûr.
+
+### Reproduit avant d'être corrigé
+
+Sur les progressions réelles du moteur, deux mesures indépendantes :
+
+```
+['F#3','A3','C#4']  -> F#m   (deja correct)
+['G3','B3','D4']    -> G     (deja correct)
+['E4','F#3','A3']   -> E?    <- echoue
+['B3','D4','F#4']   -> Bm    (deja correct)
+                       en place : 2 accords sur 4 rendus '?'
+                       echelle de reference : 0 sur 4
+```
+
+### Deux écarts assumés avec la référence
+
+- **La relaxation est étendue aux SUSPENDUES** : `sus4`/`sus2` ne réclament
+  plus la quinte non plus. C'est le principe énoncé par le commentaire
+  ci-dessus, appliqué jusqu'au bout plutôt qu'à moitié.
+- **Le résidu reste `?` au lieu de retomber sur « majeur »**, comme le fait
+  `chordLabel`. Un accord sans tierce, sans quarte, sans seconde et sans
+  quinte n'est pas majeur : l'annoncer majeur serait un mensonge confiant, là
+  où `?` dit seulement « je ne sais pas ». Le cas devient rare.
+
+### Vérification par EXÉCUTION, sur les trois consommateurs d'un coup
+
+`_detectChordName` sert à la piste CHORDS de l'export MIDI (nom lisible en
+DAW), au `quality` de l'export PMDI statique et au `quality` du canal PMDI en
+direct. Un seul correctif, trois sorties corrigées.
+
+```
+alpha22, canal espionne, lecture reelle :
+  accords -> quality "min" · "sus4" · "min" · "5"      (aucun '?')
+  168 messages, 0 fondamentale invalide, 0 erreur page
+
+meme fichier, _CHORD_DETECT_V2=false :
+  accords -> quality "?" · "min" · "min" · "maj"       (ancienne echelle)
+```
+
+Le drapeau est donc un vrai interrupteur, vérifié dans les deux sens.
+`node --check` du bloc `text/x-dc` : OK. Diff : 3 hunks, 44 lignes ajoutées,
+6 retirées — et les 6 retirées **réapparaissent verbatim** dans la branche
+`else`, seulement ré-indentées : le chemin drapeau-éteint est conservé mot
+pour mot.
+
+**Aucun son n'est touché** : cette fonction ne sert qu'à NOMMER.
+
+### Un défaut plus profond, mesuré mais NON corrigé
+
+La mesure a révélé autre chose : **l'ordre du tableau d'accord n'est pas
+l'ordre des hauteurs.** `['E4','F#3','A3']` trié par hauteur donne F#3–A3–E4,
+soit un **F#m7** — la fondamentale n'est pas `pcs[0]`, qui vaut ici E.
+`_detectChordName` (V1 comme V2) et `chordLabel` partagent cette hypothèse.
+
+Corriger cela demanderait de dériver la fondamentale de la note la plus
+GRAVE, ce qui changerait le nom d'accords aujourd'hui jugés corrects — un
+risque d'un autre ordre que celui pris ici. **Signalé, délibérément non
+corrigé**, exactement comme la session précédente l'avait fait pour la quinte.
+À rouvrir avec son propre drapeau si le besoin se confirme.
