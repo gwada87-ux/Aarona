@@ -8402,3 +8402,64 @@ comme `sus47` (suspendue avec septième) reste telle quelle, là où l'usage
 la graphie. Ces cas n'ont pas été demandés et ne sont pas des erreurs de
 contrat — doc 12 donne `quality` comme chaîne OUVERTE. À rouvrir si un
 consommateur en a besoin.
+
+---
+
+## 13 août 2026 — Ordre septième/suspension, et un BANC pour la chaîne d'accords
+
+Livré : `Beat_Studio_CDJ_MOBILE_alpha25.html` (= alpha24 + drapeau
+`_CHORD_SUS_ORDER_V1`), plus un banc de test réutilisable.
+
+### Le correctif
+
+L'assemblage du nom faisait `qualité + extension`, soit `Csus47` pour une
+suspendue avec septième. Personne n'écrit ça : la septième se place AVANT la
+suspension — `C7sus4`. Corrigé **à la source**, dans `_detectChordName`, donc
+pour les trois consommateurs à la fois : le nom lisible du MIDI, la qualité de
+l'export PMDI statique et celle du canal direct. Ne concerne que les
+suspendues : `m7`, `dim7` et `aug7` étaient déjà dans le bon ordre.
+
+Diff alpha24 → alpha25 : **2 hunks, 14 lignes ajoutées, 0 retirée** —
+purement additif.
+
+### Le banc — ce qui restera de cette série
+
+Quatre lots successifs ont touché la même chaîne (qualité, fondamentale,
+normalisation, ordre), chacun vérifié par une sonde jetable. C'était une
+dette : rien ne protégeait les lots précédents des suivants.
+
+`banc_accords.js` **EXTRAIT du fichier livré** `_CHORD_TEMPLATES`,
+`_chordNoteNamesToPitchClasses`, `_chordRootFromNames`, `_detectChordName` et
+`_pmdiNormalizeQuality`, lit les quatre drapeaux tels qu'ils sont posés, puis
+exécute la chaîne sur une table de vérité de quinze accords — en reproduisant
+aussi le calcul de `quality` des deux points d'export. Rien n'est retapé :
+ce qui est testé est le TEXTE du fichier, pas une copie fidèle de ma frappe.
+
+```
+node banc_accords.js Beat_Studio_CDJ_MOBILE_alpha25.html
+```
+
+Résultat, et c'est la mesure du lot :
+
+```
+alpha24 : Csus47 / sus47 et Csus27 / sus27      -> 2 ACCORDS FAUX sur 15
+alpha25 : C7sus4 / 7sus4 et C7sus2 / 7sus2      -> TOUS JUSTES (15 accords)
+_CHORD_SUS_ORDER_V1=false sur alpha25            -> 2 faux, ancien ordre retabli
+```
+
+La table couvre ce que les quatre lots ont corrigé : renversements
+(`['E3','G3','C4']` → C), tableau non trié (`['E4','F#3','A3']` → F#m7),
+quinte omise (`['G3','B3','F4']` → G7), septième sans tierce
+(`['E4','G#4','A3']` → Amaj7), dyade laissée tranquille (`['G#4','C4']` →
+G#), quinte à vide, mineur septième normalisé `min7`. Un futur lot qui
+casserait l'un de ces cas le saura en une seconde.
+
+`node --check` du bloc `text/x-dc` : OK. **Aucun son touché.**
+
+### Limite connue
+
+La table est écrite à la main : elle atteste ce que nous avons décidé, pas ce
+qu'un traité d'harmonie exigerait. Deux conventions y sont des CHOIX
+assumés — les renversements sont nommés par leur fondamentale et non en
+accord barré (`C/E`), et une dyade conserve la lecture d'avant faute de preuve
+suffisante.
