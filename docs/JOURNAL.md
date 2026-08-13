@@ -8270,3 +8270,80 @@ GRAVE, ce qui changerait le nom d'accords aujourd'hui jugés corrects — un
 risque d'un autre ordre que celui pris ici. **Signalé, délibérément non
 corrigé**, exactement comme la session précédente l'avait fait pour la quinte.
 À rouvrir avec son propre drapeau si le besoin se confirme.
+
+---
+
+## 13 août 2026 — Fondamentale d'accord V3 : la reconnaissance par gabarits
+
+Livré : `Beat_Studio_CDJ_MOBILE_alpha23.html` (= alpha22 + drapeau
+`_CHORD_ROOT_V3`). Corrige le défaut signalé — et non corrigé — au lot
+précédent : `_detectChordName` prenait le PREMIER élément du tableau de notes
+pour fondamentale.
+
+### Deux heuristiques simples, et pourquoi aucune ne suffit
+
+Le tableau de notes n'est pas trié par hauteur : `['E4','F#3','A3']` est un
+**F#m7**, et sortait `Esus4`. On pourrait croire qu'il suffit de prendre la
+note la plus GRAVE — c'est faux dès que l'accord est renversé :
+`['E3','G3','C4']` est un **do majeur** premier renversement, que la basse
+nommerait « Em ». Les deux heuristiques échouent, et sur des cas différents.
+
+**Mesure sur cas de contrôle à vérité connue : premier élément 4/8,
+basse 6/8, gabarits 8/8.** V3 essaie donc chaque classe de hauteur présente
+et garde l'interprétation qui reconnaît le plus de degrés sans en laisser
+d'étranger ; à égalité, la basse tranche (lecture standard d'un renversement).
+
+### La première version était fausse, et la mesure l'a dit
+
+V3 telle qu'écrite d'abord produisait sur des voicings RÉELS :
+`['E4','G#4','A3']` → **`A5maj7`**, un nom que personne n'écrit, et
+`['G#4','C4']` → **`C?`** là où le premier élément donnait `G#`, juste. Mes
+cas de contrôle ne couvraient ni les dyades ni les septièmes sans tierce.
+Deux resserrements, chacun tiré de sa régression :
+
+1. **Il faut au moins TROIS degrés reconnus pour DÉPLACER la fondamentale.**
+   Une dyade tombe dans un gabarit par accident : `G#`–`C` « correspond » à
+   l'accord augmenté depuis do. Sans preuve suffisante, on ne bouge pas.
+2. **La septième nomme l'accord quand la tierce manque.** A–E–G# est un
+   `Amaj7` sans tierce, pas un « A5maj7 » : le seuil de quinte à vide ne doit
+   se déclencher qu'en l'absence de septième.
+
+Contrôles ÉTENDUS (dyades, septièmes sans tierce, quinte à vide, plus les
+huit d'origine) : **actuel 6/12, V3 resserrée 12/12.**
+
+### Cohérence `root` / `quality` — le piège du lot
+
+Déplacer la fondamentale casse les deux points d'export, qui déduisaient
+`rootName` du PREMIER élément du tableau : ils auraient publié `root: D` avec
+un nom `Gm`, un accord qui se contredit. Les deux lisent désormais la
+fondamentale sur le **nom détecté**, via `_chordNoteNamesToPitchClasses`.
+Drapeau éteint, le nom commence par `_order[pcs[0]]` et cette lecture redonne
+exactement `pcs[0]` : comportement identique.
+
+### Vérification par exécution
+
+```
+alpha23, canal espionne, lecture reelle :
+  quality -> "sus4" · "maj" · "min" · "maj"   roots coherents, 0 erreur page
+_CHORD_ROOT_V3=false, meme scenario :
+  quality -> "min" · "5" · "min" · "maj"      comportement alpha22 restaure
+```
+
+`node --check` du bloc `text/x-dc` : OK. Diff alpha22 → alpha23 : 12 hunks,
+84 lignes ajoutées, 9 retirées (déplacements de lignes existantes, conservées
+à l'identique). **Aucun son n'est touché** : ces fonctions ne servent qu'à
+nommer.
+
+### Limites connues
+
+- La reconnaissance ne couvre que les gabarits listés (`_CHORD_TEMPLATES`) :
+  triades, septièmes, sixtes, suspendues, quinte à vide. Un accord altéré
+  (9♯, 11♭, add9 sur basse étrangère) retombe sur le premier élément — le
+  comportement d'avant, jamais pire.
+- Les renversements sont nommés par leur FONDAMENTALE, pas en accord barré
+  (`C/E`). Le contrat PMDI de doc 12 ne porte qu'une `root` et une `quality` :
+  la basse n'y a pas de champ. C'est une information perdue, pas fausse.
+- `quality` reste `'m7'` et non `'min7'` : la table de conversion des deux
+  points d'export ne traduit que `'m'` → `'min'`. Doc 12 donne `quality` comme
+  chaîne ouverte ; harmoniser demanderait de toucher le format de l'export
+  statique, hors périmètre de ce lot.
