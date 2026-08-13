@@ -7395,3 +7395,35 @@ l'estimateur entre parenthèses quand il diffère. Portique : 126/1205 verts.
 
 Reste ouvert (inchangé) : lot 2 (événements exacts + anticipation ~100 ms),
 validation à l'œil de la qualité de synchro perçue.
+
+---
+
+## 13 août 2026 — ADR-012 lot 2 : événements exacts + tir à l'instant visuel
+
+En mode vérité, le rendu tire désormais sur les ANNONCES de l'hôte
+(KICK/SNARE/CLAP/HAT, vélocités réelles composées) au lieu des détections, à
+l'instant VISUEL exact : tFire = (tHost + offset) - syncOffset — la même
+convention que `visualBeatPhase`. L'anticipation du scheduler hôte (~100 ms)
+est ce qui rend le tir possible sans latence de détection. Le détecteur reste
+l'aligneur, le taux d'onsets (mesure de l'AUDIO, via `rateFired`) et le repli.
+
+Livré : file d'événements dans `TruthChannel` (rings parallèles, float32),
+drainage + garde anti-rafale à l'activation dans `TruthDirector`,
+mode vérité-événements dans `LiveAnalysisEngine` (`fireTruth`, accesseurs
+unifiés `onsetTime`/`onsetStrength` consommés par `OnsetView` et le HUD),
+compteur `evts` sur la ligne vérité du HUD. 2 nouveaux champs de config
+(`eventRingSize`, `fireMaxLateSec`), tous consommés.
+
+Côté Beat Studio : `Beat_Studio_CDJ_MOBILE_alpha16_PMDI_LIVE2.html`, flag
+`_PMDI_LIVE_EVENTS_V1=true` (2 hunks, node --check OK) : familles SNARE/HAT
+annoncées avec les mêmes règles que le KICK (un message par famille et par
+instant, `_dpVel`, t+mt, piste inaudible jamais annoncée).
+
+Portique : typecheck 0 · 126 fichiers / 1207 tests verts (+2) · build OK.
+Tests clés : vélocités exactes au fround près, un tir par annonce (pas de
+double tir détecteur+vérité), tir à ≤15 ms de la convention visuelle, trame
+porteuse ≤2,5 intervalles, repli du rendu vers le détecteur vérifié.
+
+Ajustement de mesure au passage : la décomposition biais/gigue du test lot 1
+était fragile (le biais n'est mesurable qu'avant activation) — remplacée par
+la borne exploitable : RMS total < 8 ms, sous le PLL seul (5,9 ms étape 1).

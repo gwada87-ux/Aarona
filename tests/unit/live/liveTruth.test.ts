@@ -28,6 +28,12 @@ const OFFSET_SEC = 12.345;
 /** Lookahead du scheduler hote : l'annonce precede le son de cette avance. */
 const LOOKAHEAD_SEC = 0.1;
 const BPM = 128;
+/** Velocites annoncees par l'hote synthetique - volontairement distinctes de
+ *  toute force que le detecteur pourrait mesurer (lot 2 : la source du tir
+ *  se reconnait a la velocite exacte). */
+const VEL_KICK = 0.87;
+const VEL_SNARE = 0.53;
+const VEL_HAT = 0.31;
 /** Critere ADR-012 : offset retrouve a +/- 3 ms. */
 const OFFSET_TOLERANCE_SEC = 0.003;
 /** Critere ADR-012 : aucune discontinuite d'ancre au-dela de `resyncMaxJumpMs` (15 ms) par trame. */
@@ -54,8 +60,19 @@ function buildHostMessages(signal: SyntheticSignal, stopAfterLocalSec = Number.P
   for (let t = 0.3; t < signal.durationSec; t += 0.5) {
     push(t, t - OFFSET_SEC, { kind: 'heartbeat' });
   }
-  for (const tk of signal.kickTimes) {
-    push(tk - LOOKAHEAD_SEC, tk - OFFSET_SEC, { kind: 'event', type: 'KICK', intensity: 1, confidence: 1 });
+  // Le click track porte un kick sur chaque temps, un snare sur 2 et 4, un
+  // charley a la croche : l'hote annonce le meme motif, avec des velocites
+  // constantes et reconnaissables (lot 2).
+  const period = 60 / BPM;
+  for (let i = 0; i < signal.kickTimes.length; i++) {
+    const tk = signal.kickTimes[i]!;
+    push(tk - LOOKAHEAD_SEC, tk - OFFSET_SEC, { kind: 'event', type: 'KICK', intensity: VEL_KICK, confidence: 1 });
+    if (i % 4 === 1 || i % 4 === 3) {
+      push(tk - LOOKAHEAD_SEC, tk - OFFSET_SEC, { kind: 'event', type: 'SNARE', intensity: VEL_SNARE, confidence: 1 });
+    }
+    push(tk - LOOKAHEAD_SEC, tk - OFFSET_SEC, { kind: 'event', type: 'HAT', intensity: VEL_HAT, confidence: 1 });
+    const th = tk + period / 2;
+    push(th - LOOKAHEAD_SEC, th - OFFSET_SEC, { kind: 'event', type: 'HAT', intensity: VEL_HAT, confidence: 1 });
   }
   for (const td of signal.downbeatTimes) {
     push(td - LOOKAHEAD_SEC, td - OFFSET_SEC, { kind: 'event', type: 'DOWNBEAT', intensity: 1, confidence: 1 });
@@ -102,12 +119,17 @@ function runWithHost(signal: SyntheticSignal, stopAfterLocalSec = Number.POSITIV
   const messages = buildHostMessages(signal, stopAfterLocalSec);
   const truthSamples: TruthSample[] = [];
   const detectedKicks: number[] = [];
+  const truthFires: { t: number; kind: 'kick' | 'snare' | 'hat'; strength: number; tOnset: number }[] = [];
   let msgIndex = 0;
   let convergedAt = -1;
 
   const report = record(engine, signal, {
     onFrame: (ctx) => {
-      if (ctx.engine.firedThisFrame('kick')) detectedKicks.push(ctx.engine.onsets.lastTime('kick'));
+      // Biais du detecteur : mesure UNIQUEMENT hors mode verite - une fois la
+      // verite active, `fired` appartient aux annonces et `onsets.lastTime`
+      // pourrait dater d'un autre kick que celui qui vient d'etre tire.
+      if (!ctx.engine.beat.truthActive && ctx.engine.firedThisFrame('kick'))
+        detectedKicks.push(ctx.engine.onsets.lastTime('kick'));
       // Livraison : un message arrive a la premiere trame qui suit `tArr`,
       // comme un `onmessage` reel horodate a `audioContext.currentTime`.
       while (msgIndex < messages.length && messages[msgIndex]!.tArr <= ctx.tAudio) {
@@ -116,6 +138,18 @@ function runWithHost(signal: SyntheticSignal, stopAfterLocalSec = Number.POSITIV
       }
       truth.step(ctx.tAudio, ctx.engine);
       if (convergedAt < 0 && truth.aligner.converged) convergedAt = ctx.tAudio;
+      if (ctx.engine.truthEventsActive) {
+        for (const kind of ['kick', 'snare', 'hat'] as const) {
+          if (ctx.engine.firedThisFrame(kind)) {
+            truthFires.push({
+              t: ctx.tAudio,
+              kind,
+              strength: ctx.engine.onsetStrength(kind),
+              tOnset: ctx.engine.onsetTime(kind),
+            });
+          }
+        }
+      }
       truthSamples.push({
         t: ctx.tAudio,
         truthActive: ctx.engine.beat.truthActive,
@@ -124,7 +158,7 @@ function runWithHost(signal: SyntheticSignal, stopAfterLocalSec = Number.POSITIV
     },
   });
 
-  return { engine, truth, report, truthSamples, detectedKicks, convergedAt };
+  return { engine, truth, report, truthSamples, detectedKicks, truthFires, convergedAt };
 }
 
 function truthSampleAt(samples: readonly TruthSample[], at: number): TruthSample {
@@ -159,15 +193,14 @@ describe('ADR-012 - alignement et autorite de la verite', () => {
     expect(sampleAt(report, 29).state).toBe('LOCKED');
 
     // La grille de verite ancre les temps sur la grille de l'hote, vue a
-    // travers la convention du detecteur : l'erreur de phase contre les kicks
-    // VRAIS porte donc le biais constant du detecteur (releve par `userTrimMs`,
-    // comme en mode PLL) plus la gigue residuelle de l'alignement. C'est la
-    // gigue qu'on borne a 3 ms ; le total reste sous le RMS du PLL seul.
+    // travers la convention d'horodatage du detecteur : l'erreur de phase
+    // contre les kicks VRAIS porte donc une constante (l'erreur d'ancre,
+    // relevee par `userTrimMs` comme en mode PLL) plus la gigue de suivi.
+    // Le critere exploitable est le TOTAL : il doit rester sous le RMS du
+    // PLL seul sur le meme signal (5,9 ms mesures a l'etape 1, 12 en borne).
     const rms = phaseErrorRmsMs(report, signal.kickTimes, convergedAt + 1, 30);
-    const biasMs = Math.abs(bias) * 1000;
-    const residual = Math.sqrt(Math.max(0, rms * rms - biasMs * biasMs));
-    expect(residual, `gigue residuelle = ${residual.toFixed(2)} ms (RMS ${rms.toFixed(2)}, biais ${biasMs.toFixed(2)})`).toBeLessThan(3);
-    expect(rms, `erreur de phase RMS totale = ${rms.toFixed(2)} ms`).toBeLessThan(10);
+    const anchorErrMs = Math.abs(truth.aligner.offsetSec - OFFSET_SEC) * 1000;
+    expect(rms, `erreur de phase RMS totale = ${rms.toFixed(2)} ms (erreur d'ancre ${anchorErrMs.toFixed(2)})`).toBeLessThan(8);
   }, 120000);
 
   it('canal muet : repli PLL sans discontinuite, BPM conserve', () => {
@@ -190,6 +223,60 @@ describe('ADR-012 - alignement et autorite de la verite', () => {
 
     const jump = maxPhaseJumpMsAfter(report, convergedAt);
     expect(jump, `plus grand saut d'ancre : ${jump.toFixed(2)} ms`).toBeLessThanOrEqual(MAX_ANCHOR_JUMP_MS);
+  }, 120000);
+});
+
+describe('ADR-012 lot 2 - evenements exacts', () => {
+  it('les tirs viennent des annonces : velocites exactes, un tir par annonce, instant visuel', () => {
+    const signal = clickTrack(BPM, 30, { jitterPct: 0 });
+    const { engine, truthFires, convergedAt } = runWithHost(signal);
+    expect(convergedAt).toBeGreaterThan(0);
+
+    const from = convergedAt + 1;
+    const to = 29.5;
+    const kicks = truthFires.filter((f) => f.kind === 'kick' && f.t >= from && f.t <= to);
+    const snares = truthFires.filter((f) => f.kind === 'snare' && f.t >= from && f.t <= to);
+    const hats = truthFires.filter((f) => f.kind === 'hat' && f.t >= from && f.t <= to);
+
+    // Velocites EXACTES de l'hote - la preuve que la source du tir est
+    // l'annonce, pas le detecteur (stockage float32 du ring : fround).
+    for (const f of kicks) expect(Math.abs(f.strength - Math.fround(VEL_KICK))).toBeLessThan(1e-6);
+    for (const f of snares) expect(Math.abs(f.strength - Math.fround(VEL_SNARE))).toBeLessThan(1e-6);
+    for (const f of hats) expect(Math.abs(f.strength - Math.fround(VEL_HAT))).toBeLessThan(1e-6);
+
+    // Un tir par annonce, pas un de plus : aucun double tir detecteur+verite.
+    const beatsInWindow = (to - from) * (BPM / 60);
+    expect(Math.abs(kicks.length - beatsInWindow), `${kicks.length} kicks pour ~${beatsInWindow.toFixed(1)} temps`).toBeLessThanOrEqual(2);
+    expect(Math.abs(snares.length - beatsInWindow / 2), `${snares.length} snares`).toBeLessThanOrEqual(2);
+    expect(Math.abs(hats.length - beatsInWindow * 2), `${hats.length} hats`).toBeLessThanOrEqual(3);
+
+    // Convention visuelle : le tir tombe a tSon - syncOffset, a l'erreur
+    // d'offset pres (biais du detecteur ~6 ms, cf lot 1), et la trame qui le
+    // porte le suit d'au plus ~2 intervalles.
+    const syncSec = engine.beat.sync.totalMs / 1000;
+    for (const f of kicks) {
+      let best = Number.POSITIVE_INFINITY;
+      for (const tk of signal.kickTimes) {
+        const d = f.tOnset - (tk - syncSec);
+        if (Math.abs(d) < Math.abs(best)) best = d;
+      }
+      expect(Math.abs(best), `tir a ${(best * 1000).toFixed(1)} ms du kick vrai (convention visuelle)`).toBeLessThanOrEqual(0.015);
+      expect(f.t - f.tOnset, 'la trame porteuse suit le tir').toBeGreaterThanOrEqual(0);
+      expect(f.t - f.tOnset).toBeLessThanOrEqual(2.5 / 60);
+    }
+  }, 120000);
+
+  it('repli : les onsets du rendu reviennent au detecteur', () => {
+    const cutoffSec = 15;
+    const signal = clickTrack(BPM, 30, { jitterPct: 0 });
+    const { engine, detectedKicks, truthSamples, convergedAt } = runWithHost(signal, cutoffSec);
+    expect(convergedAt).toBeGreaterThan(0);
+    expect(engine.truthEventsActive, 'mode verite-evenements rendu au repli').toBe(false);
+    // `detectedKicks` n'enregistre que hors mode verite : sa reprise apres la
+    // coupure prouve que les drapeaux `fired` sont revenus au detecteur.
+    const resumed = detectedKicks.filter((t) => t > cutoffSec + 3);
+    expect(resumed.length, `${resumed.length} kicks detecteur apres le repli`).toBeGreaterThan(5);
+    expect(truthSamples.some((s) => s.t > cutoffSec + 3 && !s.truthActive)).toBe(true);
   }, 120000);
 });
 

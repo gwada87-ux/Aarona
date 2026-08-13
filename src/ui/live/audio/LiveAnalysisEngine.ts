@@ -69,11 +69,11 @@ class OnsetView implements OnsetSet {
   }
 
   strength(kind: OnsetKind): number {
-    return this.engine.onsets.lastStrength(kind);
+    return this.engine.onsetStrength(kind);
   }
 
   lastTime(kind: OnsetKind): number {
-    return this.engine.onsets.lastTime(kind);
+    return this.engine.onsetTime(kind);
   }
 
   /**
@@ -96,9 +96,9 @@ class OnsetView implements OnsetSet {
   envelope(kind: OnsetKind, decayBeats: number, overshoot = 0): number {
     const period = this.engine.beat.periodSec;
     if (period <= 0) return 0;
-    const since = this.engine.audioTime - this.engine.onsets.lastTime(kind);
+    const since = this.engine.audioTime - this.engine.onsetTime(kind);
     if (!(since >= 0) || !Number.isFinite(since)) return 0;
-    return this.engine.onsets.lastStrength(kind) * impact(since / period, decayBeats, overshoot);
+    return this.engine.onsetStrength(kind) * impact(since / period, decayBeats, overshoot);
   }
 }
 
@@ -129,6 +129,21 @@ export class LiveAnalysisEngine {
   private frameStart = 0;
   private fracPrev = 0;
   private readonly fired: Record<OnsetKind, boolean> = { kick: false, snare: false, hat: false };
+  /**
+   * Onsets DETECTES cette trame, pour le taux d'onsets uniquement (§2.8).
+   * Identique a `fired` en mode normal ; en mode verite-evenements (ADR-012
+   * lot 2), `fired` appartient aux annonces de l'hote et ce compteur reste
+   * cote detecteur - le taux est une mesure de l'AUDIO, pas du rendu.
+   */
+  private readonly rateFired: Record<OnsetKind, boolean> = { kick: false, snare: false, hat: false };
+  /** Mode verite-evenements (ADR-012 lot 2) : les tirs viennent des annonces exactes de l'hote. */
+  private truthEventsOn = false;
+  private readonly truthT: Record<OnsetKind, number> = {
+    kick: Number.NEGATIVE_INFINITY,
+    snare: Number.NEGATIVE_INFINITY,
+    hat: Number.NEGATIVE_INFINITY,
+  };
+  private readonly truthS: Record<OnsetKind, number> = { kick: 0, snare: 0, hat: 0 };
 
   private startTime = Number.NaN;
   private lastTime = Number.NaN;
@@ -163,6 +178,44 @@ export class LiveAnalysisEngine {
     return this.fired[kind];
   }
 
+  /**
+   * Instant du dernier onset VU PAR LE RENDU : celui du detecteur en mode
+   * normal, celui de la derniere annonce tiree en mode verite-evenements.
+   * Meme base de temps que `audioTime` dans les deux cas.
+   */
+  onsetTime(kind: OnsetKind): number {
+    return this.truthEventsOn ? this.truthT[kind] : this.onsets.lastTime(kind);
+  }
+
+  /** Force du dernier onset vu par le rendu. En mode verite : la velocite REELLE composee par l'hote. */
+  onsetStrength(kind: OnsetKind): number {
+    return this.truthEventsOn ? this.truthS[kind] : this.onsets.lastStrength(kind);
+  }
+
+  /** Bascule la source des onsets du rendu (ADR-012 lot 2). Pilote par `TruthDirector`, chaque trame. */
+  setTruthEvents(on: boolean): void {
+    this.truthEventsOn = on;
+  }
+
+  get truthEventsActive(): boolean {
+    return this.truthEventsOn;
+  }
+
+  /**
+   * Tir d'un evenement ANNONCE par l'hote (ADR-012 lot 2). `tVisual` est
+   * l'instant de tir sur l'horloge audio locale, deja decale de `syncOffset`
+   * par l'appelant - l'enveloppe demarre a l'instant du tir, comme pour une
+   * detection. Plusieurs tirs du meme type dans une trame : le plus fort
+   * gagne (meme semantique de remplacement que `OnsetView.envelope`).
+   */
+  fireTruth(kind: OnsetKind, tVisual: number, strength: number): void {
+    if (!this.truthEventsOn) return;
+    if (this.fired[kind] && strength < this.truthS[kind]) return;
+    this.fired[kind] = true;
+    this.truthT[kind] = tVisual;
+    this.truthS[kind] = Math.min(1, Math.max(0, strength));
+  }
+
   /** Derniere valeur d'`audioContext.currentTime` consommee. Meme base de temps que les onsets. */
   get audioTime(): number {
     return this.lastTime;
@@ -189,6 +242,9 @@ export class LiveAnalysisEngine {
     this.fired.kick = false;
     this.fired.snare = false;
     this.fired.hat = false;
+    this.rateFired.kick = false;
+    this.rateFired.snare = false;
+    this.rateFired.hat = false;
 
     const { tAudio } = input;
     if (!Number.isFinite(this.startTime)) {
@@ -259,10 +315,12 @@ export class LiveAnalysisEngine {
   }
 
   private updateOnsetRate(dt: number): void {
+    // Compte les onsets DETECTES (`rateFired`), pas les tirs du rendu : le
+    // taux alimente la detection de sections, une mesure de l'audio.
     let count = 0;
-    if (this.fired.kick) count++;
-    if (this.fired.snare) count++;
-    if (this.fired.hat) count++;
+    if (this.rateFired.kick) count++;
+    if (this.rateFired.snare) count++;
+    if (this.rateFired.hat) count++;
     // Lissage sur ~1,5 s : assez court pour distinguer un breakdown d'un drop,
     // assez long pour ne pas suivre chaque croche.
     const a = 1 - Math.exp(-dt / 1.5);
@@ -304,11 +362,21 @@ export class LiveAnalysisEngine {
         if (e.kind === 'kick') this.beat.noteKickTime(e.tSec);
         continue;
       }
+      this.rateFired[e.kind] = true;
+      // Mode verite-evenements (ADR-012 lot 2) : le detecteur n'alimente plus
+      // le RENDU - les tirs viennent des annonces exactes (`fireTruth`). Il
+      // continue d'alimenter le taux d'onsets (ci-dessus), l'aligneur (via
+      // `onsets.lastTime`) et l'historique du PLL (ci-dessous), pour que le
+      // repli reprenne arme.
+      if (this.truthEventsOn) {
+        if (e.kind === 'kick') this.beat.noteKickTime(e.tSec);
+        continue;
+      }
       this.fired[e.kind] = true;
       if (e.kind === 'kick') this.beat.onKick(e.tSec, e.strength, Math.max(this.tempo.confidence, 0.1));
       else if (e.kind === 'snare') this.beat.onSnare(e.strength);
     }
-    if (booting) this.onsets.clearEvents();
+    if (booting || this.truthEventsOn) this.onsets.clearEvents();
   };
 
   /** Gate de silence : le seuil d'entree est plus bas que celui de sortie (hysteresis obligatoire). */
@@ -428,6 +496,13 @@ export class LiveAnalysisEngine {
     this.reArm();
     this.tempo.reset();
     this.beat.reset();
+    this.truthEventsOn = false;
+    this.truthT.kick = Number.NEGATIVE_INFINITY;
+    this.truthT.snare = Number.NEGATIVE_INFINITY;
+    this.truthT.hat = Number.NEGATIVE_INFINITY;
+    this.truthS.kick = 0;
+    this.truthS.snare = 0;
+    this.truthS.hat = 0;
     this.state = 'BOOT';
     this.tSec = 0;
     this.dt = 0;

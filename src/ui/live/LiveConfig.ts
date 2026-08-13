@@ -487,6 +487,10 @@ export interface LiveTruthConfig {
   readonly announcedRingSize: number;
   /** Taille du ring des paires appariees. Sa profondeur EST la constante de temps du suivi de derive. */
   readonly pairRingSize: number;
+  /** Taille du ring des evenements annonces en attente de tir (lot 2). */
+  readonly eventRingSize: number;
+  /** Retard maximal de tir d'un evenement annonce, en secondes. Au-dela (convergence tardive, retour d'onglet), l'evenement est perime et jete. */
+  readonly fireMaxLateSec: number;
 }
 
 export interface LiveContentConfig {
@@ -743,6 +747,8 @@ export const DEFAULT_LIVE_CONFIG: LiveConfig = Object.freeze({
     dropMadMs: 30,
     announcedRingSize: 48,
     pairRingSize: 24,
+    eventRingSize: 64,
+    fireMaxLateSec: 0.25,
   }),
 });
 

@@ -19,8 +19,19 @@
  */
 
 import type { LiveTruthConfig } from '../LiveConfig';
+import type { OnsetKind } from '../audio/OnsetDetector';
 
 export type TruthIngestResult = 'accepted' | 'ignored' | 'rejected';
+
+/** Types d'evenements annonces que le rendu sait tirer (lot 2). Un type hors de cette table est transporte mais pas mis en file. */
+const FIREABLE: Readonly<Record<string, OnsetKind>> = Object.freeze({
+  KICK: 'kick',
+  SNARE: 'snare',
+  CLAP: 'snare',
+  HAT: 'hat',
+});
+const KIND_CODE: Readonly<Record<OnsetKind, number>> = Object.freeze({ kick: 0, snare: 1, hat: 2 });
+const CODE_KIND: readonly OnsetKind[] = Object.freeze(['kick', 'snare', 'hat']);
 
 interface ParsedMessage {
   readonly pmdiLive: string;
@@ -32,6 +43,11 @@ export class TruthChannel {
   /** Instants HOTE des kicks annonces - ring indexe par sequence croissante. */
   private readonly kicks: Float64Array;
   private kickSeq = 0;
+  /** File des evenements annonces en attente de tir (lot 2) - trois rings paralleles, indexes par sequence croissante. */
+  private readonly eventT: Float64Array;
+  private readonly eventKind: Uint8Array;
+  private readonly eventVel: Float32Array;
+  private eventSeqW = 0;
   /** Ecarts arrivee locale - tHost, pour l'amorce grossiere de l'aligneur. */
   private readonly arrivals: Float64Array;
   private arrivalCount = 0;
@@ -57,6 +73,9 @@ export class TruthChannel {
     this.kicks = new Float64Array(config.announcedRingSize);
     this.arrivals = new Float64Array(config.arrivalRingSize);
     this.arrivalScratch = new Float64Array(config.arrivalRingSize);
+    this.eventT = new Float64Array(config.eventRingSize);
+    this.eventKind = new Uint8Array(config.eventRingSize);
+    this.eventVel = new Float32Array(config.eventRingSize);
   }
 
   /**
@@ -85,8 +104,19 @@ export class TruthChannel {
         const type = typeof p['type'] === 'string' ? p['type'] : '';
         if (type === 'KICK') this.pushKick(msg.tHost);
         else if (type === 'DOWNBEAT') this.lastDownbeatHost = msg.tHost;
-        // Autres types (SNARE, HAT, notes, accords...) : transportes des
-        // maintenant, consommes par les lots suivants de l'ADR-012.
+        // Lot 2 : les types que le rendu sait tirer entrent dans la file
+        // d'evenements, avec leur velocite REELLE. Un type inconnu est
+        // transporte sans erreur (regle 3 de doc 12) mais pas mis en file.
+        const kind = FIREABLE[type];
+        if (kind !== undefined) {
+          const raw = p['intensity'];
+          const vel = typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.min(1, raw) : 1;
+          const i = this.eventSeqW % this.eventT.length;
+          this.eventT[i] = msg.tHost;
+          this.eventKind[i] = KIND_CODE[kind];
+          this.eventVel[i] = vel;
+          this.eventSeqW++;
+        }
         this.accepted++;
         return 'accepted';
       }
@@ -140,6 +170,28 @@ export class TruthChannel {
     return this.kicks[(start + i) % this.kicks.length]!;
   }
 
+  /** Sequence d'ecriture de la file d'evenements. Le lecteur garde son propre curseur. */
+  get eventSeq(): number {
+    return this.eventSeqW;
+  }
+
+  /** Plus ancienne sequence encore presente dans le ring. */
+  get eventSeqFloor(): number {
+    return Math.max(0, this.eventSeqW - this.eventT.length);
+  }
+
+  eventHostTimeAt(seq: number): number {
+    return this.eventT[seq % this.eventT.length]!;
+  }
+
+  eventKindAt(seq: number): OnsetKind {
+    return CODE_KIND[this.eventKind[seq % this.eventKind.length]!] ?? 'kick';
+  }
+
+  eventVelAt(seq: number): number {
+    return this.eventVel[seq % this.eventVel.length]!;
+  }
+
   get arrivalSamples(): number {
     return this.arrivalCount;
   }
@@ -161,6 +213,7 @@ export class TruthChannel {
 
   reset(): void {
     this.kickSeq = 0;
+    this.eventSeqW = 0;
     this.arrivalCount = 0;
     this.arrivalIndex = 0;
     this.lastMessageLocal = Number.NEGATIVE_INFINITY;

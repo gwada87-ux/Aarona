@@ -87,7 +87,7 @@ export class DebugHud {
             ? 'AUCUN MESSAGE'
             : 'acquisition';
       this.lines.push(
-        `verite      canal ${total === 0 ? '-' : ch.alive(engine.audioTime) ? 'vivant' : 'MORT'}   msgs ${ch.accepted}/${ch.ignored}/${ch.rejected}   hote ${ch.tempoBpm > 0 ? `${ch.tempoBpm.toFixed(2)} BPM` : '-'}   paires ${al.matchedPairs}${al.ambiguousSkips > 0 ? ` (+${al.ambiguousSkips} amb.)` : ''}   MAD ${Number.isFinite(al.madMs) ? `${al.madMs.toFixed(1)} ms` : '-'}   offset ${Number.isFinite(al.offsetSec) ? `${al.offsetSec.toFixed(3)} s` : '-'}   ${etat}`,
+        `verite      canal ${total === 0 ? '-' : ch.alive(engine.audioTime) ? 'vivant' : 'MORT'}   msgs ${ch.accepted}/${ch.ignored}/${ch.rejected}   hote ${ch.tempoBpm > 0 ? `${ch.tempoBpm.toFixed(2)} BPM` : '-'}   paires ${al.matchedPairs}${al.ambiguousSkips > 0 ? ` (+${al.ambiguousSkips} amb.)` : ''}   MAD ${Number.isFinite(al.madMs) ? `${al.madMs.toFixed(1)} ms` : '-'}   offset ${Number.isFinite(al.offsetSec) ? `${al.offsetSec.toFixed(3)} s` : '-'}   evts ${truth.firedCount}${truth.droppedCount > 0 ? `/-${truth.droppedCount}` : ''}   ${etat}`,
       );
     }
     this.lines.push(`octaves     ${engine.tempo.hypotheses.map((h) => `${h.bpm.toFixed(1)}:${h.score.toFixed(2)}`).join('  ') || '-'}`);
@@ -220,9 +220,11 @@ export class DebugHud {
 }
 
 function marker(engine: LiveAnalysisEngine, kind: 'kick' | 'snare' | 'hat'): string {
-  // `lastTime` est sur l'horloge audio, comme `audioTime` : les deux sont
+  // `onsetTime` est sur l'horloge audio, comme `audioTime` : les deux sont
   // comparables. `tSec` ne le serait pas, c'est un temps ecoule depuis start().
-  const age = engine.audioTime - engine.onsets.lastTime(kind);
+  // Accesseurs unifies (lot 2) : en mode verite, les marqueurs battent avec
+  // les annonces exactes de l'hote - ce que le rendu voit reellement.
+  const age = engine.audioTime - engine.onsetTime(kind);
   const hot = engine.firedThisFrame(kind) || age < 0.08;
-  return `${kind} ${hot ? '[#]' : '[ ]'} ${engine.onsets.lastStrength(kind).toFixed(2)}`;
+  return `${kind} ${hot ? '[#]' : '[ ]'} ${engine.onsetStrength(kind).toFixed(2)}`;
 }
