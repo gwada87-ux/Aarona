@@ -199,6 +199,19 @@ Candidat : pré-armement de l'onde de choc de `mandala-32` ou des anneaux de
   ferait tomber le portique pour une raison qui n'est pas une régression.
   Vérifié dans les trois cas : fichier sain → 0, fichier absent → 0 + message,
   version régressée (alpha21) → **1, le portique tombe**.
+
+  **Reconstruire une version intermédiaire sans la garder sur disque.** Les
+  quatre drapeaux SONT l'historique : éteindre les derniers redonne les états
+  antérieurs, ce qui a été vérifié cellule par cellule au banc (colonnes
+  identiques, mêmes totaux 8/4/2). alpha22, 23 et 24 sont donc archivés dans
+  `Downloads/_corbeille/20260813/` plutôt que gardés en ligne.
+
+  | pour obtenir | éteindre, dans alpha25 |
+  |---|---|
+  | alpha24 | `_CHORD_SUS_ORDER_V1` |
+  | alpha23 | + `_PMDI_QUALITY_NORM_V1` |
+  | alpha22 | + `_CHORD_ROOT_V3` |
+  | alpha21 | + `_CHORD_DETECT_V2` |
 - **Déploiement.** Chaque push sur `main` redéploie GitHub Pages (~90 s).
   Vérifier le bundle servi : le nom `assets/index-*.js` change, et le
   contenu se sonde par `curl | grep <marqueur>`. L'iframe de Beat Studio

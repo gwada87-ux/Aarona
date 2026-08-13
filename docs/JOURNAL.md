@@ -8582,3 +8582,22 @@ version regressee (alpha21) -> code 1, 12 ACCORD(S) FAUX sur 15   <- le portique
 ```
 
 Portique complet inchangé par ailleurs : typecheck 0, 1265 tests.
+
+### Versions intermédiaires archivées (même jour)
+
+alpha22, 23 et 24 quittent le dossier de livraison pour
+`Downloads/_corbeille/20260813/`. **Déplacées, pas détruites** — et vérifiées
+inutiles avant de l'être, ce qui est l'ordre correct.
+
+Les quatre drapeaux SONT l'historique : éteindre les derniers dans alpha25
+redonne les états antérieurs. Mesuré au banc, colonne par colonne — les
+variantes reconstruites reproduisent alpha22, alpha23 et alpha24 sur les
+quinze cas, totaux compris (8, 4, 2). Rien n'est donc perdu sur la chaîne
+d'accords ; le reste l'est par construction, chaque lot n'ayant touché
+qu'elle (2 à 12 hunks, tous dans cette chaîne).
+
+La recette de reconstruction est consignée dans `docs/20`, à côté du banc :
+c'est elle qui rend l'archivage sans conséquence, pas la bonne volonté.
+
+`npm run test:arch` après archivage : le fichier canonique reste trouvé
+(alpha25 est toujours le plus haut numéro), TOUS JUSTES, code 0.
