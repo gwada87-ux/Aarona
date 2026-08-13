@@ -8714,3 +8714,40 @@ regarder si le nombre CONTINUE de monter.
 
 Portique : typecheck 0, `test:arch` vert, banc d'accords TOUS JUSTES (15).
 Aucun code modifié — documentation seule.
+
+## 13/08/2026 — Verdicts d'Aaron : les deux sont positifs. Chantier clos.
+
+Les deux derniers points ouverts de la feuille de route n'appartenaient qu'à
+Aaron — aucun ne se mesure, tous deux se regardent. Ils sont rendus le même jour.
+
+**Test 2 — look HDR + bascule WebGL2 (SESSIONS B et C).** Fichier audio chargé
+sur le site déployé, aller-retour avec `?renderer=canvas2d` pour comparer à
+l'ancien rendu. Verdict : **« ça a l'air mieux maintenant »**. Le nouveau rendu
+est donc préféré à l'ancien sur la seule comparaison qui compte — la sienne.
+
+C'est le dernier verrou de trois sessions : la parité SDR (lot 1) avait été
+mesurée style par style, le look HDR (lot 2) avait été mesuré en luminance et en
+saturation, et la bascule par défaut (lot 3) reposait sur ces mesures — mais
+« est-ce que c'est plus beau » ne se mesure pas. La réponse est oui.
+
+**Test 1 — mélodie/accords + anticipation (SESSIONS E et F).** Mode direct
+automatique depuis `alpha25`, panneau laissé intact. Verdict positif également.
+Ce qui est validé ici : la teinte qui suit l'harmonie par le cercle des quintes
+en restant sous le plafond de `hueModulation` (§3.5), et la retenue avant impact
+sur `mandala-32` et `laser-tunnel`.
+
+**Aucune réserve exprimée, aucun défaut signalé.** Les verdicts sont donnés tels
+quels, sans détail — c'est ce qui a été demandé et c'est suffisant pour clore.
+Si un défaut apparaît à l'usage, il sera signalé à ce moment-là.
+
+### État de la feuille de route
+
+Toutes les sessions A à F sont livrées et validées. L'ADR-014 est tranché par la
+mesure (option (c), pas de portage). **Il ne reste aucun point ouvert.** Les deux
+seules choses consignées comme non faites sont des décisions explicites d'Aaron,
+documentées avec leurs raisons :
+
+- la LIMITE CONNUE de `FrameBudget` (référence apprise sans plafond), écartée ;
+- le portage GPU du pipeline live, sans objet au vu de la mesure.
+
+Portique : typecheck 0, 1265 tests, arch verte, banc d'accords TOUS JUSTES (15).
