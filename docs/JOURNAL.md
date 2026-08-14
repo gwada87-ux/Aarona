@@ -9372,3 +9372,14 @@ Trois choses ont débloqué l'affaire, toutes venues de lui :
 La leçon est écrite ici pour ne pas la reperdre : demander d'abord un TÉMOIN
 qui marche, puis faire décrire le symptôme dans le TEMPS (constant ? progressif ?
 après quoi ?) avant de toucher au code.
+
+### VERDICT D'AARON : « c'est bon c'est syncro maintenant »
+
+Confirmé à l'oreille sur son morceau. Le correctif `AV_RESYNC_V1` est validé.
+
+**Conséquence à ne pas oublier :** tous les verdicts rendus par Aaron les 13 et
+14/08 sur les trois chantiers du blueprint — ADN visuel, mémoire visuelle,
+partition de plans — l'ont été pendant que ce défaut d'horloge était actif.
+L'image pouvait être décalée d'un temps entier au moment où il jugeait. Ces
+verdicts ne valent rien et les trois chantiers méritent un nouvel essai sur la
+base saine, un à la fois.
