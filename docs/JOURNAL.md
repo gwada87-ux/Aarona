@@ -9864,3 +9864,71 @@ de ceux qu'on avait déjà ne servait à rien. J'ai passé la soirée à essayer
 d'ouvrir plus grand une porte qui ne menait nulle part.
 
 Portique : typecheck 0, **1366 tests verts**, 0 erreur console.
+
+## 15/08/2026 — « Ça marche qu'au début » : symptôme REPRODUIT, et le défaut est structurel
+
+Aaron, après le correctif de force : « ça marche qu'au début, sinon le cercle
+principal ne bouge pas au moment du kick ».
+
+### Un instrument de plus, et la reproduction tombe
+
+Ligne ajoutée au panneau debug : la répartition des KICK par huitième de
+morceau. Puis un WAV fabriqué exprès — **exactement les mêmes 808 du début à la
+fin**, mais un arrangement qui se densifie à mi-parcours (nappe ×3,5, charley
+×2,2, percussions doublées) :
+
+```
+kicks détectés par huitième :  3 · 3 · 4 · 5 · 0 · 0 · 0 · 0
+dernier kick à 11,2 s sur 24 s
+```
+
+**Le kick ne change pas d'un iota. Dès que l'arrangement se remplit, le
+détecteur cesse de le voir.** C'est le symptôme d'Aaron, à la lettre, et c'est
+la première fois qu'il est reproductible.
+
+### Pourquoi, mesuré
+
+```
+                          centroide median    minimum
+1re moitie (clairsemee)        955 Hz          18 Hz
+2e moitie (dense)             1647 Hz         225 Hz
+```
+
+Le MÊME 808 voit le centroïde de son onset passer de 955 à 1647 Hz. Les
+descripteurs sont mesurés sur le spectre de DIFFÉRENCE (piège n°7) : à
+l'instant de la frappe, tout ce qui change en même temps entre dans le calcul.
+Plus l'arrangement est dense, plus le centroïde monte — sans que le kick ait
+bougé.
+
+### Aucun plafond fixe ne peut marcher, et c'est démontré
+
+```
+plafond   1re moitie   2e moitie      (~14 kicks reels par moitie)
+ 180 Hz       15            0
+ 250 Hz       23            3
+ 400 Hz       31            7
+ 700 Hz       41           14
+1200 Hz       93           29
+```
+
+À 180 Hz la seconde moitié est morte ; à 700 Hz la première en détecte trois
+fois trop. **Un seuil ABSOLU ne peut pas servir un critère dont la valeur
+dépend de la densité de l'arrangement.** C'est le vrai défaut, et il explique
+rétrospectivement pourquoi mes deux tentatives de la veille ont échoué : elles
+cherchaient toutes deux la bonne constante, alors qu'aucune constante ne
+convient.
+
+### Ce qu'il faudra, et pourquoi ce n'est pas fait ce soir
+
+Un critère RELATIF : comparer le centroïde d'un onset à la distribution du
+morceau plutôt qu'à un nombre écrit dans un fichier. C'est une vraie
+modification du classificateur, avec son drapeau, sa calibration sur plusieurs
+morceaux et sa mesure de non-régression sur les onze presets. Ce n'est pas un
+réglage, et l'improviser à 00 h 35 après cette journée serait exactement la
+faute qui a coûté les deux jours précédents.
+
+Ce qui est acquis et consigné : le symptôme est reproductible en une minute
+(le WAV est décrit ci-dessus), la cause est mesurée, et la famille de solution
+est identifiée.
+
+Portique : typecheck 0, **1366 tests verts**, 0 erreur console.

@@ -1391,6 +1391,32 @@ function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null, ke
   // tentative a l'aveugle : elle compte, sur SES onsets, combien passent chaque
   // condition de la regle KICK prise SEULE. Celle qui affiche le plus petit
   // nombre est le goulot, et on saura enfin lequel bouger.
+  // OU SONT LES KICKS DANS LE TEMPS (15/08/2026). Aaron : « ça marche qu'au
+  // début, sinon le cercle principal ne bouge pas au moment du kick ». Un
+  // symptome TEMPOREL, que ni le total ni la force moyenne ne peuvent montrer.
+  //
+  // Hypothese a verifier : les kicks ne sont detectes que dans l'intro, quand
+  // le mix est clairsemé, et plus du tout des que l'arrangement se remplit —
+  // les descripteurs etant mesures sur le spectre de DIFFERENCE (piege n7), un
+  // kick noye sous un arrangement dense cesse d'y ressortir.
+  //
+  // Huit tranches egales : si le compte s'effondre apres la premiere ou la
+  // deuxieme, l'hypothese est vraie et la ligne le montre sans rien deviner.
+  const TRANCHES = 8;
+  const kicks = corrected.events.filter((e) => e.type === 'KICK');
+  if (kicks.length === 0 || corrected.audio.duration <= 0) {
+    outKickTimeline.textContent = kicks.length === 0 ? 'aucun KICK' : '—';
+  } else {
+    const parTranche = new Array<number>(TRANCHES).fill(0);
+    for (const e of kicks) {
+      const i = Math.min(TRANCHES - 1, Math.floor((e.t / corrected.audio.duration) * TRANCHES));
+      parTranche[i]!++;
+    }
+    const dernier = kicks[kicks.length - 1]!.t;
+    outKickTimeline.textContent =
+      `${parTranche.join(' · ')}  (par huitième de morceau) — dernier kick à ${dernier.toFixed(1)}s sur ${corrected.audio.duration.toFixed(0)}s`;
+  }
+
   const descripteurs = (corrected.ext?.onsetDescriptors ?? []) as ReadonlyArray<{
     readonly e: readonly number[];
     readonly centroid: number;
@@ -2699,6 +2725,7 @@ const outSections = document.querySelector<HTMLElement>('#out-sections')!;
 const outHits = document.querySelector<HTMLElement>('#out-hits')!;
 const outFeatures = document.querySelector<HTMLElement>('#out-features')!;
 const outKickReject = document.querySelector<HTMLElement>('#out-kick-reject')!;
+const outKickTimeline = document.querySelector<HTMLElement>('#out-kick-timeline')!;
 
 btnPlay.addEventListener('click', () => audioEngine.play());
 btnPause.addEventListener('click', () => audioEngine.pause());
