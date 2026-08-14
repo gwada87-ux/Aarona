@@ -149,6 +149,47 @@ function tryPerc(d: OnsetDescriptor, th: PercThresholds): RuleOutcome | null {
 }
 
 /** Classe un seul onset, ou `null` s'il ne correspond à aucune règle (« rejeté — conservé en debug », docs/05 §4). */
+/**
+ * FORCE D'UN KICK : SUB + BASS, ET NON LA SEULE BANDE « BASS »
+ * (drapeau `KICK_INTENSITY_SUB_V1`, 15/08/2026).
+ *
+ * LE DEFAUT, TROUVE PAR AARON PUIS REPRODUIT
+ * ------------------------------------------
+ * « Ça le fait à certains moments mais à d'autres non, pas du tout », puis
+ * « 1 kick sur 4 ou 5 marche ». Le geste visuel etait bon : c'est la FORCE des
+ * evenements qui etait nulle.
+ *
+ * La ligne fautive lisait `d.e[1]` — la bande « bass » SEULE — en s'appuyant sur
+ * docs/05 (« intensité = E_bass normalisée »). Or un 808 met l'essentiel de son
+ * energie dans `d.e[0]`, la bande « sub ». Le code regardait donc a cote de la
+ * caisse.
+ *
+ * Mesure sur un vrai WAV analyse de bout en bout (808 glissando 62->42 Hz,
+ * clic d'attaque, charley, caisse, nappe) :
+ *
+ * ```
+ * avant   KICK 19 (force 0,00)   <- des kicks detectes, mais AUCUN visuel
+ * ```
+ *
+ * Force nulle veut dire `fire(0)`, donc anneau immobile, halo immobile,
+ * secousse absente. Et cela explique exactement le « 1 sur 4 ou 5 » d'Aaron :
+ * seuls les kicks dont l'energie deborde dans la bande « bass » produisaient
+ * quelque chose ; un 808 pur ne donnait rien.
+ *
+ * POURQUOI SUB+BASS, ET PAS AUTRE CHOSE
+ * -------------------------------------
+ * Parce que c'est EXACTEMENT la grandeur que la regle utilise pour decider
+ * qu'il s'agit d'un kick (`tryKick` teste `d.e[0] + d.e[1] > bassRatio`).
+ * Juger la presence d'un kick sur sub+bass puis sa force sur bass seule etait
+ * une incoherence interne, pas un choix.
+ */
+export const KICK_INTENSITY_SUB_V1 = true;
+
+function kickIntensity(d: OnsetDescriptor): number {
+  // Meme grandeur que celle qui a fait passer la regle (voir `tryKick`).
+  return KICK_INTENSITY_SUB_V1 ? d.e[0] + d.e[1] : d.e[1];
+}
+
 export function classifyOnset(d: OnsetDescriptor, thresholds: ClassificationThresholds = DEFAULT_CLASSIFICATION_THRESHOLDS): MusicEvent | null {
   // CLAP avant SNARE : règle strictement plus spécifique (même profil + micro-onsets) — un
   // clap qui échouerait sur les micro-onsets doit pouvoir retomber sur SNARE, pas l'inverse.
@@ -157,7 +198,7 @@ export function classifyOnset(d: OnsetDescriptor, thresholds: ClassificationThre
   if (!outcome) return null;
 
   const confidence = Math.min(d.strength, outcome.margin);
-  const intensity = outcome.type === 'KICK' ? d.e[1] : d.strength; // KICK : « intensité = E_bass normalisée »
+  const intensity = outcome.type === 'KICK' ? kickIntensity(d) : d.strength;
 
   return {
     t: d.t,

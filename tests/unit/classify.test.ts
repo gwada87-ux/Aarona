@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyOnset, classifyOnsets, DEFAULT_CLASSIFICATION_THRESHOLDS } from '../../src/analysis/classify';
+import { classifyOnset, classifyOnsets, DEFAULT_CLASSIFICATION_THRESHOLDS, KICK_INTENSITY_SUB_V1 } from '../../src/analysis/classify';
 import type { OnsetDescriptor } from '../../src/music/pmdi';
 
 /** e = [E_sub, E_bass, E_lowmid, E_mid, E_himid, E_high] — docs/05 §4. */
@@ -23,7 +23,34 @@ describe('classifyOnset — KICK', () => {
     const d = descriptor({ e: [0.4, 0.3, 0.1, 0.1, 0.05, 0.05], centroid: 150, decay30: 0.15 });
     const event = classifyOnset(d);
     expect(event?.type).toBe('KICK');
-    expect(event?.intensity).toBeCloseTo(0.3, 10); // « intensité = E_bass normalisée » (d.e[1])
+    // La force d'un kick est SUB+BASS (0,4 + 0,3), et non la seule bande
+    // « bass » comme le disait docs/05. Voir `KICK_INTENSITY_SUB_V1` : un 808
+    // met son energie dans SUB, la lecture de `e[1]` seule donnait une force
+    // quasi nulle donc aucun visuel. Calcule depuis le drapeau : a `false`, ce
+    // test exige le comportement d'avant.
+    expect(event?.intensity).toBeCloseTo(KICK_INTENSITY_SUB_V1 ? 0.7 : 0.3, 10);
+  });
+
+  /**
+   * Le cas reel : un 808 pur. Toute l'energie dans SUB, rien dans BASS.
+   * Avant ce correctif il produisait `intensity = 0` — un evenement detecte
+   * mais rigoureusement invisible, ce qu'Aaron decrivait par « 1 kick sur 4 ou
+   * 5 marche ».
+   */
+  it('un 808 PUR (energie dans sub, rien dans bass) a une force reelle', () => {
+    const huitCentHuit = descriptor({ e: [0.75, 0.0, 0.1, 0.08, 0.04, 0.03], centroid: 90, decay30: 0.1 });
+    const event = classifyOnset(huitCentHuit);
+    expect(event?.type).toBe('KICK');
+    if (KICK_INTENSITY_SUB_V1) {
+      expect(event?.intensity, 'un 808 detecte doit pouvoir se voir').toBeGreaterThan(0.7);
+    } else {
+      expect(event?.intensity).toBe(0);
+    }
+  });
+
+  it('la force reste bornee a 1', () => {
+    const enorme = descriptor({ e: [0.7, 0.3, 0, 0, 0, 0], centroid: 80, decay30: 0.1 });
+    expect(classifyOnset(enorme)?.intensity).toBeLessThanOrEqual(1);
   });
 
   it('un decay30 saturé ne bloque PAS KICK (condition neutralisée, docs/05 §4)', () => {

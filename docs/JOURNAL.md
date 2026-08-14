@@ -9792,3 +9792,75 @@ reste appartient à l'œil d'Aaron.
 
 Portique : typecheck 0, **1364 tests verts**, `test:arch` verte, accords
 TOUS JUSTES (15).
+
+## 15/08/2026 — LE DÉFAUT DU KICK EST TROUVÉ : une bande de trop à gauche
+
+Aaron : « ça le fait à certains moments mais à d'autres non, pas du tout »,
+puis « 1 kick sur 4 ou 5 marche ». Le geste visuel livré une heure plus tôt
+était donc bon — c'est la FORCE des événements qui était nulle.
+
+### L'instrument avant la troisième hypothèse
+
+Deux corrections de seuils avaient déjà été écrites et rejetées par la mesure,
+faute de pouvoir reproduire son fichier. Plutôt qu'une troisième à l'aveugle,
+une ligne de plus au panneau debug — combien d'onsets passent chaque condition
+du KICK, prise SEULE, sur le morceau chargé :
+
+```
+kicks refusés   419 onsets · passent grave>0.62 : 132 · centroïde<180Hz : 19
+                · décroissance : 419 · RETENUS : 19
+```
+
+Vérifiée sur un VRAI WAV analysé de bout en bout (808 glissando 62→42 Hz, clic
+d'attaque, charley, caisse, nappe), injecté dans l'entrée de fichier — le
+chemin d'import réel, pas un document synthétique.
+
+### Ce que la ligne d'à côté a révélé
+
+```
+frappes détectées   ... KICK 19 (force 0,00) ...
+```
+
+**Force nulle.** Dix-neuf kicks détectés, et pas un seul visible : `fire(0)`
+laisse l'anneau immobile, le halo immobile, la secousse absente.
+
+La cause, dans `analysis/classify.ts` :
+
+```ts
+const intensity = outcome.type === 'KICK' ? d.e[1] : d.strength;
+```
+
+`d.e[1]` est la bande **« bass »** SEULE — la ligne suivait docs/05
+(« intensité = E_bass normalisée »). Or **un 808 met son énergie dans `d.e[0]`,
+la bande « sub »**. Le code lisait à côté de la caisse.
+
+C'est aussi une incohérence interne : `tryKick` DÉCIDE qu'il s'agit d'un kick
+sur `d.e[0] + d.e[1]`, puis on en mesurait la force sur `d.e[1]` seule.
+
+### Le correctif, et ce qu'il donne
+
+`kickIntensity()` rend `d.e[0] + d.e[1]` — exactement la grandeur qui a fait
+passer la règle. Drapeau `KICK_INTENSITY_SUB_V1`.
+
+```
+même WAV, même analyse, même nombre de kicks
+avant   KICK 19 (force 0,00)
+après   KICK 19 (force 1,00)
+```
+
+Et cela explique le « 1 sur 4 ou 5 » d'Aaron au mot près : seuls les kicks dont
+l'énergie débordait dans la bande « bass » produisaient quelque chose ; un 808
+pur ne donnait rien du tout.
+
+Deux tests couvrent le cas, dont un 808 PUR (toute l'énergie dans sub, rien
+dans bass) qui rendait `intensity = 0` avant et dépasse 0,7 après.
+
+### Ce que ce défaut apprend
+
+La sous-détection des kicks (`KICK 20` chez Aaron) reste réelle, mais elle
+n'était pas le sujet : **les kicks détectés étaient déjà invisibles.** Mes deux
+tentatives sur les seuils cherchaient à en détecter davantage, alors qu'aucun
+de ceux qu'on avait déjà ne servait à rien. J'ai passé la soirée à essayer
+d'ouvrir plus grand une porte qui ne menait nulle part.
+
+Portique : typecheck 0, **1366 tests verts**, 0 erreur console.

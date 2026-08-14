@@ -65,6 +65,7 @@ import { importCover, CoverImportError } from './coverImport';
 import { applyLayerBlends, framingFor, openFrameWithCamera, primeScene, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { resyncVisualClock, visualNudge } from '../core/time/driftCorrection';
+import { DEFAULT_CLASSIFICATION_THRESHOLDS, type ClassificationThresholds } from '../analysis/classify';
 import { TRACE_FIELD_V1 } from '../visual/memory/TraceField';
 import { SECTION_STAGING_V1 } from '../behaviour/SectionScore';
 import { KICK_PUNCH_V1 } from '../visual/layers/glow/CentralGlow';
@@ -280,6 +281,8 @@ let customPreset: Preset | null = null;
 let currentStyleId: StyleId = 'pulse';
 let currentMacros: PresetMacros = neutralMacros();
 let currentMapping: MappingSchema | null = null;
+/** Seuils de classification du preset actif. Lus par le diagnostic « kicks refuses ». */
+let currentClassification: ClassificationThresholds = DEFAULT_CLASSIFICATION_THRESHOLDS;
 let currentPalette: Palette | null = null;
 /** Intention de bloom du preset actif (§6.5, chantier 9), modulee par la macro Glow. */
 let currentBloom: PresetBloomConfig = DEFAULT_PRESET_BLOOM;
@@ -528,6 +531,10 @@ function applyActiveConfiguration(): void {
   const resolved = resolvePreset(preset, { userMappingOverrides: mappingOverride ?? undefined });
 
   currentMapping = resolved.mapping;
+  // Gardee pour le diagnostic « kicks refuses » du panneau debug : sans elle,
+  // la ligne compterait avec les seuils PAR DEFAUT alors que les presets les
+  // resserrent tous (trap-dark 0,58/220, drill 0,64/200, techno 0,62/180).
+  currentClassification = resolved.classification;
   // La palette EXTRAITE d'une pochette l'emporte sur celle du preset (§7.5) :
   // l'utilisateur qui importe une image attend que les couleurs en viennent,
   // c'est tout l'intérêt de l'extraction. Changer de preset après coup ne la
@@ -1373,6 +1380,42 @@ function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null, ke
   const normKick = behaviourEngine?.normalisationOf('impact') ?? 1;
   etats.push(normKick > 1.01 ? `kick ×${normKick.toFixed(2)} ✓` : 'kick ×1,00 — aucune correction');
   outFeatures.textContent = etats.join(' · ');
+
+  // POURQUOI LES KICKS SONT REFUSES (15/08/2026). Aaron : « ça le fait à
+  // certains moments mais à d'autres non, pas du tout » — le geste visuel est
+  // bon, mais 3 kicks sur 4 ne produisent AUCUN evenement, et le cercle ne peut
+  // pas reagir a ce qui n'existe pas.
+  //
+  // Deux corrections de seuils ont deja ete ecrites et rejetees par la mesure,
+  // faute de pouvoir reproduire son fichier. Cette ligne remplace la troisieme
+  // tentative a l'aveugle : elle compte, sur SES onsets, combien passent chaque
+  // condition de la regle KICK prise SEULE. Celle qui affiche le plus petit
+  // nombre est le goulot, et on saura enfin lequel bouger.
+  const descripteurs = (corrected.ext?.onsetDescriptors ?? []) as ReadonlyArray<{
+    readonly e: readonly number[];
+    readonly centroid: number;
+    readonly decay30: number;
+    readonly decaySaturated: boolean;
+  }>;
+  if (descripteurs.length === 0) outKickReject.textContent = '—';
+  else {
+    const seuils = currentClassification.kick;
+    let grave = 0, centroide = 0, decroissance = 0, retenus = 0;
+    for (const d of descripteurs) {
+      const bass = (d.e[0] ?? 0) + (d.e[1] ?? 0);
+      const okB = bass > seuils.bassRatio;
+      const okC = d.centroid < seuils.maxCentroid;
+      const okD = d.decaySaturated || d.decay30 < seuils.maxDecay30;
+      if (okB) grave++;
+      if (okC) centroide++;
+      if (okD) decroissance++;
+      if (okB && okC && okD) retenus++;
+    }
+    outKickReject.textContent =
+      `${descripteurs.length} onsets · passent grave>${seuils.bassRatio} : ${grave}` +
+      ` · centroïde<${seuils.maxCentroid}Hz : ${centroide}` +
+      ` · décroissance : ${decroissance} · RETENUS : ${retenus}`;
+  }
 
   dropzone.classList.add('hidden');
 }
@@ -2655,6 +2698,7 @@ const outResync = document.querySelector<HTMLElement>('#out-resync')!;
 const outSections = document.querySelector<HTMLElement>('#out-sections')!;
 const outHits = document.querySelector<HTMLElement>('#out-hits')!;
 const outFeatures = document.querySelector<HTMLElement>('#out-features')!;
+const outKickReject = document.querySelector<HTMLElement>('#out-kick-reject')!;
 
 btnPlay.addEventListener('click', () => audioEngine.play());
 btnPause.addEventListener('click', () => audioEngine.pause());
