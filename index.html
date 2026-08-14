@@ -56,6 +56,12 @@
         Volume
         <input type="range" id="volume" min="0" max="1" step="0.01" value="0.9" />
       </label>
+      <label class="volume-field" id="calibration-field" title="Décale l'image par rapport au son. À utiliser si l'image te paraît en avance ou en retard — typiquement avec un casque ou une enceinte Bluetooth.">
+        Décalage image
+        <input type="range" id="calibration" min="-300" max="300" step="5" value="0" />
+        <output id="calibration-value">0 ms</output>
+        <button id="btn-calibration-reset" type="button">Remettre à 0</button>
+      </label>
     </div>
 
     <canvas id="timeline-canvas"></canvas>
@@ -73,6 +79,7 @@
         <dt>qualité</dt><dd id="out-quality">—</dd>
         <dt>particules</dt><dd id="out-particles">—</dd>
         <dt>sync</dt><dd id="out-sync">—</dd>
+        <dt>réancrages</dt><dd id="out-resync">0</dd>
         <dt>transport</dt><dd id="out-transport">—</dd>
         <dt>build</dt><dd id="out-build">—</dd>
       </dl>

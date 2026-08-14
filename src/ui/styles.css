@@ -149,6 +149,14 @@ main {
 #out-time { font-variant-numeric: tabular-nums; opacity: 0.8; font-size: var(--texte-m); min-width: 9ch; }
 #volume { width: 90px; }
 
+/* Recalage image/son (AV_CALIBRATION_V1). Le champ se replie a gauche du
+   transport plutot que de s'y intercaler : c'est un reglage de MATERIEL, qu'on
+   touche une fois puis qu'on oublie, pas une commande de lecture. */
+#calibration-field.hidden { display: none; }
+#calibration { width: 120px; }
+#calibration-value { font-variant-numeric: tabular-nums; min-width: 6ch; opacity: 0.8; }
+#btn-calibration-reset { font-size: 0.75rem; padding: 0.2rem 0.45rem; }
+
 #timeline-canvas {
   width: 100%;
   height: 72px;

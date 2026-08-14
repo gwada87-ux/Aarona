@@ -9273,3 +9273,102 @@ Son morceau récalcitrant, celui qui paraissait synchro ailleurs et pas ici.
 
 Si la réponse à 1 est « oui mais pas encore assez », les trois autres
 corrections restent en réserve.
+
+## 14/08/2026 — LA DÉSYNCHRO EST TROUVÉE : l'horloge visuelle n'était jamais réancrée
+
+Deux jours de fausses pistes se terminent ici, sur un défaut reproduit et
+mesuré. Aucun des trois chantiers du blueprint n'était en cause.
+
+### Le défaut
+
+La boucle d'aperçu n'avançait `simT` **que par deltas** :
+
+```ts
+const audioAdvance = Math.max(0, audioEngine.t - lastAudioT);
+const steps = fixedStep.advance(Math.min(audioAdvance, 0.25));
+```
+
+Elle ne la comparait **jamais** à la position audio ABSOLUE. Toute avance
+perdue l'était donc pour toujours, et deux chemins la perdent :
+
+1. un saut EN ARRIÈRE de l'horloge audio donne `max(0, négatif) = 0` :
+   l'image garde son avance ;
+2. une image de plus de 250 ms — saccade, onglet en arrière-plan, autre
+   application — voit son avance ÉCRÊTÉE par le `Math.min`, et l'excès est jeté.
+
+`correctDrift` protégeait `AudioEngine.t` depuis le MVP. Rien ne protégeait la
+position de l'IMAGE. Et `SYNC_TOLERANCE_MS` existait… uniquement pour AFFICHER
+le problème au panneau debug, jamais pour le corriger : le moteur mesurait sa
+propre désynchronisation, l'affichait avec un ⚠️, et ne faisait rien.
+
+### La reproduction, au navigateur
+
+Curseur de recalage manœuvré de +200 à -200 ms, soit un saut de 400 ms de
+l'horloge audio :
+
+| étape | AVANT | APRÈS |
+|---|---|---|
+| référence 0 ms | -25,2 ms | -28,8 ms |
+| réglage +200 ms | -29,3 ms | **+8,0 ms** |
+| saut de 400 ms | **-426,3 ms** | **+6,0 ms** |
+| 1,5 s plus tard | **-423,7 ms** — jamais rattrapé | **+5,9 ms** |
+| gel forcé de 800 ms | perte définitive | **+4,0 ms** |
+
+Un temps dure 441 ms à 136 BPM : l'image se retrouvait décalée d'un temps
+ENTIER, définitivement. Seul un saut manuel dans la frise remettait les
+compteurs à zéro — ce qui explique un symptôme insaisissable pendant deux
+jours : « c'était synchro, et ensuite non ».
+
+### Le correctif
+
+`core/time/driftCorrection.ts::resyncVisualClock`, fonction pure, au MÊME seuil
+que `correctDrift` (`HARD_RESYNC_THRESHOLD_SECONDS` = 0,12 s) — deux constantes
+auraient dérivé l'une de l'autre sans que rien ne le signale. Drapeau
+`AV_RESYNC_V1`.
+
+La scène n'est PAS réinitialisée : un `scene.reset()` viderait les pools et la
+traînée, un clignotement noir bien plus visible que le décalage corrigé. Les
+couches se remettent d'un saut de 120 ms en quelques images, et
+`EventDispatcher` gère déjà les deux sens.
+
+Un compteur **réancrages** est ajouté au panneau debug : s'il MONTE en lecture
+normale, la machine saccade. C'est le seul symptôme observable du défaut.
+
+### Deuxième correctif du même jour : le recalage manuel image/son
+
+`AudioEngine.setCalibrationOffset()` existait depuis le MVP et n'avait **aucun
+appelant** : la calibration manuelle était écrite, testée, et inatteignable.
+Le piège n°5 de CLAUDE.md la dit pourtant « obligatoire ».
+
+Elle couvre un cas que rien ne peut deviner : `ctx.outputLatency` déclare ici
+**40 ms**, mais un casque ou une enceinte Bluetooth ajoute 150 à 300 ms que le
+navigateur ne voit pas. Le moteur se croit alors parfaitement calé pendant que
+le son arrive à l'oreille un temps plus tard. Curseur ±300 ms, mémorisé en
+`localStorage` — le retard est une propriété du MATÉRIEL, pas du projet, et
+l'écrire dans le `.pvproj` le ferait voyager vers une machine où il est faux.
+
+### Vérification
+
+```
+tsc --noEmit          exit 0
+vitest run            134 fichiers / 1339 tests (7 nouveaux)
+npm run test:arch     arch verte + accords TOUS JUSTES (15)
+navigateur            0 erreur console
+```
+
+### Ce que cette affaire a coûté, et pourquoi
+
+Deux jours à faire juger « mieux / moins bien » à Aaron sur des morceaux
+DIFFÉRENTS à chaque essai, en soupçonnant successivement l'ADN visuel, les
+traces, la partition de plans, le tempo détecté, puis la latence Bluetooth.
+
+Trois choses ont débloqué l'affaire, toutes venues de lui :
+1. **un témoin** — un beat exporté de Beat Studio à 136 BPM, détecté à 136 ;
+2. **« synchro sur d'autres visuels »** — donc pas un décalage de temps mais un
+   défaut de lisibilité, ce qui a mené au poids visuel du kick ;
+3. **« synchro, puis plus synchro »** — le mot « puis », qui décrit une PERTE
+   et non un décalage constant. C'est celui-là qui a designé le vrai coupable.
+
+La leçon est écrite ici pour ne pas la reperdre : demander d'abord un TÉMOIN
+qui marche, puis faire décrire le symptôme dans le TEMPS (constant ? progressif ?
+après quoi ?) avant de toucher au code.

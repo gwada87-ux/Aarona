@@ -64,6 +64,7 @@ import { planText } from '../visual/text/textLayout';
 import { importCover, CoverImportError } from './coverImport';
 import { applyLayerBlends, framingFor, openFrameWithCamera, primeScene, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
+import { resyncVisualClock } from '../core/time/driftCorrection';
 import { VISUAL_DNA_V1, applyVisualDna, deriveVisualDna, type VisualDna } from '../presets/visualDna';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
@@ -887,6 +888,17 @@ function findParticleStats(): { readonly live: number; readonly capacity: number
  * avec la mécanique réelle de la boucle.
  */
 const SYNC_TOLERANCE_MS = FIXED_DT * 1000;
+
+/**
+ * Reancrage de l'horloge visuelle sur l'horloge audio (14/08/2026, defaut
+ * signale par Aaron puis reproduit a la mesure). A `false`, `simT` n'avance
+ * que par deltas comme avant, et toute avance perdue l'est definitivement.
+ * Voir `core/time/driftCorrection.ts::resyncVisualClock`.
+ */
+const AV_RESYNC_V1 = true;
+
+/** Nombre de reancrages depuis le chargement. Affiche au panneau debug : un compteur qui MONTE en lecture normale designe une machine qui saccade. */
+let resyncCount = 0;
 
 // ---------------------------------------------------------------------------
 // Panneaux
@@ -2583,11 +2595,89 @@ const outGridConfidence = document.querySelector<HTMLElement>('#out-grid-confide
 const outQuality = document.querySelector<HTMLElement>('#out-quality')!;
 const outParticles = document.querySelector<HTMLElement>('#out-particles')!;
 const outSync = document.querySelector<HTMLElement>('#out-sync')!;
+const outResync = document.querySelector<HTMLElement>('#out-resync')!;
 
 btnPlay.addEventListener('click', () => audioEngine.play());
 btnPause.addEventListener('click', () => audioEngine.pause());
 volumeInput.addEventListener('input', () => audioEngine.setVolume(Number(volumeInput.value)));
 audioEngine.setVolume(Number(volumeInput.value));
+
+/**
+ * RECALAGE MANUEL IMAGE/SON (`AV_CALIBRATION_V1`, 14/08/2026).
+ *
+ * POURQUOI IL FALLAIT LE CONSTRUIRE
+ * ---------------------------------
+ * `AudioEngine.setCalibrationOffset()` existe depuis le MVP et n'avait, au
+ * 14/08, AUCUN appelant : la calibration manuelle etait ecrite, testee, et
+ * inatteignable pour l'utilisateur. Le piege n5 de CLAUDE.md la dit pourtant
+ * « obligatoire », et docs/03 lui consacre un paragraphe.
+ *
+ * CE QU'IL CORRIGE, ET CE QU'IL NE CORRIGE PAS
+ * --------------------------------------------
+ * `currentRawT()` soustrait `ctx.outputLatency`, la latence que le navigateur
+ * DECLARE. Mesuree ici : 40 ms. Mais un casque ou une enceinte Bluetooth
+ * ajoute 150 a 300 ms que le navigateur ne voit pas et ne declare donc pas.
+ * Le moteur se croit alors parfaitement cale - le compteur `sync` du panneau
+ * debug affiche bien un ecart de l'ordre de 30 ms - pendant que le son arrive
+ * a l'oreille jusqu'a un temps entier plus tard.
+ *
+ * Aucun calcul ne peut deviner ce retard : il depend du materiel, du codec et
+ * de la liaison. Seule l'oreille de l'utilisateur peut le trouver. D'ou un
+ * curseur, et non une correction automatique.
+ *
+ * POURQUOI IL EST MEMORISE
+ * ------------------------
+ * Le retard est une propriete du MATERIEL, pas du projet : le retrouver a
+ * chaque ouverture serait absurde, et l'ecrire dans le `.pvproj` le ferait
+ * voyager avec un projet partage vers une machine ou il est faux.
+ * `localStorage` est le bon endroit - il suit la machine, pas le morceau.
+ *
+ * SIGNE : POSITIF = L'IMAGE ATTEND LE SON
+ * ---------------------------------------
+ * `calibrationOffsetSeconds` est AJOUTE au temps audio (voir `currentRawT`).
+ * Une valeur positive avance donc la position lue, c'est-a-dire fait AVANCER
+ * l'image. L'etiquette dit « Decalage image » pour cette raison : c'est bien
+ * l'image qu'on deplace, le son ne bouge jamais.
+ */
+const AV_CALIBRATION_V1 = true;
+const CALIBRATION_STORAGE_KEY = 'pulsar.calibrationMs';
+
+const calibrationField = document.querySelector<HTMLElement>('#calibration-field')!;
+const calibrationInput = document.querySelector<HTMLInputElement>('#calibration')!;
+const calibrationValue = document.querySelector<HTMLOutputElement>('#calibration-value')!;
+const btnCalibrationReset = document.querySelector<HTMLButtonElement>('#btn-calibration-reset')!;
+
+function applyCalibrationMs(ms: number): void {
+  // Borne defensive : une valeur aberrante venue du stockage (edition a la
+  // main, version future) ne doit pas pouvoir envoyer la lecture hors du
+  // morceau. Memes bornes que le curseur.
+  const clamped = Math.max(-300, Math.min(300, Math.round(ms)));
+  calibrationInput.value = String(clamped);
+  calibrationValue.textContent = `${clamped > 0 ? '+' : ''}${clamped} ms`;
+  audioEngine.setCalibrationOffset(clamped / 1000);
+  try {
+    localStorage.setItem(CALIBRATION_STORAGE_KEY, String(clamped));
+  } catch {
+    // Mode navigation privee, quota plein : le reglage vaut pour la session,
+    // ce qui est deja l'essentiel. Jamais une raison de casser la lecture.
+  }
+}
+
+if (AV_CALIBRATION_V1) {
+  // `input` et non `change` : le curseur doit agir PENDANT qu'on le glisse,
+  // sinon on ne peut pas le regler a l'oreille - c'est tout son interet.
+  calibrationInput.addEventListener('input', () => applyCalibrationMs(Number(calibrationInput.value)));
+  btnCalibrationReset.addEventListener('click', () => applyCalibrationMs(0));
+  let stored = 0;
+  try {
+    stored = Number(localStorage.getItem(CALIBRATION_STORAGE_KEY) ?? 0);
+  } catch {
+    stored = 0;
+  }
+  applyCalibrationMs(Number.isFinite(stored) ? stored : 0);
+} else {
+  calibrationField.classList.add('hidden');
+}
 
 document.querySelector<HTMLButtonElement>('#btn-fullscreen')!.addEventListener('click', () => {
   const wrap = document.querySelector<HTMLElement>('#preview-wrap')!;
@@ -2705,6 +2795,22 @@ function loop(nowMs: number): void {
     // `simT` de cette correction ; sinon `simT` s'écarte lentement de la position audio réelle au
     // fil de la lecture (dérive constatée au navigateur avant ce correctif — voir docs/JOURNAL.md,
     // Étape 14/P12).
+    // REANCRAGE (`AV_RESYNC_V1`, 14/08/2026). `simT` n'avancait que par deltas
+    // et n'etait jamais compare a la position audio ABSOLUE : une avance perdue
+    // — saut arriere de l'horloge, ou image de plus de 250 ms ecretee par le
+    // `Math.min` ci-dessous — l'etait pour toujours. Mesure du defaut et
+    // justification du seuil dans `core/time/driftCorrection.ts`.
+    if (AV_RESYNC_V1) {
+      const ancre = resyncVisualClock(simT, audioEngine.t, currentTimeline.duration);
+      if (ancre.resynced) {
+        simT = ancre.t;
+        // Sans cette remise a zero, le reliquat accumule par l'ancienne
+        // position produirait un pas de trop juste apres le reancrage.
+        fixedStep.reset();
+        lastAudioT = audioEngine.t;
+        resyncCount++;
+      }
+    }
     const audioAdvance = Math.max(0, audioEngine.t - lastAudioT);
     lastAudioT = audioEngine.t;
     const steps = fixedStep.advance(Math.min(audioAdvance, 0.25));
@@ -2801,6 +2907,9 @@ function loop(nowMs: number): void {
   const syncMs = (lastAudioT - simT) * 1000;
   const syncOk = Math.abs(syncMs) <= SYNC_TOLERANCE_MS;
   outSync.textContent = audioEngine.playing ? `${syncMs >= 0 ? '+' : ''}${syncMs.toFixed(1)} ms ${syncOk ? '✅' : '⚠️'}` : '—';
+  // Un compteur qui MONTE en lecture normale designe une machine qui saccade :
+  // c'est le seul symptome observable du defaut que `AV_RESYNC_V1` rattrape.
+  outResync.textContent = String(resyncCount);
 }
 
 /**

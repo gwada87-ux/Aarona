@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  correctDrift,
-  HARD_RESYNC_THRESHOLD_SECONDS,
-} from '../../src/core/time/driftCorrection';
+import { correctDrift, HARD_RESYNC_THRESHOLD_SECONDS, resyncVisualClock } from '../../src/core/time/driftCorrection';
 
 describe('correctDrift — lissage de la dérive (docs/03_DATA_FLOW.md §dérive)', () => {
   it('erreur nulle : aucune correction', () => {
@@ -75,4 +72,54 @@ describe('correctDrift — lissage de la dérive (docs/03_DATA_FLOW.md §dérive
       }
     },
   );
+});
+
+/**
+ * Reancrage de l'horloge VISUELLE (14/08/2026). Defaut signale par Aaron
+ * (« c'etait synchro, et ensuite non »), puis reproduit a la mesure : la
+ * boucle d'apercu n'avancait `simT` que par deltas, sans jamais la comparer a
+ * la position audio absolue. Toute avance perdue l'etait definitivement.
+ */
+describe('resyncVisualClock — reancrage de l\'image sur le son', () => {
+  const D = 120; // duree du morceau
+
+  it('une derive normale ne declenche RIEN : on ne saute pas pour 50 ms', () => {
+    const r = resyncVisualClock(10, 10.05, D);
+    expect(r.resynced).toBe(false);
+    expect(r.t).toBe(10);
+  });
+
+  it('juste sous le seuil, toujours rien', () => {
+    expect(resyncVisualClock(10, 10 + HARD_RESYNC_THRESHOLD_SECONDS, D).resynced).toBe(false);
+  });
+
+  it('au-dela du seuil, l\'image se recale sur le son', () => {
+    const r = resyncVisualClock(10, 10.5, D);
+    expect(r.resynced).toBe(true);
+    expect(r.t).toBeCloseTo(10.5, 9);
+  });
+
+  it('rattrape aussi une image EN AVANCE, pas seulement en retard', () => {
+    // C'est le cas reel mesure : un saut arriere de l'horloge audio donnait
+    // `max(0, negatif) = 0`, donc l'image gardait son avance pour toujours.
+    const r = resyncVisualClock(10.5, 10, D);
+    expect(r.resynced).toBe(true);
+    expect(r.t).toBeCloseTo(10, 9);
+  });
+
+  it('le cas mesure au navigateur : 424 ms d\'avance, jamais rattrapes avant ce correctif', () => {
+    const r = resyncVisualClock(25.424, 25, D);
+    expect(r.resynced).toBe(true);
+    expect(r.t).toBeCloseTo(25, 9);
+  });
+
+  it('ne sort jamais du morceau', () => {
+    expect(resyncVisualClock(0, -5, D).t).toBe(0);
+    expect(resyncVisualClock(D, D + 10, D).t).toBe(D);
+  });
+
+  it('le seuil est CELUI de correctDrift, pas un second seuil parallele', () => {
+    // Deux constantes auraient derive l'une de l'autre sans que rien ne le dise.
+    expect(resyncVisualClock(10, 10 + HARD_RESYNC_THRESHOLD_SECONDS + 1e-9, D).resynced).toBe(true);
+  });
 });
