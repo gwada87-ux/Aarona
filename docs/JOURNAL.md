@@ -9195,3 +9195,81 @@ Un TÉMOIN. Aaron a exporté un beat de Beat Studio à 136 BPM ; PULSAR l'analys
 lui faire juger « mieux / moins bien » sur des morceaux DIFFÉRENTS à chaque
 essai. La première question à poser était : « quel BPM as-tu réglé, et quel BPM
 PULSAR affiche-t-il ? »
+
+## 14/08/2026 — Le halo bat sur la grosse caisse (`KICK_PUNCH_V1`)
+
+Premier correctif du défaut trouvé par Aaron à l'oreille. Un seul changement,
+délibérément : les trois autres corrections possibles (seuil de la secousse,
+épaisseur de l'anneau, anneau à chaque kick) attendent son verdict sur
+celle-ci. Juger quatre changements mélangés est exactement l'erreur des deux
+jours précédents.
+
+### Le choix : le DIAMÈTRE, pas l'intensité
+
+`CentralGlow` ne lisait pas `impact`. Le brancher sur l'intensité aurait été
+sans effet, et c'est mesuré : `gain = drive * intensityMul`, les trois alphas
+sont écrêtés à 1, et sur Trap Dark (`glow` = 0,70 → `intensityMul` = 1,38) avec
+`drive` mesuré à 0,909 au maximum, le gain vaut déjà **1,25**. Le canal est
+SATURÉ là où l'on en a le plus besoin.
+
+Le diamètre ne sature pas. `KICK_PUNCH = 0,30` : le halo enfle de 30 % sur une
+frappe pleine, et `impact` porte déjà sa décroissance de 0,12 s — attaque
+franche, retombée courte, aucun lissage à ajouter.
+
+Cela n'enfreint pas « un instrument, un canal » : `tension` et `impact` sont
+deux instruments distincts — la montée vers le drop dure des mesures, la frappe
+un dixième de seconde — et leurs gonflements s'additionnent sans se confondre.
+
+### Mesure, en LECTURE réelle, démo, graine 424242, section forte (t = 30 s)
+
+Somme de luminance sur 70 images consécutives, échantillonnées par
+`requestAnimationFrame` :
+
+| drapeau | moyenne | min | max | **amplitude du battement** |
+|---|---|---|---|---|
+| OFF | 43 | 41 | 44 | **7,9 %** |
+| ON | 44 | 42 | 50 | **18,1 %** |
+
+**L'image bat 2,3 fois plus sur le beat.** Le pic monte de 44 à 50 : ce sont les
+kicks qui ressortent, pas le niveau moyen qui augmente.
+
+### Première mesure ÉCARTÉE, et pourquoi
+
+Premier relevé fait à t = 12 s : aucune différence (48,7 % contre 50,3 %,
+l'écart allant même dans le mauvais sens). Cause : à t = 12 la démo est en
+section A, énergie 0,30, `drive` mesuré à 0,117 — **le halo y est quasiment
+éteint**. Faire enfler de 30 % un objet invisible ne produit rien. Mesure
+refaite en section B (énergie 0,82), où le halo existe.
+
+C'est la troisième fois en deux jours qu'une mesure mal placée dit le contraire
+de la vérité. Les deux précédentes : la luminance moyenne aveugle à un cadrage,
+et la caméra gelée en pause.
+
+### Vérification
+
+```
+tsc --noEmit          exit 0
+vitest run            134 fichiers / 1332 tests (5 nouveaux)
+npm run test:arch     arch verte + accords TOUS JUSTES (15)
+navigateur            0 erreur console
+```
+
+Un test vérifie que l'INTENSITÉ ne bouge pas d'un iota selon `impact` : le kick
+n'agit que sur la taille, et le drapeau éteint redonne exactement
+`diameter * (1 + tension * 0,55)`.
+
+### État des drapeaux
+
+`KICK_PUNCH_V1` est le SEUL allumé. `VISUAL_DNA_V1`, `TRACE_FIELD_V1` et
+`SECTION_STAGING_V1` restent éteints — la régression du 13/08 n'est toujours
+pas expliquée.
+
+### Ce qu'Aaron doit regarder
+
+Son morceau récalcitrant, celui qui paraissait synchro ailleurs et pas ici.
+
+1. Est-ce que le beat s'ACCROCHE maintenant ?
+2. Est-ce que le halo pompe trop ? (30 % est un réglage, pas une fatalité)
+
+Si la réponse à 1 est « oui mais pas encore assez », les trois autres
+corrections restent en réserve.

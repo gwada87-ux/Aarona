@@ -10,6 +10,60 @@ const DEFAULT_GLOW_DIAMETER = 0.5; // taille de rendu, unités normalisées — 
 const DEFAULT_INTENSITY_MUL = 1;
 /** Gonflement du halo au sommet d'une montée, en fraction du diamètre. */
 const TENSION_SWELL = 0.55;
+
+/**
+ * LE HALO BAT SUR LA GROSSE CAISSE (drapeau `KICK_PUNCH_V1`, 14/08/2026).
+ *
+ * LE DEFAUT QU'IL CORRIGE, signale par Aaron a l'oreille
+ * ------------------------------------------------------
+ * « Il ne parait pas synchro sur PULSAR mais il est synchro avec d'autres
+ * visuels, peut-etre parce que le kick manque d'impact visuel. » Mesure faite
+ * dans la foulee, elle lui donne raison : sur le style `pulse`, un KICK ne
+ * deplace QUE le rayon de `PulseRings` (+32 %, un trait fin) et une secousse
+ * de 0,012 unite qui ne se declenche meme qu'au-dessus de `impact > 0,7`,
+ * soit 2,2 % des pas mesures.
+ *
+ * Ce halo — l'element le PLUS VISIBLE du style — ne lisait pas `impact` du
+ * tout. Il suit `drive`, une enveloppe continue de retombee 0,55 s qui, a
+ * 136 BPM (0,44 s par temps), ne redescend jamais entre deux kicks. L'oeil
+ * suivait donc la grosse masse lumineuse, qui respire au rythme de l'ENERGIE
+ * du morceau, pendant que le beat ne bougeait qu'un trait.
+ *
+ * POURQUOI LE DIAMETRE ET NON L'INTENSITE
+ * ---------------------------------------
+ * Parce que l'intensite est un canal MORT a fort niveau, et c'est mesure :
+ * `gain = drive * intensityMul`, les trois alphas sont ecretes a 1, et sur le
+ * preset Trap Dark (`glow` = 0,70 -> `intensityMul` = 1,38) avec `drive` mesure
+ * a 0,909 au maximum, le gain vaut deja 1,25. Il est donc SATURE : y ajouter
+ * `impact` ne produirait rigoureusement rien la ou l'on en a le plus besoin.
+ *
+ * Le diametre ne sature pas. Un halo qui enfle d'un coup sur chaque frappe se
+ * lit comme un coup ; c'est aussi ce que fait une vraie source lumineuse.
+ *
+ * `impact` porte deja sa propre decroissance (0,12 s dans `defaultMapping`) :
+ * l'attaque est franche et la retombee courte, sans qu'aucun lissage
+ * supplementaire soit necessaire ici.
+ *
+ * CE QUE CELA NE VIOLE PAS
+ * ------------------------
+ * La regle « un instrument, un canal » (voir `draw`) interdit d'empiler DEUX
+ * signaux du meme instrument sur le meme canal. `tension` et `impact` sont deux
+ * instruments differents — la montee vers le drop et la frappe — et leurs
+ * gonflements s'additionnent sans se confondre : l'un dure des mesures, l'autre
+ * un dixieme de seconde.
+ *
+ * A `false`, `KICK_PUNCH` n'est jamais lu et le diametre est celui d'avant.
+ */
+export const KICK_PUNCH_V1 = true;
+
+/**
+ * Gonflement du halo sur une frappe pleine, en fraction du diametre. Plus
+ * discret que `TENSION_SWELL` (0,55) et c'est voulu : la montee vers un drop
+ * est un evenement de plusieurs mesures qu'on a le temps de regarder, une
+ * frappe passe en un dixieme de seconde et n'a pas besoin de la meme amplitude
+ * pour se voir.
+ */
+const KICK_PUNCH = 0.3;
 /**
  * Dérive lente du halo, en unités normalisées. Petite mais non nulle : §8
  * refuse qu'un élément reste rigoureusement centré, et un halo parfaitement
@@ -55,6 +109,8 @@ export class CentralGlow implements Layer {
   private drive = 0;
   private brightness = 0;
   private tension = 0;
+  /** Frappe de grosse caisse. Voir `KICK_PUNCH_V1`. */
+  private impact = 0;
   private driftX = 0;
   private driftY = 0;
   private readonly transform: SpriteTransform[] = [{ x: 0, y: 0, scale: 1, alpha: 1 }];
@@ -72,6 +128,7 @@ export class CentralGlow implements Layer {
     this.drive = signals.drive;
     this.brightness = signals.brightness;
     this.tension = signals.tension;
+    this.impact = signals.impact;
     // Deux LFO en QUADRATURE pour une dérive elliptique. Utiliser deux fois le
     // même donnerait une diagonale, qui se lit comme un glissement et non comme
     // une flottaison.
@@ -88,7 +145,10 @@ export class CentralGlow implements Layer {
     // déjà l'intensité, et empiler les deux violerait « un instrument, un
     // canal ». Le halo enfle sans s'éclaircir — le cadre se remplit avant que
     // quoi que ce soit n'arrive, ce qui est exactement la sensation cherchée.
-    const diameter = baseDiameter * (1 + this.tension * TENSION_SWELL);
+    // LE COUP DE GROSSE CAISSE S'AJOUTE ICI, sur le diamètre et pas sur
+    // l'intensité : celle-ci est saturée à fort niveau (voir `KICK_PUNCH_V1`).
+    const punch = KICK_PUNCH_V1 ? this.impact * KICK_PUNCH : 0;
+    const diameter = baseDiameter * (1 + this.tension * TENSION_SWELL + punch);
 
     // Poids en TRIANGLE sur trois sprites : leur somme vaut 1 pour toute valeur
     // de `brightness`, donc l'intensité totale du halo ne dépend que de `drive`
