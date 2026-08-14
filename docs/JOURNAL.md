@@ -9383,3 +9383,39 @@ partition de plans — l'ont été pendant que ce défaut d'horloge était actif
 L'image pouvait être décalée d'un temps entier au moment où il jugeait. Ces
 verdicts ne valent rien et les trois chantiers méritent un nouvel essai sur la
 base saine, un à la fois.
+
+## 14/08/2026 — Les trois chantiers du blueprint sont RALLUMÉS
+
+Sur base saine cette fois. Leurs verdicts précédents avaient été rendus pendant
+que le défaut d'horloge était actif : ils ne valaient rien.
+
+`VISUAL_DNA_V1`, `TRACE_FIELD_V1` et `SECTION_STAGING_V1` repassent à `true`.
+
+### Contrôle de synchro, les trois allumés
+
+Le risque à écarter était précis : ces chantiers ajoutent du travail par image
+(la couche de traces dessine jusqu'à 96 empreintes), et une image trop lente
+recréerait exactement le symptôme qu'on vient de corriger.
+
+Page fraîche, démo, style `pulse`, un relevé par seconde pendant 13 s :
+
+```
++6,1 ✅ | +2,0 ✅ | +6,6 ✅ | +6,0 ✅ | +6,0 ✅ | +0,6 ✅ | +3,3 ✅ | +5,9 ✅ | +5,9 ✅
+```
+
+Écart maximum **6,6 ms** pour une tolérance de 8,3. **60,0 fps**. Zéro
+réancrage en régime établi, zéro erreur console.
+
+### Fausse alerte, et ce qu'elle apprend
+
+Le premier relevé donnait -125 ms et **7 réancrages en 7 secondes** : de quoi
+croire à une régression. C'était un TRANSITOIRE DE DÉMARRAGE — `loadDemo` +
+construction de scène + `play` dans la même seconde. Le réancrage a fait
+exactement son travail : il a rattrapé les 8 écarts du démarrage, puis n'est
+plus jamais intervenu.
+
+À retenir pour les mesures futures : ne jamais juger la synchro dans les deux
+premières secondes après un chargement.
+
+Portique : typecheck 0, **1339 tests verts**, `test:arch` verte, accords
+TOUS JUSTES (15), build de production OK.
