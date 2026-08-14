@@ -9419,3 +9419,15 @@ premières secondes après un chargement.
 
 Portique : typecheck 0, **1339 tests verts**, `test:arch` verte, accords
 TOUS JUSTES (15), build de production OK.
+
+### Verdict d'Aaron : la synchro tient, les trois chantiers allumés
+
+Confirmé à l'oreille, en local, sur son morceau : « c'est bon la synchro tient ».
+
+Le risque principal du rallumage est donc écarté — les trois chantiers
+n'alourdissent pas l'image au point de recréer le symptôme corrigé le matin
+même. Cela concorde avec la mesure (écart maximum 6,6 ms, 60 fps).
+
+Restent à juger, sans urgence : la lisibilité des empreintes (chantier 2) et la
+mise en scène par section (chantier 3). Le site en ligne garde pour l'instant la
+version sans ces trois chantiers.
