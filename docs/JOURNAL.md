@@ -9635,3 +9635,47 @@ la secousse d'écran.** Le correctif est donc déjà en place et il n'a pas enco
 qu'Aaron est allé lire.
 
 Aucun code modifié dans ce lot : deux hypothèses écrites, mesurées, rejetées.
+
+## 14/08/2026 — « Les mises à jour ne sont pas partout » : l'instrument plutôt que l'hypothèse
+
+Aaron : « quand je mets un beat de Beat Studio le visuel est aussi à l'ancienne,
+et quand je mets un beat qui ne provient pas de Beat Studio, le visuel est mis
+à jour ».
+
+### Les trois hypothèses examinées, et écartées par lecture du code
+
+1. **Deux instances de PULSAR** (site publié via le bouton VISUALIZER contre
+   localhost). Écartée : la ligne `build` de son relevé affiche
+   `2026-08-14 19:14:40`, exactement l'identifiant du serveur local.
+2. **Cache d'analyse** réutilisant un vieux document. Écartée : `loadFile`
+   appelle toujours `runAnalysisWithProgress`, il ne LIT jamais le cache — seul
+   `loadProject` le fait.
+3. **Restauration d'une sauvegarde automatique** rendant un vieil état visuel.
+   Écartée : aucune restauration au chargement de la page, et `loadFile` tire
+   un `projectId` neuf à chaque import.
+
+**Aucun mécanisme du code ne peut produire ce qu'il décrit.** L'application est
+rigoureusement la même des deux côtés.
+
+### L'explication probable, et l'instrument qui la tranche
+
+Un chantier peut être **INERTE sur un morceau et actif sur l'autre** — et ça se
+lit exactement comme « pas mis à jour ». On en a déjà un cas prouvé : ses huit
+sections nommées « A » donnaient un seul plan, donc aucune coupe visible.
+
+Plutôt qu'une quatrième hypothèse, une ligne de plus au panneau debug :
+
+```
+nouveautés actives   ADN ✓ (fort contraste) · marques ✓ · plans 2 ✓
+                     · halo sur kick ✓ · kick ×1,00 — aucune correction
+```
+
+Elle n'affiche **pas les drapeaux** — un drapeau allumé ne prouve rien — mais ce
+que chaque chantier FAIT RÉELLEMENT sur le morceau chargé : le nombre de plans
+distincts (`1 — INERTE ici`), le facteur de normalisation du kick (`×1,00 —
+aucune correction`), le résumé de l'ADN.
+
+Deux imports, deux lectures de cette ligne : la différence entre les deux
+morceaux devient visible sans rien deviner.
+
+Portique : typecheck 0, 1355 tests verts, 0 erreur console.

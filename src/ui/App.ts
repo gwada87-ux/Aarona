@@ -65,6 +65,9 @@ import { importCover, CoverImportError } from './coverImport';
 import { applyLayerBlends, framingFor, openFrameWithCamera, primeScene, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
 import { resyncVisualClock } from '../core/time/driftCorrection';
+import { TRACE_FIELD_V1 } from '../visual/memory/TraceField';
+import { SECTION_STAGING_V1 } from '../behaviour/SectionScore';
+import { KICK_PUNCH_V1 } from '../visual/layers/glow/CentralGlow';
 import { VISUAL_DNA_V1, applyVisualDna, deriveVisualDna, type VisualDna } from '../presets/visualDna';
 import { FlashLimiter } from '../visual/safety/FlashLimiter';
 import type { Palette } from '../visual/palette/Palette';
@@ -1343,6 +1346,30 @@ function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null, ke
         .sort((a, b) => b[1].n - a[1].n)
         .map(([type, a]) => `${type} ${a.n} (force ${(a.somme / a.n).toFixed(2)})`)
         .join(' · ');
+
+  // NOUVEAUTES ACTIVES SUR CE MORCEAU (14/08/2026). Aaron : « quand je mets un
+  // beat de Beat Studio le visuel est a l'ancienne, et quand je mets un beat qui
+  // n'en vient pas, le visuel est mis a jour. » Aucun mecanisme du code ne peut
+  // produire ca — l'application est la meme des deux cotes. L'explication
+  // probable est qu'un chantier est INERTE sur un morceau et actif sur l'autre,
+  // ce qui se lit exactement comme « pas mis a jour ».
+  //
+  // Cette ligne le dit. Elle n'affiche pas les drapeaux — un drapeau allume ne
+  // prouve rien — mais ce que chaque chantier FAIT REELLEMENT ici : le nombre
+  // de plans distincts (1 = aucune coupe possible), le facteur de normalisation
+  // du kick (1,00 = aucune correction), le resume de l'ADN.
+  const etats: string[] = [];
+  etats.push(VISUAL_DNA_V1 ? `ADN ✓${currentDna?.summary ? ` (${currentDna.summary})` : ''}` : 'ADN éteint');
+  etats.push(TRACE_FIELD_V1 ? 'marques ✓' : 'marques éteintes');
+  if (!SECTION_STAGING_V1) etats.push('plans éteints');
+  else {
+    const plans = visualDirector?.distinctShots ?? 0;
+    etats.push(plans <= 1 ? `plans ${plans} — INERTE ici` : `plans ${plans} ✓`);
+  }
+  etats.push(KICK_PUNCH_V1 ? 'halo sur kick ✓' : 'halo sur kick éteint');
+  const normKick = behaviourEngine?.normalisationOf('impact') ?? 1;
+  etats.push(normKick > 1.01 ? `kick ×${normKick.toFixed(2)} ✓` : 'kick ×1,00 — aucune correction');
+  outFeatures.textContent = etats.join(' · ');
 
   dropzone.classList.add('hidden');
 }
@@ -2624,6 +2651,7 @@ const outSync = document.querySelector<HTMLElement>('#out-sync')!;
 const outResync = document.querySelector<HTMLElement>('#out-resync')!;
 const outSections = document.querySelector<HTMLElement>('#out-sections')!;
 const outHits = document.querySelector<HTMLElement>('#out-hits')!;
+const outFeatures = document.querySelector<HTMLElement>('#out-features')!;
 
 btnPlay.addEventListener('click', () => audioEngine.play());
 btnPause.addEventListener('click', () => audioEngine.pause());

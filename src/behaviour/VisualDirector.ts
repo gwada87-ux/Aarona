@@ -146,6 +146,17 @@ export class VisualDirector {
     return this.score ? this.score.shotAt(t) : null;
   }
 
+  /**
+   * Nombre de plans DISTINCTS que la partition utilise sur ce morceau.
+   * `0` drapeau eteint. **`1` signifie que le chantier est INERTE ici** : un
+   * seul point de vue pour tout le morceau, donc aucune coupe visible. C'est
+   * exactement le cas qu'Aaron a rencontre (huit sections nommees « A ») et
+   * qu'aucun test ne pouvait signaler, faute d'etre affiche quelque part.
+   */
+  get distinctShots(): number {
+    return this.score?.distinctShots ?? 0;
+  }
+
   get budget(): DramaBudget {
     return this.budgetValue;
   }
