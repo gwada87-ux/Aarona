@@ -173,6 +173,7 @@ describe('VisualDirector — la partition passe bien dans le budget', () => {
   }
 
   it('le zoom du plan se MULTIPLIE à celui de la dramaturgie, jamais additionné', () => {
+    if (!SECTION_STAGING_V1) return; // drapeau eteint : il n'y a aucun plan a verifier
     const { d, b } = director(abaSections());
     const t = 40; // section B, hors montee : la poussee de dramaturgie est nulle
     const budget = d.update(b.build(t));
@@ -181,6 +182,7 @@ describe('VisualDirector — la partition passe bien dans le budget', () => {
   });
 
   it('le décalage du plan est bien dans la caméra, et la dérive lente s\'y ajoute', () => {
+    if (!SECTION_STAGING_V1) return; // drapeau eteint : il n'y a aucun plan a verifier
     const { d, b } = director(abaSections());
     const t = 40;
     const budget = d.update(b.build(t));

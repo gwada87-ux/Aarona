@@ -59,7 +59,7 @@ import type { Section } from '../music/pmdi';
  * Drapeau du chantier. À `false`, `VisualDirector` garde le recadrage par
  * `sectionKey` — le comportement d'avant ce chantier, à l'identique.
  */
-export const SECTION_STAGING_V1 = true;
+export const SECTION_STAGING_V1 = false; // ETEINT : regression signalee par Aaron, non expliquee. Voir JOURNAL.
 
 export interface Shot {
   /** Numéro de plan, stable par identité de section. Pour le HUD et les tests. */

@@ -53,7 +53,7 @@ import { MACRO_NAMES, type MacroName, type PresetMacros } from './schema';
  * d'entrée TELLES QUELLES et `App.ts` ne touche pas à la graine : la sortie
  * est identique à celle d'avant ce chantier, image par image.
  */
-export const VISUAL_DNA_V1 = false; // ETEINT sur signalement d'Aaron (13/08) - voir JOURNAL
+export const VISUAL_DNA_V1 = false; // ETEINT : regression signalee par Aaron, non expliquee. Voir JOURNAL.
 
 /** Amplitude maximale d'un delta de macro. Voir « LE PRESET RESTE UN PRIOR ». */
 export const DNA_MAX_DELTA = 0.2;

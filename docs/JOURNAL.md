@@ -9126,3 +9126,72 @@ Un morceau à structure claire (couplet / refrain / couplet), style Pulse.
 3. Est-ce que la synchro au beat est restée intacte ?
 
 La 3 est la question qui compte, vu hier.
+
+## 14/08/2026 — Aaron trouve la vraie piste : le kick n'a presque aucun poids visuel
+
+### Le fait qui a tout recadré
+
+Aaron, sur son morceau récalcitrant : « il ne paraît pas synchro sur PULSAR
+mais il est synchro avec d'autres visuels — peut-être que c'est parce que le
+kick manque d'impact visuel sur PULSAR ».
+
+Ce n'est donc PAS un décalage de temps. C'est que l'œil n'arrive pas à
+accrocher le beat. Mesure faite immédiatement, elle lui donne raison.
+
+### Ce qu'un kick déclenche réellement sur `pulse`
+
+Relevé du câblage, puis mesure du signal sur trois documents :
+
+| ce qui réagit à `impact` | amplitude |
+|---|---|
+| rayon de `PulseRings` (trait fin) | 0,28 -> 0,375, soit **+32 %** |
+| `ScreenShake` | 0,012 unité, et **seulement au-dessus de `impact > 0,7`** |
+| `RadialBackground` | rien : il lit `subImpact` (SUB_HIT), pas KICK |
+| `CircularWaveform` | rien : `accent` (SNARE/CLAP), `tick` (HAT), `barPulse` |
+| `CentralGlow` | **rien** : `drive`, `brightness`, `tension`, LFO |
+
+```
+DEMO (kick a la noire)          impact max 0,929   secousse sur 2,2 % des pas
+BEAT STUDIO v18 MELVELBASE      impact max 0,947   secousse sur 2,3 % des pas
+BEAT STUDIO v18 + notes         impact max 0,956   secousse sur 2,6 % des pas
+```
+
+**Le signal est excellent** — `impact` monte à 0,93-0,96. Le défaut n'est ni
+dans la détection ni dans le câblage musique->signal : c'est que **presque
+rien à l'écran n'est branché dessus**.
+
+Pire, l'élément le plus visible de `pulse` — le halo central — suit `drive`,
+une enveloppe continue de retombée 0,55 s. À 136 BPM (0,44 s par temps) elle
+n'a jamais le temps de redescendre entre deux kicks. Elle varie de **675 %**,
+mais au rythme de l'ÉNERGIE du morceau, pas du beat. L'œil suit donc la grosse
+masse lumineuse, qui respire lentement, pendant que le beat ne déplace qu'un
+trait fin.
+
+Sur un morceau au kick franc et régulier, la grille suffit à donner
+l'illusion. Sur un morceau au kick moins saillant, l'illusion tombe — et c'est
+exactement ce qu'Aaron décrit.
+
+### Effet de bord relevé au passage
+
+Sur les deux fixtures Beat Studio (Mode B, PMDI sans pistes de descripteurs),
+`drive`, `weight` et `brightness` valent **0,000 en permanence** : elles se
+câblent sur `feature:energy`, `feature:band.sub` et `feature:centroid`, qui
+n'existent pas dans ces documents. Sans objet pour l'import audio (PULSAR
+analyse alors lui-même), mais cela concerne le pont PMDI direct.
+
+### État remis
+
+Les TROIS chantiers du blueprint sont **éteints** : `VISUAL_DNA_V1`,
+`TRACE_FIELD_V1`, `SECTION_STAGING_V1`. Aaron avait confirmé la synchro bonne
+sur son beat 136 BPM dans cet état, puis cassée les trois allumés — cette
+régression-là reste NON EXPLIQUÉE et garde son drapeau éteint.
+
+Portique, trois drapeaux éteints : typecheck 0, **1327 tests verts**.
+
+### Ce qui a permis d'y arriver
+
+Un TÉMOIN. Aaron a exporté un beat de Beat Studio à 136 BPM ; PULSAR l'analyse
+à 136 BPM et la synchro est bonne. Deux jours d'allers-retours ont été perdus à
+lui faire juger « mieux / moins bien » sur des morceaux DIFFÉRENTS à chaque
+essai. La première question à poser était : « quel BPM as-tu réglé, et quel BPM
+PULSAR affiche-t-il ? »
