@@ -210,3 +210,49 @@ describe('VisualDirector — la partition passe bien dans le budget', () => {
     }
   });
 });
+
+/**
+ * REGRESSION TROUVEE PAR AARON LE 14/08. Son morceau donne
+ * `8 (A A A A A A A A)` : huit sections, toutes nommees « A ». Indexer le plan
+ * sur l'identite donnait UN SEUL plan pour tout le morceau, alors que l'ancien
+ * `sectionKey` en donnait huit. J'avais introduit une regression sans la voir,
+ * faute d'avoir regarde ce que l'analyse produit sur un VRAI morceau.
+ */
+describe('SectionScore — quand les lettres ne distinguent rien', () => {
+  function memeLettre(n: number, lettre = 'A'): Section[] {
+    return Array.from({ length: n }, (_, i) => ({
+      t: i * 15, dur: 15, energy: 0.5, letter: lettre, confidence: 1,
+    }));
+  }
+
+  it('huit sections toutes « A » donnent PLUSIEURS plans, pas un seul', () => {
+    const s = score(memeLettre(8), 130);
+    expect(s.distinctShots, 'un seul plan = chantier inerte').toBeGreaterThan(1);
+  });
+
+  it('...et deux sections voisines ne sont jamais cadrees pareil', () => {
+    const s = score(memeLettre(8), 130);
+    for (let i = 0; i + 1 < 8; i++) {
+      const a = s.shotAt(i * 15 + 5).index;
+      const b = s.shotAt((i + 1) * 15 + 5).index;
+      expect(a, `sections ${i} et ${i + 1} identiques`).not.toBe(b);
+    }
+  });
+
+  it('la memoire A/B/A reste intacte quand les lettres distinguent VRAIMENT', () => {
+    // Le repli ne doit pas coûter la fonctionnalite du chantier.
+    const s = score(abaSections());
+    expect(s.shotAt(70).index).toBe(s.shotAt(10).index);
+    expect(s.shotAt(40).index).not.toBe(s.shotAt(10).index);
+  });
+
+  it('deux lettres suffisent a prouver que le detecteur distingue quelque chose', () => {
+    const s = score([
+      { t: 0, dur: 20, energy: 0.4, letter: 'A', confidence: 1 },
+      { t: 20, dur: 20, energy: 0.8, letter: 'B', confidence: 1 },
+      { t: 40, dur: 20, energy: 0.4, letter: 'A', confidence: 1 },
+    ]);
+    expect(s.distinctShots).toBe(2);
+    expect(s.shotAt(50).index).toBe(s.shotAt(10).index);
+  });
+});

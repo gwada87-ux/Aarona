@@ -101,6 +101,37 @@ function identityOf(section: Section, rank: number): string {
   return section.letter ?? `#${rank}`;
 }
 
+/**
+ * Les lettres SEPARENT-ELLES vraiment les sections ?
+ *
+ * REGRESSION REELLE, TROUVEE PAR AARON LE 14/08
+ * ---------------------------------------------
+ * Son morceau donne `8 (A A A A A A A A)` : huit sections, toutes nommees
+ * « A ». Indexer le plan sur l'identite donnait donc UN SEUL plan pour tout le
+ * morceau — mon chantier etait inerte. Pire : l'ancien `sectionKey`, qui
+ * faisait entrer l'instant de debut dans le calcul, lui donnait huit cadrages
+ * differents. J'avais donc introduit une regression sans la voir, faute d'avoir
+ * regarde ce que l'analyse produit REELLEMENT sur un vrai morceau.
+ *
+ * La memoire de mise en scene n'a de sens que si les lettres DISTINGUENT
+ * quelque chose. Quand elles n'en distinguent aucune — une seule valeur pour
+ * tout le morceau — on retombe sur le rang, c'est-a-dire un plan par section,
+ * qui est le comportement le plus proche de l'ancien.
+ *
+ * Le seuil est « au moins deux groupes », pas une proportion : deux sections
+ * nommees differemment suffisent a prouver que le detecteur a distingue
+ * quelque chose, et c'est tout ce qu'on demande.
+ */
+function lettersDiscriminate(sections: readonly Section[]): boolean {
+  if (sections.length < 2) return true;
+  const lettres = new Set<string>();
+  for (const s of sections) {
+    if (s.letter === undefined) return false; // sans lettre partout, le rang fait deja foi
+    lettres.add(s.letter);
+  }
+  return lettres.size >= 2;
+}
+
 interface Cut {
   /** Instant de la coupe, quantifié au temps fort le plus proche. */
   readonly t: number;
@@ -147,10 +178,13 @@ export function buildSectionScore(timeline: MusicTimeline): SectionScore {
   const sections = timeline.sections();
   const shotByIdentity = new Map<string, Shot>();
   const cuts: Cut[] = [];
+  // Voir `lettersDiscriminate` : sans lettres distinctives, la memoire de mise
+  // en scene n'a rien a memoriser et collapserait tout sur un plan unique.
+  const parLettre = lettersDiscriminate(sections);
 
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i]!;
-    const identity = identityOf(section, i);
+    const identity = parLettre ? identityOf(section, i) : `#${i}`;
     let shot = shotByIdentity.get(identity);
     if (shot === undefined) {
       // Les identités reçoivent leur plan dans l'ORDRE D'APPARITION, pas par la

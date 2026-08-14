@@ -9499,3 +9499,66 @@ Trois jours de suppositions auraient été évités par ces deux lignes.
 
 Portique : typecheck 0, **1351 tests verts** (135 fichiers, 12 nouveaux),
 `test:arch` verte, accords TOUS JUSTES (15), 0 erreur console.
+
+## 14/08/2026 — Les deux instruments donnent la réponse en dix secondes
+
+Aaron déplie le panneau debug sur SON beat. Deux lignes, deux verdicts :
+
+```
+sections détectées   8 (A A A A A A A A)
+frappes détectées    PERC 1360 (force 0.87) · BEAT 156 · DOWNBEAT 39 · BAR 39
+                     · KICK 20 (force 0.35) · SNARE 12 (force 0.89) · PHRASE 10
+```
+
+Trois jours de suppositions viennent d'être remplacés par dix secondes de
+lecture.
+
+### RÉGRESSION DE MA MAIN : huit sections, toutes « A »
+
+Le détecteur de structure nomme les huit sections « A ». Indexer le plan sur
+l'IDENTITÉ donnait donc **un seul plan pour tout le morceau** : le chantier 3
+était inerte chez Aaron. Pire — l'ancien `sectionKey`, qui faisait entrer
+l'instant de début dans le calcul, lui donnait huit cadrages différents.
+**J'avais introduit une régression sans la voir**, faute d'avoir regardé ce que
+l'analyse produit réellement sur un vrai morceau plutôt que sur mes fixtures
+A/B/A idéales.
+
+Correctif : `lettersDiscriminate()`. La mémoire de mise en scène ne s'applique
+que si les lettres SÉPARENT vraiment quelque chose (au moins deux valeurs
+distinctes). Sinon on retombe sur le rang — un plan par section, le
+comportement le plus proche de l'ancien. Quatre tests couvrent le cas, dont
+« la mémoire A/B/A reste intacte » : le repli ne coûte pas la fonctionnalité.
+
+### LE VRAI PROBLÈME DU KICK : il n'est pas classé en KICK
+
+`KICK 20 (force 0.35)` contre `PERC 1360 (force 0.87)`, sur un morceau de ~68 s
+(156 BEAT à 136 BPM). Soit **un kick détecté toutes les deux mesures** dans un
+beat qui en compte évidemment bien plus, et **vingt onsets PERC par seconde**.
+
+La règle KICK (`analysis/classify.ts`) exige `bassEnergy > 0,55` ET
+`centroid < 250 Hz`. Les descripteurs sont mesurés sur le SPECTRE DE DIFFÉRENCE
+(piège n°7) : à l'instant où le kick tombe, le charley et la mélodie changent
+aussi, la différence porte donc beaucoup d'aigu, le centroïde dépasse 250 Hz et
+la frappe est refusée. Elle retombe alors sur PERC, dont la fenêtre
+(800–5000 Hz) est un fourre-tout.
+
+Conséquence en chaîne : `impact` (câblé sur KICK) reste au repos, tandis que
+`tick` (HAT + PERC, gain 0,4, decay 0,06) est déclenché vingt fois par seconde.
+L'image bouge en permanence sans jamais marquer le temps — exactement ce
+qu'Aaron décrit depuis le début.
+
+**Non corrigé ce soir.** Toucher aux seuils de classification change l'analyse
+de TOUS les morceaux ; c'est un lot à part, avec son drapeau et sa mesure. Le
+levier existe déjà et il est propre : `ClassificationOverrides` permet à un
+preset de déclarer ses propres seuils (docs/05 §"Calibration par genre"), donc
+un preset trap peut assouplir la règle KICK sans rien changer ailleurs.
+
+### Ce que la normalisation aura fait, et ce qu'elle ne pouvait pas faire
+
+`impulseNormalisation` relève les frappes d'un morceau compressé — utile, et
+sans risque. Mais elle ne peut rien pour une frappe qui n'est **jamais
+classée** en KICK : on ne normalise que ce qui existe. La vraie cause était
+plus haut dans la chaîne.
+
+Portique : typecheck 0, **1355 tests verts**, `test:arch` verte, accords
+TOUS JUSTES (15).
