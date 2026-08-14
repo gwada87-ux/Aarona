@@ -9679,3 +9679,65 @@ Deux imports, deux lectures de cette ligne : la différence entre les deux
 morceaux devient visible sans rien deviner.
 
 Portique : typecheck 0, 1355 tests verts, 0 erreur console.
+
+## 15/08/2026 — Le vrai coupable du beat d'Aaron : -114 ms sous mon propre seuil
+
+Aaron fournit les deux relevés côte à côte. Ils tranchent tout.
+
+| | beat quelconque | **beat de Beat Studio** |
+|---|---|---|
+| **sync** | **+1,2 ms ✅** | **-114,0 ms ⚠️** |
+| réancrages | 3 | **0** |
+| nouveautés actives | ADN ✓ · plans 3 ✓ · kick ×1,31 ✓ | ADN ✓ · **plans 8 ✓** · kick ×1,37 ✓ |
+| build | 19:14:40 | 19:14:40 |
+
+**Les nouveautés agissent IDENTIQUEMENT des deux côtés** — même build, ADN actif,
+marques actives, halo actif, et même 8 plans distincts sur le beat de Beat
+Studio (le correctif `lettersDiscriminate` a fonctionné). Son impression de
+« visuel à l'ancienne » n'était pas une histoire de mise à jour.
+
+**Son beat était décalé de 114 ms en permanence, soit un QUART DE TEMPS à
+136 BPM.** Et le compteur de réancrages restait à zéro.
+
+### Le défaut, et il est de ma main
+
+`resyncVisualClock` ne déclenche qu'au-delà de `HARD_RESYNC_THRESHOLD_SECONDS`
+(0,12 s). En dessous, **plus personne ne corrigeait**, et rien ne faisait
+diminuer l'écart : il s'installait pour toute la lecture. 114 ms passe juste
+sous 120 ms.
+
+L'erreur est identifiable en une phrase : **j'ai réutilisé pour la CORRECTION un
+seuil dont le rôle est la DÉTECTION D'UN SAUT.** Un saut de 100 ms n'est pas un
+saut ; un décalage permanent de 100 ms, si.
+
+### Le correctif : deux étages, comme `correctDrift`
+
+`visualNudge` — au plus 2 ms par image, exactement la constante de l'étage du
+dessous. À 60 images par seconde cela fait 120 ms de rattrapage par seconde.
+Le réancrage dur reste pour les vrais sauts.
+
+Deux étages plutôt qu'un seuil abaissé : abaisser le seuil dur ferait sauter
+l'image à chaque fluctuation, alors que le rattrapage doux la ramène sans que
+rien ne se voie.
+
+### Un indicateur qui criait au loup
+
+Après correction, l'affichage montrait encore -17 ms constants. Ce n'était pas
+un décalage : l'écart était mesuré APRÈS que les sous-pas aient avancé `simT`,
+alors que la correction, elle, le calcule AVANT — une image entière (16,7 ms à
+60 fps) ajoutée gratuitement. L'indicateur restait donc en ⚠️ en permanence
+alors que la synchro était bonne, et un compteur qui crie au loup finit par ne
+plus être lu. Il est désormais mesuré au même instant que la correction.
+
+### Mesure finale
+
+```
+regime etabli   -2,1 ms ok
+perturbation de 100 ms injectee par le curseur de recalage
++0,5s +1,6   +1,0s -6,3   +1,5s +4,3   +2,0s +5,7   +2,5s +2,6   +3,0s +0,0   (tous ok)
+```
+
+Une perturbation de 100 ms — celle qui restait à vie il y a une heure — est
+absorbée en moins d'une demi-seconde.
+
+Portique : typecheck 0, **1361 tests verts** (6 nouveaux), 0 erreur console.

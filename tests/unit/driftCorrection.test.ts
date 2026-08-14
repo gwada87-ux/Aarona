@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { correctDrift, HARD_RESYNC_THRESHOLD_SECONDS, resyncVisualClock } from '../../src/core/time/driftCorrection';
+import { correctDrift, HARD_RESYNC_THRESHOLD_SECONDS, resyncVisualClock, visualNudge } from '../../src/core/time/driftCorrection';
 
 describe('correctDrift — lissage de la dérive (docs/03_DATA_FLOW.md §dérive)', () => {
   it('erreur nulle : aucune correction', () => {
@@ -121,5 +121,53 @@ describe('resyncVisualClock — reancrage de l\'image sur le son', () => {
   it('le seuil est CELUI de correctDrift, pas un second seuil parallele', () => {
     // Deux constantes auraient derive l'une de l'autre sans que rien ne le dise.
     expect(resyncVisualClock(10, 10 + HARD_RESYNC_THRESHOLD_SECONDS + 1e-9, D).resynced).toBe(true);
+  });
+});
+
+/**
+ * Rattrapage DOUX (14/08/2026, second defaut). Le reancrage dur ne se declenche
+ * qu'au-dela de 120 ms ; en dessous, rien ne faisait diminuer l'ecart. Mesure
+ * sur le beat d'Aaron : -114,0 ms permanents, ZERO reancrage, soit un quart de
+ * temps a 136 BPM.
+ */
+describe('visualNudge — l\'ecart sous le seuil doit se resorber', () => {
+  it('le cas mesure chez Aaron : 114 ms d\'avance sont rattrapes', () => {
+    // L'image est EN AVANCE de 114 ms : le rattrapage doit etre NEGATIF, donc
+    // ralentir l'image jusqu'a ce que le son la rejoigne.
+    const n = visualNudge(25.114, 25);
+    expect(n).toBeLessThan(0);
+    expect(Math.abs(n)).toBeCloseTo(0.002, 9);
+  });
+
+  it('rattrape aussi dans l\'autre sens', () => {
+    expect(visualNudge(25, 25.114)).toBeCloseTo(0.002, 9);
+  });
+
+  it('jamais plus de 2 ms par image : aucun saut visible', () => {
+    for (const erreur of [0.005, 0.02, 0.05, 0.1, 0.119]) {
+      expect(Math.abs(visualNudge(10, 10 + erreur))).toBeLessThanOrEqual(0.002 + 1e-12);
+      expect(Math.abs(visualNudge(10 + erreur, 10))).toBeLessThanOrEqual(0.002 + 1e-12);
+    }
+  });
+
+  it('un ecart minuscule est corrige a sa juste valeur, pas au maximum', () => {
+    expect(visualNudge(10, 10.0005)).toBeCloseTo(0.0005, 9);
+  });
+
+  it('au-dela du seuil, il se tait : c\'est le reancrage DUR qui prend le relais', () => {
+    expect(visualNudge(10, 10.5)).toBe(0);
+    expect(visualNudge(10.5, 10)).toBe(0);
+  });
+
+  it('114 ms se resorbent en environ une seconde a 60 images par seconde', () => {
+    // 2 ms par image x 60 = 120 ms par seconde.
+    let sim = 25.114;
+    const audio = 25;
+    let images = 0;
+    while (Math.abs(audio - sim) > 0.002 && images < 600) {
+      sim += visualNudge(sim, audio);
+      images++;
+    }
+    expect(images).toBeLessThanOrEqual(60);
   });
 });

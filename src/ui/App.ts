@@ -64,7 +64,7 @@ import { planText } from '../visual/text/textLayout';
 import { importCover, CoverImportError } from './coverImport';
 import { applyLayerBlends, framingFor, openFrameWithCamera, primeScene, stepSceneWithDrama, NEUTRAL_AUTOMATION, type AutomationFrame } from '../visual/scene/dramaFrame';
 import { variantFor, type StyleVariant } from '../presets/styleVariants';
-import { resyncVisualClock } from '../core/time/driftCorrection';
+import { resyncVisualClock, visualNudge } from '../core/time/driftCorrection';
 import { TRACE_FIELD_V1 } from '../visual/memory/TraceField';
 import { SECTION_STAGING_V1 } from '../behaviour/SectionScore';
 import { KICK_PUNCH_V1 } from '../visual/layers/glow/CentralGlow';
@@ -902,6 +902,9 @@ const AV_RESYNC_V1 = true;
 
 /** Nombre de reancrages depuis le chargement. Affiche au panneau debug : un compteur qui MONTE en lecture normale designe une machine qui saccade. */
 let resyncCount = 0;
+
+/** Ecart image/son du dernier pas de simulation, en ms. Voir son point de mesure dans la boucle. */
+let ecartSyncMs = 0;
 
 // ---------------------------------------------------------------------------
 // Panneaux
@@ -2869,7 +2872,23 @@ function loop(nowMs: number): void {
     }
     const audioAdvance = Math.max(0, audioEngine.t - lastAudioT);
     lastAudioT = audioEngine.t;
-    const steps = fixedStep.advance(Math.min(audioAdvance, 0.25));
+    // RATTRAPAGE DOUX (`AV_RESYNC_V1`). Le reancrage dur ci-dessus ne se
+    // declenche qu'au-dela de 120 ms ; en dessous, RIEN ne faisait diminuer
+    // l'ecart, qui s'installait pour toute la lecture. Mesure sur le beat
+    // d'Aaron : -114,0 ms permanents avec zero reancrage, soit un quart de
+    // temps a 136 BPM. Au plus 2 ms par image, comme `correctDrift` un etage
+    // plus bas : l'ecart se resorbe en une seconde, sans saut visible.
+    const rattrapage = AV_RESYNC_V1 ? visualNudge(simT, audioEngine.t) : 0;
+    // Ecart mesure ICI, AVANT que les sous-pas n'avancent `simT`. Le mesurer
+    // apres ajoutait une image entiere (16,7 ms a 60 fps) a l'ecart affiche,
+    // qui restait donc en ATTENTION en permanence alors que la synchro etait
+    // bonne. C'est le meme instant que celui ou le rattrapage est calcule :
+    // l'indicateur montre desormais ce que la correction voit.
+    ecartSyncMs = (audioEngine.t - simT) * 1000;
+    // `Math.max(0, ...)` : un rattrapage negatif ne doit jamais faire reculer
+    // l'accumulateur — l'image ralentit jusqu'a ce que le son la rattrape,
+    // elle ne revient pas en arriere.
+    const steps = fixedStep.advance(Math.max(0, Math.min(audioAdvance, 0.25) + rattrapage));
     for (let i = 0; i < steps; i++) {
       simT = Math.min(currentTimeline.duration, simT + FIXED_DT);
       const step = stepper.build(simT);
@@ -2960,7 +2979,7 @@ function loop(nowMs: number): void {
   const particleStats = findParticleStats();
   outParticles.textContent = particleStats ? `${particleStats.live} / ${particleStats.capacity}` : '—';
 
-  const syncMs = (lastAudioT - simT) * 1000;
+  const syncMs = ecartSyncMs;
   const syncOk = Math.abs(syncMs) <= SYNC_TOLERANCE_MS;
   outSync.textContent = audioEngine.playing ? `${syncMs >= 0 ? '+' : ''}${syncMs.toFixed(1)} ms ${syncOk ? '✅' : '⚠️'}` : '—';
   // Un compteur qui MONTE en lecture normale designe une machine qui saccade :

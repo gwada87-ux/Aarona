@@ -84,3 +84,47 @@ export function resyncVisualClock(simT: number, audioT: number, duration: number
   if (Math.abs(audioT - simT) <= HARD_RESYNC_THRESHOLD_SECONDS) return { t: simT, resynced: false };
   return { t: clamp(audioT, 0, duration), resynced: true };
 }
+
+/**
+ * RATTRAPAGE DOUX DE L'HORLOGE VISUELLE (14/08/2026, second defaut).
+ *
+ * CE QUE `resyncVisualClock` SEUL LAISSAIT PASSER
+ * ----------------------------------------------
+ * Le reancrage dur ne se declenche qu'au-dela de
+ * `HARD_RESYNC_THRESHOLD_SECONDS` (0,12 s). Un ecart INFERIEUR n'etait donc
+ * corrige par personne, et rien ne le faisait diminuer : il restait la pour
+ * toute la lecture.
+ *
+ * Mesure sur le beat d'Aaron, panneau debug :
+ *
+ * ```
+ * beat quelconque       sync   +1,2 ms  ok        3 reancrages
+ * beat de Beat Studio   sync -114,0 ms  ATTENTION 0 reancrage
+ * ```
+ *
+ * **114 ms a 136 BPM, c'est un QUART DE TEMPS**, et le compteur de reancrages
+ * reste a zero : l'ecart passe juste sous le seuil et s'y installe. C'est le
+ * defaut que decrit Aaron depuis le debut sur ce morceau precis.
+ *
+ * L'erreur d'origine est identifiee : j'avais reutilise pour la CORRECTION un
+ * seuil dont le role est la DETECTION D'UN SAUT. Un saut de 100 ms n'est pas un
+ * saut ; un decalage permanent de 100 ms, si.
+ *
+ * LA CORRECTION, CALQUEE SUR `correctDrift`
+ * -----------------------------------------
+ * Meme mecanique que l'etage du dessous, et meme constante : au plus 2 ms par
+ * image. A 60 images par seconde cela represente 120 ms de rattrapage par
+ * seconde — l'ecart de 114 ms d'Aaron disparait en une seconde, sans le moindre
+ * saut visible, et l'ecart residuel converge vers zero au lieu de stationner
+ * n'importe ou sous le seuil.
+ *
+ * Deux etages plutot qu'un seuil abaisse : abaisser le seuil dur ferait sauter
+ * l'image a chaque petite fluctuation, alors que le rattrapage doux la ramene
+ * sans que rien ne se voie. C'est exactement le partage que `correctDrift`
+ * pratique deja pour l'horloge audio.
+ */
+export function visualNudge(simT: number, audioT: number): number {
+  const error = audioT - simT;
+  if (Math.abs(error) > HARD_RESYNC_THRESHOLD_SECONDS) return 0; // au-dela, c'est un reancrage dur
+  return clamp(error, -MAX_CORRECTION_SECONDS, MAX_CORRECTION_SECONDS);
+}
