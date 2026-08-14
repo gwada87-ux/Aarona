@@ -9562,3 +9562,76 @@ plus haut dans la chaîne.
 
 Portique : typecheck 0, **1355 tests verts**, `test:arch` verte, accords
 TOUS JUSTES (15).
+
+## 14/08/2026 — Kick mal classé : DEUX hypothèses écrites, DEUX rejetées par la mesure
+
+Reproduction faite avec un vrai beat trap synthétisé en audio (808 avec glissando
+62→42 Hz, décroissance 0,45 s, CLIC D'ATTAQUE de 8 ms, charley aux doubles-croches,
+caisse aux temps 2 et 4, nappe mélodique continue), passé par le VRAI
+`runAnalysisPipeline`.
+
+### Le goulot est confirmé, et il est bien le centroïde
+
+Sur 583 onsets bruts, combien passent chaque test du KICK pris SEUL :
+
+```
+bass > 0,55          : 211
+centroide < 250 Hz   :  33     <- le tueur
+decroissance courte  : 583
+LES TROIS ENSEMBLE   :  33
+```
+
+**178 frappes réellement dominées par le grave sont rejetées par le seul test
+du centroïde.** La fragilité est réelle : le descripteur est mesuré sur le
+spectre de DIFFÉRENCE (piège n°7), et le clic d'attaque du 808 y remplit le
+haut du spectre à l'instant précis de la frappe.
+
+### Hypothèse 1 — lever le centroïde quand le grave domine : REJETÉE
+
+```
+dominance exigee  0,60->208  0,70->196  0,80->149  0,90->148   (attendu ~18)
+```
+
+Même en exigeant **90 %** de grave, on obtient **148 kicks pour 18 réels**.
+Le test de dominance du grave est bien trop permissif seul — le centroïde fait
+un travail essentiel. Hypothèse morte.
+
+### Hypothèse 2 — relever le plafond du centroïde : REJETÉE AUSSI
+
+```
+plafond  220Hz->29  250Hz->33  300Hz->37  400Hz->47  650Hz->61  800Hz->84   (attendu ~18)
+```
+
+Le relever ne fait qu'aggraver une SUR-détection déjà présente.
+
+### Ce que la mesure dit vraiment : mon beat de test n'a pas le défaut
+
+Sur mon beat synthétique, les seuils par défaut donnent 24 à 33 kicks pour ~18
+réels, et les seuils du preset suggéré en donnent **18 à 20** — c'est-à-dire le
+BON compte. **Je n'ai pas reproduit le défaut d'Aaron.** Les seuils ne sont pas
+en cause sur ce signal, et je ne toucherai donc à aucun d'eux.
+
+Relevé au passage, sans conclusion : les seuils de preset RESSERRENT tous la
+règle (`trap-dark` 0,58/220/0,20, `drill` 0,64/200/0,18, `techno` 0,62/180
+contre 0,55/250/0,22 par défaut) et coûtent 40 % des kicks sur mon beat
+(33 → 20). Défendable pour du techno, discutable pour du 808. À creuser un
+jour, pas ce soir, sans un cas qui le prouve.
+
+### La piste qui reste, et elle est déjà livrée
+
+Le relevé d'Aaron dit `KICK 20 (force 0,35)`. Ses kicks SONT détectés — ils sont
+FAIBLES. Or `impulseNormalisation`, livré deux heures plus tôt, vise exactement
+ça. Appliqué à son relevé :
+
+```
+KICK   force 0,35  ->  facteur x2,20 (plafond)  ->  impact 0,77
+seuil de la secousse d'ecran : 0,70  ->  FRANCHI
+PERC   force 0,87  ->  facteur x1,06 (deja fort, pas touche)
+```
+
+**Son kick passe de 0,35 à 0,77, et franchit pour la première fois le seuil de
+la secousse d'écran.** Le correctif est donc déjà en place et il n'a pas encore
+été regardé : il a été livré dans le même lot que les deux lignes de diagnostic
+qu'Aaron est allé lire.
+
+Aucun code modifié dans ce lot : deux hypothèses écrites, mesurées, rejetées.
