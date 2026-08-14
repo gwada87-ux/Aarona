@@ -9431,3 +9431,71 @@ même. Cela concorde avec la mesure (écart maximum 6,6 ms, 60 fps).
 Restent à juger, sans urgence : la lisibilité des empreintes (chantier 2) et la
 mise en scène par section (chantier 3). Le site en ligne garde pour l'instant la
 version sans ces trois chantiers.
+
+## 14/08/2026 — Normalisation des frappes par morceau, et deux instruments
+
+Trois retours d'Aaron après essai local des trois chantiers. Le troisième était
+le plus précieux parce que MESURABLE : « j'ai mis un beat que j'avais fait dans
+Beat Studio et le kick n'est pas tellement visible, comparé à un autre kick
+d'un beat qui ne venait pas de Beat Studio ».
+
+### La mesure lui donne raison
+
+Même motif à 136 BPM, seule l'intensité des KICK change :
+
+| intensité | secousse d'écran (seuil 0,7) | gonflement du halo |
+|---|---|---|
+| 0,51 (niveau Beat Studio) | **JAMAIS DÉCLENCHÉE** | +15,3 % |
+| 0,75 (démo) | 3,8 % des pas | +22,5 % |
+| 0,95 (très dynamique) | 13,2 % des pas | +28,5 % |
+
+Un export de Beat Studio est COMPRESSÉ et LIMITÉ. Or tout le moteur réagit à
+`event.intensity` sur une échelle ABSOLUE, et `ScreenShake` a un seuil fixe à
+0,7 que ces beats n'atteignent jamais. **Le visuel punissait un morceau bien
+mixé** — l'inverse exact de ce qu'on veut.
+
+### Le correctif : `behaviour/impulseNormalisation.ts`
+
+Un facteur par morceau ET par signal d'impulsion, calculé une fois depuis la
+timeline : le 90e centile des frappes est ramené à 0,92. Un kick est fort par
+rapport aux AUTRES KICKS du morceau, pas par rapport à un maximum théorique
+que personne n'atteint.
+
+**`NORMALISE_MIN = 1` : il ne peut que MONTER, jamais baisser.** Un morceau
+déjà dynamique obtient exactement 1, donc une sortie identique au bit près.
+C'est ce qui rend ce chantier sûr — il ne peut rien dégrader.
+
+Le 90e centile et non le maximum : une seule frappe aberrante ne doit pas fixer
+l'échelle du morceau entier. Plafond à 2,2 : sans lui, un morceau sans
+percussion nette verrait son bruit de fond amplifié en beat imaginaire.
+
+| morceau | facteur | secousse | halo |
+|---|---|---|---|
+| kick 0,42 (très compressé) | **×2,19** | 11,3 % | +28 % |
+| kick 0,51 (Beat Studio) | **×1,80** | **jamais → 11,3 %** | +15 % → **+28 %** |
+| kick 0,95 (dynamique) | **×1,00** | inchangé | inchangé |
+| la démo | **×1,00** | inchangé | inchangé |
+
+### LIMITE CONNUE, dite d'avance
+
+Le vrai export Beat Studio des fixtures obtient **×1,00** : ses intensités
+varient assez pour que le 90e centile atteigne déjà la cible. Rien ne garantit
+donc que le beat d'Aaron soit corrigé. Ce n'est pas un défaut du module — c'est
+qu'on ne sait pas encore ce que SON fichier produit.
+
+### D'où deux instruments, plutôt qu'une quatrième hypothèse
+
+Deux questions d'Aaron restaient sans réponse faute de pouvoir REGARDER : « les
+couplets ne sont peut-être pas vus » et « le kick n'est pas visible ». Le
+panneau debug expose désormais :
+
+- **sections détectées** : `3 (A B A)` — une partition de plans sans sections
+  ne peut RIEN faire, et ça se lit en une seconde ;
+- **frappes détectées** : `HAT 240 (force 0.30) · KICK 120 (force 0.75) · …` —
+  un kick classé autrement qu'en KICK n'allume jamais `impact`, et une force
+  moyenne basse explique un visuel timide.
+
+Trois jours de suppositions auraient été évités par ces deux lignes.
+
+Portique : typecheck 0, **1351 tests verts** (135 fichiers, 12 nouveaux),
+`test:arch` verte, accords TOUS JUSTES (15), 0 erreur console.

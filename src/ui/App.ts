@@ -1318,6 +1318,32 @@ function applyDocCore(doc: PmdiDocument, waveformPeaks: WaveformPeaks | null, ke
   });
 
   outGridConfidence.textContent = corrected.confidence.grid.toFixed(2);
+
+  // INSTRUMENT DE DIAGNOSTIC (14/08/2026). Deux questions d'Aaron restaient
+  // sans reponse faute de pouvoir regarder : « les couplets ne sont peut-etre
+  // pas vus » et « le kick n'est pas tellement visible sur un beat de Beat
+  // Studio ». Les deux se lisent ici, sans rien deviner : une partition de
+  // plans sans sections ne peut RIEN faire, et un kick classe autrement qu'en
+  // KICK n'allume jamais `impact`.
+  const sections = currentTimeline.sections();
+  outSections.textContent = sections.length === 0
+    ? '0 — aucune structure trouvée'
+    : `${sections.length} (${sections.map((s) => s.letter ?? '?').join(' ')})`;
+  const parType = new Map<string, { n: number; somme: number }>();
+  for (const e of corrected.events) {
+    if (e.dur !== undefined) continue; // DROP/BUILDUP/BREAK : pas des frappes
+    const acc = parType.get(e.type) ?? { n: 0, somme: 0 };
+    acc.n++;
+    acc.somme += e.intensity;
+    parType.set(e.type, acc);
+  }
+  outHits.textContent = parType.size === 0
+    ? '—'
+    : [...parType.entries()]
+        .sort((a, b) => b[1].n - a[1].n)
+        .map(([type, a]) => `${type} ${a.n} (force ${(a.somme / a.n).toFixed(2)})`)
+        .join(' · ');
+
   dropzone.classList.add('hidden');
 }
 
@@ -2596,6 +2622,8 @@ const outQuality = document.querySelector<HTMLElement>('#out-quality')!;
 const outParticles = document.querySelector<HTMLElement>('#out-particles')!;
 const outSync = document.querySelector<HTMLElement>('#out-sync')!;
 const outResync = document.querySelector<HTMLElement>('#out-resync')!;
+const outSections = document.querySelector<HTMLElement>('#out-sections')!;
+const outHits = document.querySelector<HTMLElement>('#out-hits')!;
 
 btnPlay.addEventListener('click', () => audioEngine.play());
 btnPause.addEventListener('click', () => audioEngine.pause());

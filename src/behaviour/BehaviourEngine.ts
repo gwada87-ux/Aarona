@@ -10,6 +10,7 @@ import type { StepContext } from '../music/StepContext';
 import { resolve, type ResolvedMapping } from './mapping/resolve';
 import type { MappingSchema } from './mapping/MappingSchema';
 import { evaluateLfo } from './signals/Lfo';
+import { normalisationFor } from './impulseNormalisation';
 
 /**
  * Sous-ensemble de docs/03 (~20 valeurs prévues, `// …`) : les 11 signaux
@@ -53,11 +54,38 @@ function pulseFromPhase(phase: number): number {
 export class BehaviourEngine {
   private resolved: ResolvedMapping;
 
+  /**
+   * Facteur de normalisation par entree d'impulsion (`impulseNormalisation.ts`).
+   * Calcule UNE FOIS par morceau : parcourir tous les evenements a chaque pas
+   * couterait le prix de l'analyse a chaque image, et une normalisation qui
+   * evoluerait en cours de lecture violerait la Loi 1.
+   *
+   * Indexee par l'ENTREE resolue et non par le nom de signal : `setMapping`
+   * reconstruit les entrees, et une table par nom survivrait a un recablage
+   * qui a change les types d'evenements sources — elle rendrait alors un
+   * facteur calcule pour d'autres frappes.
+   */
+  private normalisation = new WeakMap<object, number>();
+
   constructor(
     private readonly timeline: MusicTimeline,
     mapping: MappingSchema,
   ) {
     this.resolved = resolve(mapping);
+    this.recomputeNormalisation();
+  }
+
+  private recomputeNormalisation(): void {
+    this.normalisation = new WeakMap<object, number>();
+    for (const entry of this.resolved.impulses.values()) {
+      this.normalisation.set(entry, normalisationFor(this.timeline, entry.from));
+    }
+  }
+
+  /** Facteur applique a un signal d'impulsion. 1 = aucune correction. Pour le HUD et les tests. */
+  normalisationOf(signal: string): number {
+    const entry = this.resolved.impulses.get(signal);
+    return entry ? (this.normalisation.get(entry) ?? 1) : 1;
   }
 
   /**
@@ -83,6 +111,7 @@ export class BehaviourEngine {
   setMapping(mapping: MappingSchema): void {
     const previous = this.resolved;
     this.resolved = resolve(mapping);
+    this.recomputeNormalisation();
     for (const [signal, entry] of this.resolved.impulses) {
       const prior = previous.impulses.get(signal);
       if (prior) entry.primitive.seed(prior.primitive.value);
@@ -96,8 +125,11 @@ export class BehaviourEngine {
   update(step: StepContext): VisualSignals {
     for (const entry of this.resolved.impulses.values()) {
       entry.primitive.update(step.dt); // décroît d'abord la valeur du pas précédent...
+      const norme = this.normalisation.get(entry) ?? 1;
       for (const event of step.fired) {
-        if (entry.from.includes(event.type)) entry.primitive.fire(event.intensity * entry.gain);
+        // `normalisation` vaut 1 sur un morceau deja dynamique : la sortie est
+        // alors identique a celle d'avant ce chantier, multiplication comprise.
+        if (entry.from.includes(event.type)) entry.primitive.fire(event.intensity * entry.gain * norme);
       } // ...puis un déclenchement de ce pas l'emporte via le max() interne à Impulse.fire
     }
     for (const entry of this.resolved.continuous.values()) {
