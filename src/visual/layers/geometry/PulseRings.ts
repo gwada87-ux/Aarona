@@ -7,7 +7,44 @@ import type { Color } from '../../../render/Renderer';
 import type { Palette } from '../../palette/Palette';
 
 const BASE_RADIUS = 0.28;
-const IMPACT_RADIUS_GAIN = 0.1; // docs/07 : rayon = 0.28 + 0.10·impact
+
+/**
+ * LE KICK FAIT GROSSIR L'ANNEAU PRINCIPAL (drapeau `KICK_RING_V1`, 15/08/2026).
+ *
+ * DEMANDE D'AARON, MOT POUR MOT
+ * -----------------------------
+ * « Le kick ne fait pas autant de visuel dans mon beat Beat Studio importé, le
+ * kick devrait faire grossir le cercle principal. »
+ *
+ * CE QUE LA MESURE DONNE RAISON
+ * -----------------------------
+ * `IMPACT_RADIUS_GAIN` valait 0,10 — la valeur de docs/07 (« rayon = 0,28 +
+ * 0,10·impact »). Au maximum theorique cela fait 0,28 -> 0,38, soit +36 % de
+ * rayon. Mais son relevé donne `KICK 20 (force 0,35)`, remonte a 0,48 par la
+ * normalisation : l'anneau ne grossit en pratique que de **+17 %**, sur un
+ * trait de 6 millièmes d'epaisseur. C'est invisible, et c'est exactement ce
+ * qu'il decrit.
+ *
+ * DEUX GESTES PLUTOT QU'UN
+ * ------------------------
+ * Le rayon seul ne suffit pas : un cercle fin qui s'agrandit de 17 % se remarque
+ * mal, parce que l'oeil suit les CONTRASTES avant les positions. L'epaisseur
+ * reagit donc aussi a la frappe — elle etait jusqu'ici pilotee par le seul
+ * `weight`, un signal continu qui ne marque aucun temps.
+ *
+ * POURQUOI ON S'ECARTE DE docs/07
+ * -------------------------------
+ * Le 0,10 du document n'a jamais ete confronte a un morceau reel : il suppose
+ * un `impact` qui atteint 1, ce qu'aucun morceau maitrise ne produit. Le
+ * drapeau permet de revenir au chiffre du document en une ligne.
+ */
+export const KICK_RING_V1 = true;
+
+/** Rayon : 0,28 -> 0,48 a pleine frappe. Les anneaux secondaires vont deja jusqu'a 0,60, le cadre le supporte. */
+const IMPACT_RADIUS_GAIN = KICK_RING_V1 ? 0.2 : 0.1;
+
+/** Epaisseur ajoutee par la frappe. Comparable au gain de `weight` (0,014) : la frappe pese autant que la masse. */
+const IMPACT_LINE_WIDTH_GAIN = KICK_RING_V1 ? 0.012 : 0;
 const MIN_LINE_WIDTH = 0.006;
 const WEIGHT_LINE_WIDTH_GAIN = 0.014; // épaisseur = f(weight) — linéaire, non spécifié plus précisément
 
@@ -78,7 +115,10 @@ export class PulseRings implements Layer {
   draw(renderer: Renderer, _viewport: Viewport): void {
     const lifetime = this.param('lifetimeSec', DEFAULT_SECONDARY_RING_LIFETIME);
     const radius = BASE_RADIUS + IMPACT_RADIUS_GAIN * this.impact;
-    const lineWidth = MIN_LINE_WIDTH + WEIGHT_LINE_WIDTH_GAIN * this.weight;
+    // L'epaisseur suit la FRAPPE en plus de la masse : un cercle fin qui
+    // s'agrandit se remarque mal, l'oeil suit les contrastes avant les
+    // positions (voir `KICK_RING_V1`).
+    const lineWidth = MIN_LINE_WIDTH + WEIGHT_LINE_WIDTH_GAIN * this.weight + IMPACT_LINE_WIDTH_GAIN * this.impact;
     renderer.strokeCircle(0, 0, radius, lineWidth, this.palette.primary);
 
     for (let i = 0; i < SECONDARY_RING_POOL_SIZE; i++) {

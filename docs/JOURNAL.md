@@ -9741,3 +9741,54 @@ Une perturbation de 100 ms — celle qui restait à vie il y a une heure — est
 absorbée en moins d'une demi-seconde.
 
 Portique : typecheck 0, **1361 tests verts** (6 nouveaux), 0 erreur console.
+
+## 15/08/2026 — Le kick fait grossir le cercle principal (`KICK_RING_V1`)
+
+Aaron, mot pour mot : « le kick ne fait pas autant de visuel dans mon beat Beat
+Studio importé, le kick devrait faire grossir le cercle principal ».
+
+### Il a raison, et le calcul le montre
+
+`IMPACT_RADIUS_GAIN` valait 0,10 — la valeur de docs/07 (« rayon = 0,28 +
+0,10·impact »). Au maximum THÉORIQUE cela fait 0,28 → 0,38, soit +36 %. Mais
+son relevé donne `KICK 20 (force 0,35)`, remonté à ~0,48 par la normalisation :
+
+```
+rayon au repos          0,280
+rayon sur SA frappe     0,328     soit +17 %
+epaisseur du trait      0,006 a 0,020 selon `weight` SEUL — la frappe n'y entrait pas
+```
+
+**+17 % sur un trait de six millièmes.** C'est invisible, et c'est exactement ce
+qu'il décrit.
+
+Le 0,10 de docs/07 n'a jamais été confronté à un morceau réel : il suppose un
+`impact` qui atteint 1, ce qu'aucun morceau maîtrisé ne produit.
+
+### Deux gestes plutôt qu'un
+
+- rayon : gain 0,10 → **0,20**. Sur sa frappe réelle : 0,280 → 0,376, soit
+  **+34 %** au lieu de +17 %.
+- épaisseur : la frappe y entre pour 0,012, comparable au gain de `weight`
+  (0,014). Un cercle fin qui s'agrandit se remarque mal — l'œil suit les
+  CONTRASTES avant les positions.
+
+Trois tests verrouillent le résultat, dont un calé sur SA valeur (0,48) et non
+sur le maximum théorique, et un qui vérifie que le cercle reste dans le cadre à
+pleine frappe (0,48 ≤ 0,50).
+
+### Mesure d'écran : NON CONCLUANTE, et je le dis
+
+L'A/B en luminance globale a donné 24,6 % d'amplitude drapeau allumé contre
+34,6 % éteint — soit l'inverse de l'attendu. La métrique est inadaptée : un
+anneau est un TRAIT, sa contribution à la luminance totale est marginale devant
+le halo, et deux passes de 70 images sur ~1,2 s de musique ne couvrent pas
+exactement le même contenu. Je ne la retiens pas plutôt que de la présenter
+comme une preuve.
+
+Ce qui est mesuré exactement, en revanche, c'est la géométrie : +17 % → +34 % de
+rayon sur une frappe réelle, et une épaisseur qui passe de fixe à réactive. Le
+reste appartient à l'œil d'Aaron.
+
+Portique : typecheck 0, **1364 tests verts**, `test:arch` verte, accords
+TOUS JUSTES (15).

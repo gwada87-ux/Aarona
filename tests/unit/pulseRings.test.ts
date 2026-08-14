@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PulseRings } from '../../src/visual/layers/geometry/PulseRings';
+import { KICK_RING_V1, PulseRings } from '../../src/visual/layers/geometry/PulseRings';
 import { defaultPalette } from '../../src/visual/palette/Palette';
 import { FakeRenderer, testViewport } from './testSupport/FakeRenderer';
 import { makeSignals, makeStepBuilder } from './testSupport/stepContextFixture';
@@ -9,25 +9,50 @@ function strokeCircleCalls(renderer: FakeRenderer) {
 }
 
 describe('PulseRings — anneau central', () => {
-  it('rayon = 0.28 + 0.10·impact, épaisseur croît avec weight', () => {
+  /** Dessine l'anneau principal pour un jeu de signaux donne. */
+  function anneau(signaux: Parameters<typeof makeSignals>[0]) {
     const rings = new PulseRings();
     rings.init({ renderer: new FakeRenderer(), palette: defaultPalette });
-    const stepper = makeStepBuilder();
-
-    rings.update(stepper.build(0), makeSignals({ impact: 0.5, weight: 1 }));
+    rings.update(makeStepBuilder().build(0), makeSignals(signaux));
     const renderer = new FakeRenderer();
     rings.draw(renderer, testViewport);
+    return strokeCircleCalls(renderer)[0]!;
+  }
 
-    const [mainRing] = strokeCircleCalls(renderer);
-    expect(mainRing?.radius).toBeCloseTo(0.28 + 0.1 * 0.5, 10);
+  it('le rayon croît avec l\'impact, l\'épaisseur avec weight', () => {
+    // Gain CALCULE depuis le drapeau : a `false` ce test exige la formule de
+    // docs/07 (0,28 + 0,10 impact), a `true` celle du chantier du 15/08. Il
+    // verrouille donc les DEUX positions au lieu de figer un chiffre.
+    const gain = KICK_RING_V1 ? 0.2 : 0.1;
+    expect(anneau({ impact: 0.5, weight: 1 }).radius).toBeCloseTo(0.28 + gain * 0.5, 10);
+    expect(anneau({ impact: 0.5, weight: 1 }).lineWidth).toBeGreaterThan(anneau({ impact: 0.5, weight: 0 }).lineWidth);
+  });
 
-    const rings0 = new PulseRings();
-    rings0.init({ renderer: new FakeRenderer(), palette: defaultPalette });
-    rings0.update(stepper.build(0), makeSignals({ impact: 0.5, weight: 0 }));
-    const renderer0 = new FakeRenderer();
-    rings0.draw(renderer0, testViewport);
-    const [mainRing0] = strokeCircleCalls(renderer0);
-    expect(mainRing?.lineWidth).toBeGreaterThan(mainRing0!.lineWidth);
+  /**
+   * Demande d'Aaron le 15/08 : « le kick devrait faire grossir le cercle
+   * principal ». Ses kicks culminent vers 0,48 apres normalisation, pas 1 :
+   * c'est A CE NIVEAU-LA que le geste doit se voir, pas au maximum theorique.
+   */
+  it('une frappe REELLE (0,48) fait nettement grossir le cercle', () => {
+    if (!KICK_RING_V1) return;
+    const repos = anneau({ impact: 0, weight: 0.5 });
+    const frappe = anneau({ impact: 0.48, weight: 0.5 });
+    expect(frappe.radius / repos.radius, 'moins de 30 % ne se voit pas').toBeGreaterThan(1.3);
+  });
+
+  it('la frappe épaissit le trait, pas seulement le rayon', () => {
+    // L'oeil suit les contrastes avant les positions : un cercle fin qui
+    // s'agrandit se remarque mal.
+    if (!KICK_RING_V1) return;
+    const repos = anneau({ impact: 0, weight: 0.5 });
+    const frappe = anneau({ impact: 0.48, weight: 0.5 });
+    expect(frappe.lineWidth).toBeGreaterThan(repos.lineWidth);
+  });
+
+  it('le cercle reste dans le cadre même à pleine frappe', () => {
+    // Loi 4 : 1,0 = petit cote. Les anneaux secondaires vont deja jusqu'a 0,60,
+    // mais l'anneau PRINCIPAL ne doit pas les rejoindre.
+    expect(anneau({ impact: 1, weight: 1 }).radius).toBeLessThanOrEqual(0.5);
   });
 });
 
